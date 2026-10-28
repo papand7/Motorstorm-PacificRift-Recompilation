@@ -1,5 +1,19 @@
 # Status — 2026-10-21
 
+## T139: private GitHub deployment preparation (2026-10-28, offline, no push)
+
+- BLOCKED at approval: no GitHub owner chosen and the `gh` token is invalid. No repository was created and nothing was pushed.
+- New docs and templates: `docs/GITHUB_WORKFLOW.md` (agent sync, publishing, PRs, conflicts) and `docs/REPOSITORY_STRUCTURE.md`; PR/issue templates and `dependabot.yml`.
+- New tools: `tools/github_preflight.py` (read-only pre-push gate, with tests) and `tools/github_setup.sh` (creates private repos and applies settings; dry run by default).
+- VERIFIED:
+  - ps3recomp `origin` push is `DISABLED`.
+  - 104 branches, 105 worktrees, 340 local-only commits (28 only on detached worktree HEADs).
+  - 1 flagged blob: a local user path in `65ea4b0`, which blocks 5 branches.
+  - 6 commits carry a personal e-mail, including base `f373398`, so every upload contains it.
+  - Proposed ps3recomp `main` = `2562ba8` (same 25 inherited audit items).
+- Keep Actions disabled in the private ps3recomp repo: upstream `release.yml` reacts to `v*` tags.
+- Report: `generated/analysis/t139/PRIVATE_GITHUB_DEPLOYMENT.md`.
+
 ## T138: private GitHub repository preparation (2026-10-28, offline, no push)
 
 - The workspace root is now a local Git repository (branch `agent/t138-private-github-setup`, commits `835ad5a`..`558d07a`): allowlist `.gitignore`, README, CONTRIBUTING, SECURITY, docs/ARCHITECTURE, BUILDING, DEVELOPMENT, AGENT_WORKFLOW, ROADMAP, CI (`.github/workflows/ci.yml`, `tools/check_docs.py`), `audit_public.py --private-reports`. Not pushed; no GitHub repository created (`gh` token invalid, destination not chosen).
