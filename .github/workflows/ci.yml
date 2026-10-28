@@ -1,0 +1,52 @@
+# Lightweight checks that need no game data, no GPU and no build of the game.
+# Nothing is uploaded: no artifacts, no caches, no secrets.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    # Windows: the tools and their tests are developed and verified on Windows only.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Source audit (every tracked file)
+        run: python tools/audit_public.py --staged --private-reports
+
+      - name: Documentation links and Mermaid blocks
+        run: python tools/check_docs.py
+
+      - name: Python syntax
+        run: python -m compileall -q tools
+
+      - name: Synthetic tool tests
+        run: |
+          set -e
+          for t in test_audit_public test_analyze_bink_pacing test_discover_spu_overlays \
+                   test_psarc_read_map test_frontend_tools test_thermal_supervisor \
+                   test_fast_startup_safety; do
+            echo "::group::$t"
+            python "tools/$t.py"
+            echo "::endgroup::"
+          done
