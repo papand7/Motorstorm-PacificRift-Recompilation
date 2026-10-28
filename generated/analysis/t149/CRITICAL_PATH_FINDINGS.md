@@ -3,6 +3,22 @@
 Labels: VERIFIED (measured), PARTIAL (measured in part, or on a sibling build), HYPOTHESIS (inferred), BLOCKED (needs a game run).
 Full report: `PPU_SPU_CRITICAL_PATH_OPTIMIZATION.md`.
 
+## Game A/B result (2026-10-28, 4 authorised race runs, one per arm; full table in report §15)
+
+| Arm | FPS | Frame (PT) | Gate (trace) | Scheduler-attributable lane idle |
+|---|---:|---:|---|---|
+| P0 T146 defaults | 6.57 | 136.9 ms | **RSX** (drain 157 ms per frame, 79 ms of it the tex-snapshot hash) | 2.7 of about 115 ms |
+| P1 performance preset | 7.29 | 121.3 ms | **PPU frame-thread compute (56 ms) + RSX** | 0.9 of about 91 ms |
+| P2 P1 + `PS3_USLEEP_SPIN=2` | 7.21 | 121.4 ms | (trace window mostly pre-race: loading took about 76 s longer) | n/a |
+| P3 P1, no trace | 7.07 | 123.8 ms | n/a | n/a |
+
+- **SPURS dispatch:** off the critical path (VERIFIED). Lane idle is `no_work`: the guest has nothing ready.
+- **No SPURS/PPU optimization:** none is justified, and none was implemented. No default was changed.
+- **Next work:** renderer drain/record, then PPU frame-thread compute.
+- **Sample size:** single runs (PARTIAL for the FPS deltas).
+
+The sections below were written before the runs; their BLOCKED items are answered by this table.
+
 ## What the evidence covers
 
 - **No race run of the unified runtime exists.** That is T146 (`integration/t146-unified-runtime`, `80fe5de`).
