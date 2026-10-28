@@ -1,0 +1,39 @@
+{
+  "title": "MotorStorm: Pacific Rift (BCES00129 native port)",
+  "env": {"FIRST_FRAME": "1", "FIRST_FRAME_AUDIO": "native"},
+  "milestones": [
+    {"name": "process_initialized", "pattern": "\\[rsx\\] D3D12 backend init OK",
+     "evidence": "D3D12 backend initialised (window open)"},
+    {"name": "first_original_draw", "type": "heartbeat", "min_draw_frames": 1,
+     "evidence": "a presented frame carried guest draw records", "reliability": "heartbeat interval"},
+    {"name": "loading_emblem", "supported": false,
+     "reason": "no runtime event distinguishes the emblem's draws from other UI draws; use an RSX capture and look"},
+    {"name": "intro_video_opened", "pattern": "\\[fs\\] open '([^']*gui_intro[^']*\\.bik)' -> fd",
+     "resource_group": 1, "after": "process_initialized", "evidence": "the intro Bink file was opened by the game"},
+    {"name": "intro_video_decoding", "pattern": "EventFlagSet 0x[0-9A-F]+ satisfies SPU task slot 0 \\(taskset=0x0135D080 ",
+     "after": "intro_video_opened", "requires_env": {"PS3_VERBOSE": "1"},
+     "evidence": "first Bink decode round completed (SPU task in taskset 0x0135D080 signalled its event flag)"},
+    {"name": "intro_video_completed", "type": "quiet", "pattern": "EventFlagSet 0x[0-9A-F]+ satisfies SPU task slot 0 \\(taskset=0x0135D080 ",
+     "quiet_s": 15, "after": "intro_video_decoding", "reliability": "derived", "requires_env": {"PS3_VERBOSE": "1"},
+     "evidence": "Bink decode rounds stopped (time of the last round)"},
+    {"name": "garage_resources_requested", "pattern": "\\[fs\\] open[^']*'([^']*track_garage[^']*)'",
+     "resource_group": 1, "after": "intro_video_opened",
+     "evidence": "the game asked for a track_garage file (loose-file probe before the PSARC lookup)"},
+    {"name": "garage_rendering_started", "pattern": "\\[CUBE\\] fp=0x[0-9A-Fa-f]+ compiled with cube units",
+     "after": "garage_resources_requested", "reliability": "indirect",
+     "evidence": "first cube-mapped fragment program compiled after the garage load (3D scene pipeline)"},
+    {"name": "main_menu_resources_requested", "supported": false,
+     "reason": "mainmenu.gui is read from inside the PSARC archive, whose member opens are not logged"},
+    {"name": "main_menu_reached", "supported": false,
+     "reason": "not yet observed; no runtime event identifies the menu state"}
+  ],
+  "counters": [
+    {"name": "bink_decode_rounds", "pattern": "satisfies SPU task slot 0 \\(taskset=0x0135D080 "},
+    {"name": "bink_task_wakes_x256", "pattern": "SPU task wakes: taskset=0x0135D080 "},
+    {"name": "spu_task_dispatches", "pattern": "\\[spu_workload\\] dispatch HIT"},
+    {"name": "fs_opens", "pattern": "\\[fs\\] open"},
+    {"name": "rsxi_events", "pattern": "\\[RSXI\\]", "progress": false}
+  ],
+  "fatal": ["Unhandled exception", "EXCEPTION_ACCESS_VIOLATION", "\\[FATAL\\]", "wait_for_gpu STUCK",
+            "abort\\(\\)", "Assertion failed"]
+}
