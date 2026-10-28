@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="MotorStorm: Pacific Rift native PC recompilation">
+  <!-- Original project artwork (T138). Not derived from any official MotorStorm logo or game asset. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1b2a"/>
+      <stop offset="0.62" stop-color="#1b3a4b"/>
+      <stop offset="1" stop-color="#c8553d"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a2618"/>
+      <stop offset="1" stop-color="#140c07"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="300" fill="url(#sky)"/>
+  <!-- volcano silhouette -->
+  <path d="M620 210 L760 92 L792 92 L930 210 Z" fill="#241710" opacity="0.9"/>
+  <path d="M760 92 Q776 60 792 92 Z" fill="#f28f3b" opacity="0.85"/>
+  <path d="M0 220 Q200 180 420 205 T860 200 T1200 190 L1200 300 L0 300 Z" fill="url(#ground)"/>
+  <!-- track lines converging to the horizon -->
+  <g stroke="#f4a259" stroke-width="3" fill="none" opacity="0.55">
+    <path d="M140 300 C 380 250, 560 226, 700 214"/>
+    <path d="M420 300 C 560 256, 650 232, 720 214"/>
+  </g>
+  <!-- circuit traces: the recompilation -->
+  <g stroke="#7fd1b9" stroke-width="2" fill="none" opacity="0.7">
+    <path d="M60 64 H180 V100 H300"/>
+    <path d="M60 132 H140 V116 H250"/>
+    <circle cx="300" cy="100" r="4" fill="#7fd1b9"/>
+    <circle cx="250" cy="116" r="4" fill="#7fd1b9"/>
+  </g>
+  <text x="340" y="112" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="44" font-weight="700" fill="#f7f7f2">MotorStorm: Pacific Rift</text>
+  <text x="342" y="152" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="24" fill="#cfe8df" letter-spacing="2">NATIVE PC RECOMPILATION · EXPERIMENTAL</text>
+</svg>
