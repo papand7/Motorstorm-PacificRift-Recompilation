@@ -1,5 +1,11 @@
 # Status — 2026-10-21
 
+## T138: private GitHub repository preparation (2026-10-28, offline, no push)
+
+- The workspace root is now a local Git repository (branch `agent/t138-private-github-setup`, commits `835ad5a`..`558d07a`): allowlist `.gitignore`, README, CONTRIBUTING, SECURITY, docs/ARCHITECTURE, BUILDING, DEVELOPMENT, AGENT_WORKFLOW, ROADMAP, CI (`.github/workflows/ci.yml`, `tools/check_docs.py`), `audit_public.py --private-reports`. Not pushed; no GitHub repository created (`gh` token invalid, destination not chosen).
+- VERIFIED: the 25 inherited audit BLOCKs are all upstream ps3recomp files at `0fe7dbf` (synthetic SPU test lifts, icons, a wiki PDF needing review); 312 local-only ps3recomp commits contain no game/firmware/binary paths or secrets. ps3recomp `origin` is the public upstream: never push agent branches there.
+- Report and the approvals needed before the first push: `generated/analysis/t138/PRIVATE_GITHUB_SETUP.md`.
+
 ## T137: RSX 2x MSAA (2026-10-28, offline, no build/launch)
 
 - Worktree `ps3recomp-t137`, branch `agent/t137-rsx-msaa-fidelity`, base `816a4af` (T133 = T120 + T115 cherry-pick + T113). Commits `5d65601`, `f6f9a48`, `876a403`. Not merged or pushed.
