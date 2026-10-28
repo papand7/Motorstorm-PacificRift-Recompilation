@@ -22,7 +22,8 @@ page has the procedure.
    labelled VERIFIED / PARTIAL / HYPOTHESIS / BLOCKED, and the exact next step. Add a short entry to
    `docs/STATUS.md`.
 7. **Never merge, rebase, push or rewrite history** without explicit authorisation. In ps3recomp, `origin` is the
-   public upstream: a push there would publish MotorStorm work.
+   public upstream: a push there would publish MotorStorm work. Its push URL is `DISABLED`; publishing goes to the `private`
+   remote, only as described in [GITHUB_WORKFLOW.md](GITHUB_WORKFLOW.md).
 8. **Do not modify another agent's files, branch or worktree.** Use `git merge-tree` to check integration
    conflicts instead of merging; cherry-pick with `-x` onto your own branch if the brief allows it.
 9. **Keep proprietary material outside Git**: game inputs in `original/`, lifted code and captures in

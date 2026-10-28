@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="MotorStorm: Pacific Rift native PC recompilation">
+  <!-- Original project artwork (T139), same motifs as banner.svg. Not derived from any official MotorStorm logo or
+       game asset. GitHub's social preview needs a PNG/JPG upload: rasterise at 1280x640 before uploading. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1b2a"/>
+      <stop offset="0.6" stop-color="#1b3a4b"/>
+      <stop offset="1" stop-color="#c8553d"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a2618"/>
+      <stop offset="1" stop-color="#140c07"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#sky)"/>
+  <path d="M700 452 L880 230 L920 230 L1100 452 Z" fill="#241710" opacity="0.9"/>
+  <path d="M880 230 Q900 180 920 230 Z" fill="#f28f3b" opacity="0.85"/>
+  <path d="M0 470 Q220 420 460 450 T920 440 T1280 425 L1280 640 L0 640 Z" fill="url(#ground)"/>
+  <g stroke="#f4a259" stroke-width="4" fill="none" opacity="0.55">
+    <path d="M150 640 C 420 560, 640 500, 800 460"/>
+    <path d="M470 640 C 630 570, 730 510, 820 460"/>
+  </g>
+  <g stroke="#7fd1b9" stroke-width="3" fill="none" opacity="0.7">
+    <path d="M80 120 H220 V170 H360"/>
+    <path d="M80 210 H170 V190 H300"/>
+    <circle cx="360" cy="170" r="6" fill="#7fd1b9"/>
+    <circle cx="300" cy="190" r="6" fill="#7fd1b9"/>
+  </g>
+  <text x="80" y="300" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="68" font-weight="700" fill="#f7f7f2">MotorStorm: Pacific Rift</text>
+  <text x="84" y="356" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="30" fill="#cfe8df" letter-spacing="3">NATIVE PC RECOMPILATION · EXPERIMENTAL</text>
+  <text x="84" y="404" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#cfe8df" opacity="0.85">Static PPU/SPU recompilation · Direct3D 12 · user-supplied game data only</text>
+</svg>

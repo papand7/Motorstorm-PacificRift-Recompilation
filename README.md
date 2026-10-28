@@ -192,7 +192,8 @@ on one.
 | `RSX_MSAA` | Renders the game's 2x MSAA targets multisampled | `agent/t137-rsx-msaa-fidelity` |
 
 More switches, test suites and the trace tools: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Working rules for the
-AI coding agents that develop the project: [AGENTS.md](AGENTS.md) and [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
+AI coding agents that develop the project: [AGENTS.md](AGENTS.md), [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) and
+[docs/GITHUB_WORKFLOW.md](docs/GITHUB_WORKFLOW.md) (fetching, publishing and pull requests).
 
 ## Roadmap
 
@@ -216,7 +217,7 @@ No dates are promised. Detail and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.
 | `tools/` | Build, probe, analysis and audit scripts | yes |
 | `port/` | The MotorStorm port project (CMake, entry point, port-specific runtime glue) | yes, without lifted code |
 | `generated/analysis/<task>/` | Per-task reports and analysis scripts | reviewed `*.md` / `tools/*.py` only |
-| `ps3recomp/` | Recompiler and runtime (separate repository, MotorStorm branches) | separate repository |
+| `ps3recomp/` | Recompiler and runtime (MotorStorm branches; public upstream is fetch-only) | separate private repository, see [REPOSITORY_STRUCTURE.md](docs/REPOSITORY_STRUCTURE.md) |
 | `original/`, `generated/`, `build/` | Game inputs, lifted code, captures, builds | **never** |
 
 ## Legal and attribution

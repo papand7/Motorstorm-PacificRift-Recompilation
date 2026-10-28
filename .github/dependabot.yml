@@ -1,0 +1,8 @@
+# Keeps the SHA-pinned GitHub Actions current (opens PRs; nothing merges automatically).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

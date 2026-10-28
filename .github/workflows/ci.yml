@@ -45,7 +45,7 @@ jobs:
           set -e
           for t in test_audit_public test_analyze_bink_pacing test_discover_spu_overlays \
                    test_psarc_read_map test_frontend_tools test_thermal_supervisor \
-                   test_fast_startup_safety; do
+                   test_fast_startup_safety test_github_preflight; do
             echo "::group::$t"
             python "tools/$t.py"
             echo "::endgroup::"
