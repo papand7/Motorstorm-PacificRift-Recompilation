@@ -3,9 +3,9 @@
 set -eu
 repo=$(git rev-parse --show-toplevel)
 if command -v python >/dev/null 2>&1; then
-    exec python "$repo/tools/audit_public.py" --staged
+    exec python "$repo/tools/audit_public.py" --staged --private-reports
 elif command -v py >/dev/null 2>&1; then
-    exec py -3 "$repo/tools/audit_public.py" --staged
+    exec py -3 "$repo/tools/audit_public.py" --staged --private-reports
 fi
 echo 'Python 3 is required for the public-source pre-commit audit.' >&2
 exit 2
