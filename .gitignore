@@ -1,12 +1,47 @@
-/original/
-/generated/
-/build/
+# MotorStorm: Pacific Rift native recompilation -- project repository ignore rules.
+#
+# The workspace root also holds user-supplied game data, 50+ GB of generated
+# output, the ps3recomp checkout (its own repository) and 100+ agent worktrees.
+# Everything at the top level is therefore ignored by default and only the
+# reviewed project paths below are re-included. Add a new top-level path here
+# deliberately, never with `git add -f`.
+/*
+!/.gitignore
+!/.gitattributes
+!/.github/
+!/AGENTS.md
+!/README.md
+!/CONTRIBUTING.md
+!/SECURITY.md
+!/THIRD_PARTY_LICENSES.md
+!/docs/
+!/tools/
+!/port/
 
-# User-supplied game and firmware material; local only.
-/private/
-/firmware/
-/game/
-/mods/
+# generated/ is private by default (decrypted ELF, lifted PPU/SPU source,
+# overlays, frames, HDD images, logs, runs). Only per-task Markdown reports and
+# small analysis scripts are visible, and `tools/audit_public.py --staged
+# --private-reports` still has to pass them (no disassembly, hex dumps, binary
+# content or local user paths). See docs/AGENT_WORKFLOW.md.
+!/generated/
+/generated/*
+!/generated/analysis/
+/generated/analysis/*
+!/generated/analysis/*/
+/generated/analysis/*/*
+!/generated/analysis/*/*.md
+!/generated/analysis/*/tools/
+/generated/analysis/*/tools/*
+!/generated/analysis/*/tools/*.py
+# Snapshots of docs/STATUS.md taken before a task; the live file is tracked.
+/generated/analysis/*/*.before_*.md
+
+# Per-title port: lifted output and SPU lifts stay local.
+/port/recompiled/
+/port/spu/
+/port/src/recomp/
+
+# User-supplied game, firmware and decryption material (anywhere).
 *.iso
 *.ISO
 *.sfo
@@ -27,19 +62,28 @@
 *.RAP
 *.rif
 *.RIF
+*.edat
+*.EDAT
 *.keys
 *.klic
+*.pup
+*.PUP
+EBOOT.BIN
+**/dev_flash/
+**/dev_hdd0/
 
-# All lifted code, analysis, local binaries, logs, and release staging.
-/release/
-/dist/
-/out/
-/port/recompiled/
-/port/spu/
+# Lifted or recompiled game/firmware code.
 **/generated_spu/
 **/recompiled/
 **/spu_lifted/
 **/fw_spu/
+
+# Build output and binaries.
+/build/
+build-*/
+out/
+dist/
+release/
 *.bin
 *.BIN
 *.o
@@ -57,15 +101,67 @@
 *.zip
 *.7z
 *.rar
-*.log
 
-# Local tooling state.
+# Captures, dumps, traces and performance data.
+*.log
+*.etl
+*.dmp
+*.mdmp
+*.rsxi
+*.bmp
+*.png
+*.jpg
+*.jpeg
+*.dds
+*.tga
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.at3
+*.bik
+*.pcap
+ps3_critical_path*.txt
+performance.json
+
+# Shader caches and compiled shaders.
+*.cso
+*.dxil
+*.dxbc
+*.pso
+shadercache/
+shader_cache/
+
+# Secrets and local configuration (never commit; see SECURITY.md).
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+*.cookie
+cookies.txt
+*credentials*
+*secret*
+!SECURITY.md
+local.toml
+*.local.toml
+rpcn*.cfg
+
+# Tooling and IDE state.
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
 .vs/
 .vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
 CMakeFiles/
 CMakeCache.txt
 .cache/
+.claude/
+.codecodedrift/
