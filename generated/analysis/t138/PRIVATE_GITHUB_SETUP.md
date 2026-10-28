@@ -104,7 +104,7 @@ GitHub yet). YAML was hand-checked, not parsed by a YAML library (no PyYAML here
 6. ps3recomp: host the MotorStorm branches in a **second private repository** (e.g. `motorstorm-ps3recomp`) and
    link it as a submodule later, or keep it local; it is not part of this repository's history.
 7. In `ps3recomp`, protect against an accidental public push:
-   `git -C ps3recomp remote set-url --push origin DISABLED` (fetch keeps working for all worktrees). Not applied:
+   `git -C ps3recomp remote set-url --push origin DISABLED` (fetch keeps working for all worktrees). **Applied 2026-10-28 at the owner's request**; previously withheld because
    it changes configuration shared by other agents' worktrees.
 
 ## 8. Approvals needed before the first push
@@ -116,7 +116,7 @@ GitHub yet). YAML was hand-checked, not parsed by a YAML library (no PyYAML here
 4. **Reports**: whether any `generated/analysis/<task>/` reports are committed (293 pass the audit; 32 need user
    paths replaced).
 5. **Author e-mail**: accept the personal e-mail on 6 ps3recomp commits (private repo), or `mailmap` it.
-6. **ps3recomp push guard** (§7.7).
+6. ~~ps3recomp push guard (§7.7)~~ — done.
 
 Then, after approval: `gh repo create <owner>/<name> --private --source . --remote origin` (no `--push`),
 `gh repo view <owner>/<name> --json visibility` → `PRIVATE`, `git push -u origin main`, re-check visibility and
