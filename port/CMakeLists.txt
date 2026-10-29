@@ -200,6 +200,26 @@ foreach(MSPR_LOCAL_OVL_DIR IN ITEMS
     endif()
 endforeach()
 
+# Optional relocatable AOT of the Wws job modules (tools/lift_wws_reloc.py
+# --ctor). OFF by default. Even when built in, nothing is registered unless
+# PS3_SPU_WWS_AOT=1 at run time; every refused job stays in the interpreter.
+# The lifted sources derive from the user's game files: generated/ only.
+option(MSPR_WWS_AOT "Compile the relocatable Wws job-module AOT (opt-in at run time)" OFF)
+set(MSPR_WWS_AOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../generated/spu_raw/wws_reloc" CACHE PATH
+    "lift_wws_reloc.py --ctor output: <module>/spu_recomp.c and wws_reloc_register.c")
+if(MSPR_WWS_AOT)
+    if(NOT EXISTS "${PS3RECOMP_DIR}/runtime/spu/spu_reloc.h")
+        message(FATAL_ERROR "MSPR_WWS_AOT needs a runtime with spu_reloc.h (T37/T54)")
+    endif()
+    if(NOT EXISTS "${MSPR_WWS_AOT_DIR}/wws_reloc_register.c")
+        message(FATAL_ERROR "Missing ${MSPR_WWS_AOT_DIR}; run tools/lift_wws_reloc.py --ctor")
+    endif()
+    file(GLOB MSPR_WWS_AOT_SOURCES CONFIGURE_DEPENDS "${MSPR_WWS_AOT_DIR}/*/spu_recomp.c")
+    list(APPEND SPU_SOURCES ${MSPR_WWS_AOT_SOURCES} "${MSPR_WWS_AOT_DIR}/wws_reloc_register.c")
+    list(LENGTH MSPR_WWS_AOT_SOURCES MSPR_WWS_AOT_COUNT)
+    message(STATUS "Wws job AOT:     ${MSPR_WWS_AOT_COUNT} module(s), PS3_SPU_WWS_AOT=1 to enable")
+endif()
+
 # Additional locally discovered overlays live only in ignored generated/.
 file(GLOB MSPR_DISCOVERED_OVL_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/../generated/overlays/discovered/*/spu_recomp.c")
