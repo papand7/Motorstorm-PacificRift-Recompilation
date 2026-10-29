@@ -4,6 +4,8 @@
 
 ## 1. Result
 
+**Game A/B done (`GAME_FPS_AB_COMPARISON.md`):** light-scene race FPS 21.39 → 22.70 (+6.1 %, one launch per arm, PARTIAL). PPU Havok wait −5 %. In game the solver task is unchanged (+0.9 %) and collide is −11 %, so the offline −33 % does not carry over. T159 target: the in-game solver wave.
+
 1. **`--chain-chunks` is the optimisation, and it is ready for a controlled game A/B.**
    - Enabled for the four Havok images only (C1), it keeps every guest-visible register, LS byte and step count identical to the interpreter on 25,553 random cases.
    - It removes 84–99 % of drain hops and cuts the translated functions' execution time by about a third: C1 / C0 = 0.670 solver, 0.660 collide, 0.647 animation, 0.888 raycast (`SPU_CHAIN_CHUNKS_VALIDATION.md` §4–5).

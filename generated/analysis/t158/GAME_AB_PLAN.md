@@ -1,6 +1,6 @@
-# T158: proposed bounded game A/B (NOT run; needs authorisation)
+# T158: game A/B plan (superseded: run as one C0 and one C1 launch under a 205 s cap; results in `GAME_FPS_AB_COMPARISON.md`)
 
-2026-10-29. No launch has been made. The plan uses the T154/T156 route, controller and stop rule unchanged.
+2026-10-29. Written before the authorisation; kept as the original plan. The plan uses the T154/T156 route, controller and stop rule unchanged.
 
 ## 1. Exes and runner
 
