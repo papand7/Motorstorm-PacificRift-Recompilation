@@ -99,6 +99,7 @@ void     cellGcmTickVBlank(void);
 void     cellGcmTickFlip(void);
 int      cellGcm_take_flip_pending(void);
 void     cellGcm_rsx_process_fifo(void);      /* drain get -> put */
+void     cellGcm_fifo_kick_wait(unsigned ms); /* idle wait, woken by a kick */
 unsigned cellGcm_flip_request_count(void);
 }
 
@@ -222,9 +223,21 @@ static DWORD WINAPI frame_clock(LPVOID)
     const ps3_frame_beat_ops beat = { beat_take_flip, beat_present, beat_vblank,
                                       beat_flip_done, beat_drain, &beat_state };
 
+    /* PS3_FRAME_CLOCK_KICK=1 (T151, off by default, read once): wait on the
+     * FIFO kick event instead of a flat Sleep(4). A guest spinning on the RSX
+     * reference register signals it when the drain has not yet published the
+     * fence (cellGcm_ref_on_poll, "dry"), so the drain runs then rather than
+     * up to one 4 ms tick later. No kick: the same 4 ms. The drain, the beat
+     * and the presents run on this thread and in this order either way. */
+    const char* kick_env = getenv("PS3_FRAME_CLOCK_KICK");
+    const int kick = kick_env && kick_env[0] == '1' && !kick_env[1];
+    if (kick) fprintf(stderr, "[frame-clock] PS3_FRAME_CLOCK_KICK=1: idle wait woken by FIFO kicks
+");
+
     for (;;) {
         fcw_mark(FCW_SLEEP);
-        Sleep(4);
+        if (kick) cellGcm_fifo_kick_wait(4);
+        else      Sleep(4);
 
         const unsigned due = ps3_vblank_clock_poll(&vbc, ps3_vblank_now_us(), 240);
         for (unsigned fired = 0; fired < due; fired++) {
