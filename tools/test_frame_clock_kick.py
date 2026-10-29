@@ -33,6 +33,8 @@ check('const char* kick_env = getenv("PS3_FRAME_CLOCK_KICK");' in fc
       and "const int kick = kick_env && kick_env[0] == '1' && !kick_env[1];" in fc
       and fc.index('getenv("PS3_FRAME_CLOCK_KICK")') < fc.index('for (;;) {'),
       'on only for exactly "1", read once before the loop')
+check('if (kick) fprintf(stderr, "[frame-clock] PS3_FRAME_CLOCK_KICK=1: idle wait woken by FIFO kicks\\n");' in fc,
+      'one log line when on (a single-line string literal)')
 loop = fc[fc.index('for (;;) {'):] if 'for (;;) {' in fc else ''
 check('fcw_mark(FCW_SLEEP);\n        if (kick) cellGcm_fifo_kick_wait(4);\n        else      Sleep(4);\n' in loop
       and loop.count('Sleep(') == 1 and loop.count('cellGcm_fifo_kick_wait(') == 1,
