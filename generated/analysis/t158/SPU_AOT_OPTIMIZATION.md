@@ -87,7 +87,7 @@
 | Repository / branch | Commit | Content |
 |---|---|---|
 | ps3recomp `agent/t158-spu-aot-codegen` | `7a88b53` | `tools/test_spu_chain_runtime.py`: driver for the existing `test_spu_chain.c` (no suite ran it); plain 353 / 0, diag 348 / 0 |
-| root `agent/t158-spu-aot-report` | (report commit) | the four T158 reports and `tools/*.py` (harness drivers, runner generator) |
+| root `agent/t158-spu-aot-report` | `3ea876b` (this hash note: follow-up commit) | the four T158 reports and `tools/*.py` (harness drivers, runner generator) |
 
 - The C1 configuration needs no code commit (§2).
 - The harness C sources (`tools/hvkdiff/*.c`), the lifted copies, the PDB/exe builds and the profiles stay private and untracked: they contain or derive from lifted game code.
