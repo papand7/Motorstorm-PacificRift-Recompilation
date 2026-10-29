@@ -108,7 +108,7 @@ These are **BLOCKED** until a capture contains vehicles.
 | item | result |
 |---|---|
 | ps3recomp | `684d8bd` on `agent/t162-vehicle-rendering` (worktree `ps3recomp-t162`, base T146 tree). Not merged, not pushed |
-| root report | branch `agent/t162-vehicle-rendering-report` (worktree `root-t162`, from `main` `4bdeed3`); hash in the follow-up commit |
+| root report | branch `agent/t162-vehicle-rendering-report` (worktree `root-t162`, from `main` `4bdeed3`); `64555f6` |
 | new tests | `test_t162_fp_src2_abs` 9/9 PASS (3/9 FAIL on the base decoder). `test_t162_vehicle_reflection` 13/13 PASS on WARP, 0 debug-layer errors |
 | corpus | 151/151 race FP programs byte-identical HLSL, base vs. fix, for both the legacy and cube-mask calls (the race corpus has no `abs` source) |
 | full suite (`run_all_t162`, `--jobs 6`) | 137 PASS / 43 SKIP / 3 FAIL. `test_rt_pool_srv_layout` and `test_vpc_watch` are the known T157 failures. `test_spurs_wws_concurrency` is intermittent: 2 of 3 serial reruns PASS. It is a SPURS test and doesn't involve the decompiler. T157 baseline was 138/43/2 |
