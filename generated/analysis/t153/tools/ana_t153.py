@@ -7,6 +7,7 @@
 - [tex-snapshot-stats] (PS3_TEX_SNAPSHOT_STATS=1000): per-frame captures by answer, MB hashed/copied, ms in
   capture/write-watch/hash/copy, write-watch state, keys; medians over the race windows;
 - [rsx-frame-perf] medians over the race: drain, expand, rf, record (tex/pso/cmd), other;
+- cpath also keeps the per-site guest spans (0x50C818 frame-end Wws spin etc.) and SPURS lane busy fractions;
 - trace_covers_race: the trace window (host s 175..240) starts at least 10 s after race entry."""
 import json, re, statistics as S, subprocess, sys
 from pathlib import Path
@@ -52,7 +53,12 @@ if __name__ == '__main__':
     t149 = run_json(A / 't149/ab/ana_t149.py', rtdir, run_dir)
     res['phases'] = t149.get('phases')
     c = t149.get('cpath') or {}
-    res['cpath'] = {k: c.get(k) for k in ('frame_thread', 'rsx', 'host_cpu_ms', 'critical')}
+    res['cpath'] = {k: c.get(k) for k in ('frame_thread', 'rsx', 'host_cpu_ms', 'critical', 'frame_ms',
+                                          'spurs_lanes_busy_mean', 'guest_sites_ms_per_frame')}
+    li = c.get('lane_idle') or {}
+    res['cpath']['lane_busy_frac'] = {w: [round(v['busy_frac'], 3) for k, v in d.items() if isinstance(v, dict) and 'busy_frac' in v]
+                                      for w, d in li.items() if isinstance(d, dict)}
+    res['spurs_sched'] = t149.get('spurs_sched')
     ts = stats_lines(log, '[tex-snapshot-stats]', NUM)
     race = ts[-80:-5] if len(ts) > 90 else ts
     res['tex_snapshot'] = medians(race, ['captures', 'epoch_skips', 'ww_skips', 'hash_reuses', 'copies', 'hashed_mb',

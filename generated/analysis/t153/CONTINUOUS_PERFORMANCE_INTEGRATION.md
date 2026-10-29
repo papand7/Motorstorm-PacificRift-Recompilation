@@ -1,6 +1,6 @@
-# T153: continuous performance integration (checkpoint 2)
+# T153: continuous performance integration (checkpoint 3)
 
-Labels: VERIFIED / PARTIAL / HYPOTHESIS / BLOCKED. **No game was launched for T153.** Every game number is pending an explicit authorisation (§8). The matrix is in `PERFORMANCE_MATRIX.md`.
+Labels: VERIFIED / PARTIAL / HYPOTHESIS / BLOCKED. The authorised game A/B (14 launches) was run on 2026-10-29; its results are in §8 and `UNIFIED_GAME_AB_RESULTS.md`. The matrix is in `PERFORMANCE_MATRIX.md`.
 
 ## 1. Trees and hashes
 
@@ -88,11 +88,18 @@ Builds are not bit-reproducible across source paths, so the hash identifies an e
 - Each optimization has its own switch, so the A/B can isolate it (arms B, C and E in the matrix).
 - The known-good checkpoint is the base tree plus `7a335d77`.
 
-## 8. Next step
+## 8. Game A/B (authorised, done 2026-10-29; `UNIFIED_GAME_AB_RESULTS.md`)
 
-Request **explicit authorisation** for the T153 game A/B: `t153/ab/run_t153ab.py`, arms A, P, Z, B, C, D and E, × 2 runs each, interleaved, on the pinned exes.
-- It records FPS, frame percentiles, race entry, RSX, PPU, snapshot, expansion, fence-wait and GPU time, plus `CELLMARK_DUMP` visuals.
-- The trace window must cover the race.
-- `matrix_t153.py` then fills the checkpoint table.
+All 14 launches (A, P, Z, B, C, D, E × 2) were valid.
 
-Defaults change only if a game A/B shows a gain with unchanged visuals.
+| Arm | A | P | Z | B | C | D | E |
+|---|---|---|---|---|---|---|---|
+| FPS | 6.41 | 7.27 | 6.50 | 7.27 | 7.13 | 7.20 | 7.17 |
+
+- **The preset gives +13 %.** T150, T151 and T152 add nothing measurable on top of it: they are correct and neutral.
+- **Fastest verified configuration:** P, or B (preset + write-watch). Every default stays as it is.
+- **Limit:** the PPU frame thread, whose roughly 64 ms of running time includes about 30.7 ms of busy-spin at `0x50C818` waiting for SPU Wws job completion. No integrated change reduced that spin. Wws AOT and T152's inline stores are not in the integration exe.
+
+## 9. Next step
+
+Integrate T152's `MSPR_WWS_AOT` (root `9cd7ef2`) into a port copy and verify it offline. Then request authorisation for B vs B + `PS3_SPU_WWS_AOT=1`, 2 runs each.
