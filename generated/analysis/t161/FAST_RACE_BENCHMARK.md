@@ -1,8 +1,10 @@
 # T161: MotorStorm fast race benchmark harness
 
-2026-10-29. Offline only: no MotorStorm build, no game launch, no merge, no push. Other agents' worktrees untouched. Labels: VERIFIED / PARTIAL / HYPOTHESIS / BLOCKED.
+2026-10-29. Sections 1–10 were written offline; §11 records the authorised V1/V2 runs (one build, three launches). No merge, no push. Other agents' worktrees untouched. Labels: VERIFIED / PARTIAL / HYPOTHESIS / BLOCKED.
 
 ## 1. Result
+
+**Validated (§11):** fast pacing saves 22.5 s (race entry 137.3 s vs 159.8 s; V2 123.8 s). Heavy scene 3.83 FPS over frames 600–711. The 85 s race load runs at 0.15–0.27 cores with no CPU, I/O, mutex or SPURS limit; the main thread's sub-2 ms `sys_lwcond_wait` waits are the unmeasured remainder.
 
 - **Race entry is 145–150 s** in the six logged A/B runs (T154 ×4, T158 ×2). One run (C1) took 165 s because of a slow boot.
 - **The single largest avoidable cost is our own controller.** It holds every menu press for a fixed 6.5 s settle, but pages load 0.1–0.5 s after each press, so about 21 s per run is waiting. A tested pacing policy cuts it to about 6.5 s. Expected race entry: about 124–129 s (HYPOTHESIS until one launch confirms it).
@@ -179,3 +181,87 @@ The table is for C0r1. The other five runs agree within ±0.5 s per phase, excep
 - **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4).
 - **root `agent/t161-fast-race-benchmark`:** this report and `tools/*.py`. `logs/` (timelines, suite log, bench output) is gitignored and stays private.
 - Run data, `ab/` runtime directories and `stderr.log` excerpts stay private and untracked.
+
+## 11. Authorised runtime validation (V1: 2 launches, V2: 1 build + 1 launch)
+
+Three launches in total, run one after another. Each had a fresh private HDD, the exe SHA-256 checked before launch, a 195 s game timeout (well inside the 205 s / 210 s caps) and no retries. The renderer, SPU and performance environment is the T158 arm B set in every arm.
+
+| Run | Exe SHA-256 | Arm | Run dir (private) |
+|---|---|---|---|
+| V1A | `2a040320…1f08` (T158 C1) | F: fast pacing (1.5 s settle, 2 retries) | `runs/20261029-213249-t161-fast-FV1A` |
+| V1B | `2a040320…1f08` (T158 C1) | N: T158 pacing (6.5 s settle, 0 retries) | `runs/20261029-213607-t161-fast-NV1B` |
+| V2 | `d835db8b…f928d6` (`ps3recomp-t161` 2115697 + C1 SPU args) | H: F plus `PS3_HLE_WAIT_MS=1000`, PT `hle=*` ≥ 2 ms, critical-path window 40–140 s | `runs/20261029-215320-t161-fast-HV2` |
+
+### 11.1 V1: fast menu pacing, PASS (VERIFIED)
+
+| Host s | V1A fast | V1B original | V2 (fast + instrumentation) |
+|---|---|---|---|
+| Main menu | 38.28 | 37.81 | 26.97 |
+| Navigation (first Cross → load screen) | **7.93** | **27.82** | 6.58 |
+| Race load (load screen → race_loaded) | 87.15 | 90.10 | 85.28 |
+| Race entry (race frame 0) | **137.28** | **159.82** | **123.84** |
+| Race frames captured | 0–652 | 0–559 | 0–711 |
+
+- **Saving:** 22.5 s to race entry (pass threshold 15 s); navigation alone 19.9 s.
+- **Route:** identical in every run. Four Cross presses (festival → ticket-s → motorsto → loadscre), 0 `nav_retry`, 0 `nav_manual`, no press after the load screen appeared.
+- **Correctness:**
+  - draw mismatches 6/560 frames (vertex 65, upload 1), the T158 level;
+  - error counts identical in all three runs (fc-watchdog 26, stall 50, GCM_STALL 3, spu-smc 8, `[fs] open FAIL` 6 for the known missing files).
+- **Boot variance:** V1A/V1B boots were about 11 s slower than T158 and V2 (game logo 33 s vs 24 s). Pacing doesn't apply before the main menu, so this is host variance.
+
+| FPS (race frames) | V1A | V1B | V2 |
+|---|---|---|---|
+| Light 40–499 | 21.72 (p50 45.4 / p95 51.3 / p99 57.1 ms) | 20.20 (45.7 / 57.7 / 140.9) | 21.85 (45.0 / 49.8 / 63.1) |
+| Heavy 600–699 | 3.76, 53 frames, **incomplete** | not reached | **3.83, 112 frames (600–711), p50 259.7 / p95 274.2 / p99 281.1 ms** |
+
+- **Heavy coverage:** V1 missed the heavy window because of the slow boot. Only V2 (fast pacing plus a normal boot) covered frames 600–699.
+- **Instrumentation overhead:** V2's load (85.3 s) and light FPS match V1A, so no overhead was measurable.
+
+### 11.2 V2: race-load attribution (load screen 35.4 s → race_loaded 120.7 s)
+
+**Off by default (VERIFIED).** `scwa_hle_window_ms()` returns 0 unless `PS3_HLE_WAIT_MS` is set, and the guard then stores `t0 = 0` and does nothing.
+
+**Process and per-thread CPU** (kind 32 cycle counts and `performance.json`; this is CPU time, not elapsed):
+
+| Phase (s) | Process | Main thread | Async SPU tasks | `0x536A30` |
+|---|---|---|---|---|
+| Track 35.9–55.4 | 0.20 cores | 0.06 | 0.00 | one call 19.45 s (site `0x3944FC`) |
+| Environment 55.4–65.3 | 0.19 | 0.05 | 0.00 | 0.3 s |
+| Vehicles 65.3–81.4 | 0.25 | 0.11 | 0.00 | 16 calls, 0.3–1.6 s each |
+| Gap 81.4–108.2 (26.8 s) | **0.15** | **0.01** | 0.00 | none |
+| Characters 108.2–116.7 | 0.27 | 0.12 | 0.00 | 5 × 0.1 s |
+| Whole load | 0.27 (21.9 CPU s / 82 s) | | | 27 calls ≥ 0.1 s, 37.3 s |
+| Race, for comparison | 2.45 | 0.47 | 1.88 | |
+
+**Elapsed waits** (per-thread sums; many threads wait at once, so they overlap and must not be added together):
+
+| Category | Measured | Verdict |
+|---|---|---|
+| 1. File I/O / FIOS | `cellFsRead` 84 ms over 2,967 calls; FIOS threads idle in `sc141` / `sc130` | not the limit |
+| 2. lwcond polling | worker threads 3–9: `sys_lwcond_wait` ~87 s each (all ≥ 2 ms calls are 2.0–2.5 ms `Sleep(1)` polls from lr `0x66BB70`) | idle workers; main thread see below |
+| 3. Mutex | `sys_lwmutex_lock` ≥ 2 ms: 4 calls, 39 ms in total | not the limit |
+| 4. SPURS sync | `cellSpursEventFlagWait` 3.9 s (tid 6); no SPU tasks ran (0.00 cores) | not the limit |
+| 5. Guest computation | main thread 0.01–0.12 cores, process 0.15–0.27 cores | not the limit |
+
+**Main thread during the track load** (19.45 s inside `0x536A30`):
+- CPU about 6 %;
+- `sys_timer_usleep` about 10 % (240 calls per s, 0.42 ms each);
+- imports ≥ 2 ms 0.6 % (457 of the main thread's PT HLE events are `sys_lwcond_wait`, at lr `0x66BB70`);
+- **about 83 % not directly measured.**
+
+**Missing measurement (VERIFIED gap).** `[hle-wait]` keeps 12 NID slots per thread, and slots are never released. The main thread filled all 12 with boot imports by 1 s. Every later main-thread import, including `sys_lwcond_wait`, went to `dropped` (700–850 per s during the load, against 80 per s in the race). The PT tracer saw only calls ≥ 2 ms. The main thread's sub-2 ms waits are therefore not measured.
+
+**Bottleneck classification:**
+- **(6) wait latency with no busy producer: VERIFIED.** No CPU, I/O, mutex or SPURS work explains the 85 s. The process stays at 0.15–0.27 cores throughout, and the 26.8 s gap has no load call and 0.01 main-thread cores.
+- **The main thread blocked in sub-2 ms `sys_lwcond_wait` polls (lr `0x66BB70`): HYPOTHESIS, strong.** The dropped rate matches 1–1.3 ms polls. The long-call distribution is cut off at the 2 ms threshold. In ps3recomp's HLE, `lwcond_signal` is a no-op, so each wake costs a poll.
+- **Still unknown:** which event the main thread waits for, and who produces it.
+
+**Next measurements** (each needs authorisation):
+1. Free or reset `[hle-wait]` slots per window, or raise `SCWA_SLOTS`; alternatively, PT `hle_min_us=200` for the main thread only.
+2. Log the lwcond id and the signaller's tid and time in `sys_lwcond_signal`, to identify the producer the main thread waits on.
+
+### 11.3 Recommended next startup optimisation
+
+1. **Adopt fast pacing** (`NavPolicy` 1.5 s / 2 retries) for all race benchmarks. Saving: 22.5 s, VERIFIED.
+2. **Find the race-load producer.** Use the two measurements in §11.2, then make a real `sys_lwcond_signal` / wait wake in place of `Sleep(1)` polling, but only once it is shown to be on the critical path. A wake can't fix the 26.8 s gap if no producer is running then. Expected saving 0 to tens of seconds (HYPOTHESIS).
+3. **Warm the shader cache** (§3), about 3 s to the heavy window.

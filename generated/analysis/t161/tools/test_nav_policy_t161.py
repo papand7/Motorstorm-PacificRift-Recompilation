@@ -55,6 +55,7 @@ if ab.exists() and old.exists():
     for const in ("ROUTE_FNS = ('0076AF40', '00017420', '00033848', '000338C0', '0008EA00')",
                   'HARD_KILL_S = 200.0', 'RACE_STOP_S = 90.0', "self.press(f'cross {pol.presses}', CROSS, 20)"):
         check(const in new_s, f'runner keeps {const}')
+    check("in_loader = bool(self.count('0008EA00')) or self.npage('gui/loadscre') >= 1" in new_s, 'no press after the load screen')
     check('self.SETTLE' not in new_s and 'NavPolicy(max_presses=self.MAX_PRESSES' in new_s, 'nav() uses NavPolicy')
     env_new = new_s[new_s.index('COMMON = {'):new_s.index('ENV = {')]
     env_old = old_s[old_s.index('COMMON = {'):old_s.index('ARMS = {')]

@@ -36,7 +36,11 @@ src = src[:i0] + """ENV = {**COMMON, **PERF, **TRACE, **T150, **WSTAT, **AOT}   
 ARMS = {
     'N': ('b', ENV),
     'F': ('b', ENV),
-    'H': ('h', {**ENV, 'PS3_HLE_WAIT_MS': '1000'}),   # T161 HLE import wait accounting
+    'H': ('h', {**ENV, 'PS3_HLE_WAIT_MS': '1000',     # T161 HLE import wait accounting
+                # V2: PT also prints every import call >= 2 ms; the critical-path window (host-thread
+                # CPU samples, syscall/usleep spans) covers the race load instead of the race.
+                'PS3_TRACE_FILE': str(HERE / 'cpath_sites_v2.cfg'),
+                'PS3_CRITICAL_PATH_TRACE': '40:100:{rt}/cpath.txt'}),
 }
 NAV = {'N': dict(settle_s=6.5, retries=0), 'F': dict(settle_s=1.5, retries=2), 'H': dict(settle_s=1.5, retries=2)}
 """ + src[i1:]
@@ -53,7 +57,11 @@ src = src[:i0] + """    def nav(self):
             self.note('nav_policy', **NAV[ARM])
         pol = self.nav_pol
         sig = self.route_sig()
-        if not pol.due(self.now(), sig, self.npage('gui/mainmenu') >= 1, bool(self.count('0008EA00'))):
+        # Stop pressing at the load screen (the last intended screen), not only once the race
+        # loader 0x8EA00 is entered: with a 1.5 s settle a press could otherwise land in the
+        # 0.3-0.4 s between the two (T158 C0/C1 controller logs).
+        in_loader = bool(self.count('0008EA00')) or self.npage('gui/loadscre') >= 1
+        if not pol.due(self.now(), sig, self.npage('gui/mainmenu') >= 1, in_loader):
             return
         pol.pressed()
         self.nav_step = pol.presses
