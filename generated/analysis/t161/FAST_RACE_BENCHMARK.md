@@ -178,7 +178,7 @@ The table is for C0r1. The other five runs agree within ±0.5 s per phase, excep
 
 ## 10. Commits
 
-- **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4). `8ab589f`: window-local wait accounting and the `PS3_LWCOND_TRACE` episode/signal tracer, plus tests (§12). `4e0b190`: opt-in `PS3_LWCOND_WAKE` host wakeups plus tests (§13). `28a3e64`: `signal_to` wakes only the named waiter, plus stale-waiter tests (§14).
+- **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4). `8ab589f`: window-local wait accounting and the `PS3_LWCOND_TRACE` episode/signal tracer, plus tests (§12). `4e0b190`: opt-in `PS3_LWCOND_WAKE` host wakeups plus tests (§13). `28a3e64`: `signal_to` wakes only the named waiter, plus stale-waiter tests (§14). `afdcabd`: once-only init and `fb=1` fallback attribution, plus tests (§15).
 - **root `agent/t161-fast-race-benchmark`:** this report and `tools/*.py`. `logs/` (timelines, suite log, bench output) is gitignored and stays private.
 - Run data, `ab/` runtime directories and `stderr.log` excerpts stay private and untracked.
 
@@ -565,3 +565,111 @@ HLE signals are no-ops (§11.2), so every hop costs up to one `Sleep(1)` (about 
   2. one or more repeat B runs, ideally with a longer race session, to confirm stability and settle the heavy-scene FPS question;
   3. attribution of the remaining 18 % of fallbacks.
 - **The measured benefit is large and verified on this route:** race entry is 82 s earlier and the race load 76 % shorter, with the same route, frames and logs.
+
+## 15. V5: initialisation race fix, fallback attribution, benchmark preparation (offline + 1 build; no launch)
+
+### 15.1 Initialisation race fix (ps3recomp `afdcabd`, VERIFIED offline)
+
+- **Cause:** `lwcw_get()` in `runtime/ppu/ppu_sysprx.cpp` used an unguarded `static int on = -1` lazy initialisation. Two threads making their first lwcond call at the same moment both ran `lwcw_configure` (V4 B printed `[lwc-wake] on` twice).
+- **Fix:** `lwcw_get_once()` in `include/ps3emu/lwcond_wake.h`.
+  - Uses a `once` word (0 = not yet, 1 = configuring, 2 = done).
+  - The first caller wins a CAS and configures, then publishes with a full-barrier exchange.
+  - Concurrent first callers spin (64 pauses), then yield until they see 2 through an acquire load. The fast path is one acquire load.
+  - **Lifecycle:** the state lives for the whole process.
+    - It is never reconfigured, even if the variable changes.
+    - Reinitialisation is not supported by design.
+    - After `lwcw_shutdown`, every later wait takes the poll path.
+- **Also fixed:** the Windows `lwcw_now_us` no longer caches the QPC frequency in a lazily written static, which was a second benign first-write race.
+- **Default unchanged:** with the variable unset, `lwcw_get_once` returns NULL and the wait keeps `Sleep(1)`. The source pins in `tools/test_lwcond_wake.py` check this, and that no unguarded `lwcw_configure` call remains in `lwcw_get`.
+
+### 15.2 Fallback attribution (V4 B, 1,736 fallbacks; `tools/fb_attr_t161.py`, `logs/fb_attr_V4B.json`)
+
+- **Method:** the V4 exe records no per-fallback event, so attribution uses bounds from the `PS3_LWCOND_TRACE` open-episode snapshots, which are cumulative per 1 s window.
+  - In wake mode every wait return is either a signal wake or a 100 ms fallback, and each signal on an lwcond wakes a given waiter at most once.
+  - **Lower bound:** fallbacks ≥ Δpolls − Δsig.
+  - **Exact count:** a window with Δsig = 0 means every return in it was a fallback.
+  - Closed detailed episodes (`[lwc-ep]`, main thread) add polls − sig.
+- **Result:** at least **1,708 of the 1,736 (98.4 %)** are attributed. In every case the waiting thread re-entered the same wait within 300 µs (same episode), so the guest treated the return as a spurious wakeup and rechecked its predicate (VERIFIED).
+
+| Category | Fallbacks | Threads (lwcond) | Assessment |
+|---|---|---|---|
+| Idle: no signal on that lwcond during the window | **1,425 (82.1 %)**, exact | FIOS threads tids 3/4 (`0x104856D8`), 5 (`0x10485620`), mediathreads 6/7/8 (`0x104863C8`), scheduler 9 (`0x10486310`) | Benign: no work pending; one 100 ms return, then the thread re-waits |
+| Signals reached the lwcond in that window, but not during the 100 ms wait, or woke another waiter | ≥ 279 | tids 3–9. On the shared cvs (3+4; 6+7+8) a `sys_lwcond_signal` wakes only the oldest waiter; tids 5 and 9 are the only waiters on their cvs, so for them the signal came at another point in the window | Benign: an idle stretch inside an otherwise active second; the fallback is a spurious wakeup |
+| Main thread (tid 1, cv `0x105432C0`, FIOS completion) | ≥ 4 | 3 closed episodes of 110, 158 and 166 ms, each with 1 fallback; call sites `bt` `704CC8`, `702B48`, `664068+702B48` | Benign: the op took > 100 ms; the real completion signal from tid 9 (lr `0x66BA08`) still woke it about 6 µs after it was sent, so the fallback added no latency |
+| Not individually bounded | ≤ 28 (1.6 %) | inside the upper bounds of the same worker keys | PARTIAL |
+
+- **Call sites:** every fallback has `lr = 0x0066BB70`, the shared `sys_lwcond_wait` wrapper.
+  - Deeper sites for the worker threads were not recorded in V4 (the trace selected tid 1 only).
+  - The V5 exe records them with `fb=1` (§15.3).
+- **Correction to §14.4:** "the main thread had 0 unsignalled episodes" is right (every episode saw a signal), but the main thread did have at least 4 fallbacks inside signalled episodes, as described above.
+- **Conclusion:** at least 98.4 % of the remaining fallbacks are benign: idle threads, or waiters passed over by a signal-one. No fallback replaced a lost signal, and none was guest-visible apart from a spurious wakeup the guest already tolerates. Fallbacks are not removed: `poll_ms` stays as a safety net for wake paths outside the HLE.
+
+### 15.3 Fallback attribution instrumentation (`fb=1`, off by default)
+
+- **What it records:** `PS3_LWCOND_WAKE=1:...:stats_ms=1000:fb=1` records each fallback under (tid, lwcond, lr, 3 guest call-site words from a read-only stack scan done only on a fallback), with a reason:
+  - `nosig`: no signal on the lwcond during the wait;
+  - `sig_other`: signals arrived but woke other waiters.
+- **Output:** `[lwc-wake-fb]` rows per stats window, bounded at 256 rows; overflow is counted as `dropped=`.
+- **Cost:** none on the signalled path apart from one counter increment per signal under the lwcond lock, which is already held.
+
+### 15.4 Offline validation (VERIFIED, except as noted)
+
+- **lwcond tests:** `test_lwcond_wake` (full run), `test_lwcond_layout` and `test_lwcond_trace` PASS. New checks:
+  - 300 rounds × 16 threads making their first call at once (every 4th round widens the winner's window by 2 ms): configured exactly once per state, every caller saw the same fully configured state, every first-use waiter was signalled (none lost), and no waiter was left queued afterwards;
+  - **control:** the V4 lazy initialisation configured more than once under the same race, so the test detects the defect;
+  - variable unset: every concurrent first caller gets "off", and configuration runs once;
+  - shutdown wakes a waiter of the once-state; afterwards the state is not reinitialised and later waits take the poll path;
+  - `fb=1`: idle → `nosig`, passed over → `sig_other`, aggregation per key, bounded rows with overflow counted;
+  - the existing semantics checks still pass: signal, signal_all, `signal_to` (including a miss that wakes nobody), timeout, fallback, shutdown, no stale waiters, poll-vs-wake differential at 2–16 threads, and the 4-hop chain.
+- **Full suite** (`logs/suite_t161e.txt`): 140 PASS / 43 SKIP / 3 FAIL.
+  - Two failures are inherited: `test_rt_pool_srv_layout` and `test_vpc_watch`.
+  - The third is `test_spurs_kick_wake`, which asserts that a SPURS kick latency median halves. It also failed when rerun alone. The host was at 87 % CPU from an unrelated process, and the test covers only SPURS/coherency files this change does not touch.
+  - It is timing-sensitive under load (HYPOTHESIS); rerun it on an idle host before the runtime comparison.
+- **Public-source audit** of a clean `git archive afdcabd` export (`logs/audit_ps3recomp_t161f.txt`): the same **25 inherited BLOCKs**, identical list, none in lwcond files.
+
+### 15.5 Isolated release build (`build_t161.cmd x`)
+
+- **Source:** ps3recomp-t161 `afdcabd` + port-t161 (unchanged), staging PPU lift unchanged.
+- **Configuration:** Release, clang-cl LLVM 23.1.3, `MSPR_WWS_AOT=ON` (`wws_reloc_t81c`), Havok `--chain-chunks` for the same four SPU images as V3/V4.
+- **Result:** `build/motorstorm-t161-x`, rc 0, 0 errors (`logs/build_x.txt`).
+- **Pinned copy:** `ab/exe_x` (`run_t161.py prepare x`). SHA-256 `b1fdb0bd6253d11cd837bbc1a37db22a2dd2e9c5ad66d670e4aac24d3d8c01fc`.
+- **Runtime defaults:** `PS3_LWCOND_WAKE` unset = off (`Sleep(1)` poll path, signals no-ops). When set, the defaults are `poll_ms=100`, `stats_ms=0`, `fb=0`.
+- **Not launched.**
+
+### 15.6 Proposed runtime comparison (needs authorisation; not launched)
+
+- **Exe:** the pinned V5 exe (`ab/exe_x` after `run_t161.py prepare x`), regenerated by `tools/make_runner_t161.py`.
+- **Arms:**
+  - **C:** wake off, lean environment (the T158 arm B settings without the cpath window, lwcond trace or HLE-wait accounting, which perturb frame timing differently when race entry differs);
+  - **D:** C plus `PS3_LWCOND_WAKE=1:poll_ms=100:stats_ms=1000:fb=1`.
+  - Both use fast pacing, a fresh HDD, and the same route, vehicle, renderer and SPU configuration.
+- **Session:** race stop at entry + 150 s, with the 195 s game / 210 s host caps. C (race entry about 126 s) is cut by the cap. D (about 44 s) runs to about 194 s and covers about 150 s of race.
+- **Order:** C, D, C, D: 4 sequential launches, no retries, no concurrent load. Precondition: an idle host, since 87 % CPU from another process was observed during this task.
+- **Measures:**
+  - startup timeline;
+  - heavy-scene frame timing matched by race-frame index over the frames both arms reach (about 540–670), plus D's steady heavy scene beyond that;
+  - CPU per phase (`performance.json`);
+  - `[lwc-wake]` and `[lwc-wake-fb]` counters;
+  - per-frame draw counts and error/stall categories.
+- **Pass criteria:**
+  - route identical and race reached in all 4 runs;
+  - no new error categories; timeouts, `to_miss` and nofit all 0;
+  - draw counts within the noise between the two C runs;
+  - D's heavy FPS within the C–C run-to-run spread;
+  - every fallback in D attributed by `fb=1` to an idle or passed-over waiter.
+
+### 15.7 Default-enable assessment
+
+- **Not yet safe to enable by default.**
+  - The initialisation race is fixed and offline correctness is VERIFIED.
+  - The one runtime A/B passed on correctness, and at least 98.4 % of its fallbacks are benign.
+  - Two items remain open:
+    1. the heavy-scene −5.5 % FPS from a single run per arm;
+    2. call sites for the worker fallbacks and the ≤ 28 unbounded ones.
+- **Recommendation:** run §15.6. If D passes its criteria, make `PS3_LWCOND_WAKE` default-on with `poll_ms=100`, and keep `PS3_LWCOND_WAKE=0` as the off switch.
+
+### 15.8 Commits
+
+- **ps3recomp `agent/t161-fast-race-benchmark`:** `afdcabd`, once-only init, `fb=1` attribution and tests (on top of `28a3e64`).
+- **root `agent/t161-fast-race-benchmark`:** this section, `tools/fb_attr_t161.py` and `tools/make_runner_t161.py` (arms C/D). `tools/run_lwc_tests_t161.cmd` and `build_t161.cmd` (arm `x`) are gitignored and stay local.
+- Not merged or pushed.
