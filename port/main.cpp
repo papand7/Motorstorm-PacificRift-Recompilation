@@ -231,8 +231,7 @@ static DWORD WINAPI frame_clock(LPVOID)
      * and the presents run on this thread and in this order either way. */
     const char* kick_env = getenv("PS3_FRAME_CLOCK_KICK");
     const int kick = kick_env && kick_env[0] == '1' && !kick_env[1];
-    if (kick) fprintf(stderr, "[frame-clock] PS3_FRAME_CLOCK_KICK=1: idle wait woken by FIFO kicks
-");
+    if (kick) fprintf(stderr, "[frame-clock] PS3_FRAME_CLOCK_KICK=1: idle wait woken by FIFO kicks\n");
 
     for (;;) {
         fcw_mark(FCW_SLEEP);
