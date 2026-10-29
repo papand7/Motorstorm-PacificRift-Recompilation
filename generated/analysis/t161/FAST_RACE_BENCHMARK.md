@@ -178,7 +178,7 @@ The table is for C0r1. The other five runs agree within ±0.5 s per phase, excep
 
 ## 10. Commits
 
-- **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4). `8ab589f`: window-local wait accounting and the `PS3_LWCOND_TRACE` episode/signal tracer, plus tests (§12).
+- **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4). `8ab589f`: window-local wait accounting and the `PS3_LWCOND_TRACE` episode/signal tracer, plus tests (§12). `4e0b190`: opt-in `PS3_LWCOND_WAKE` host wakeups plus tests (§13).
 - **root `agent/t161-fast-race-benchmark`:** this report and `tools/*.py`. `logs/` (timelines, suite log, bench output) is gitignored and stays private.
 - Run data, `ab/` runtime directories and `stderr.log` excerpts stay private and untracked.
 
@@ -345,3 +345,77 @@ HLE signals are no-ops (§11.2), so every hop costs up to one `Sleep(1)` (about 
 - The guest-visible semantics stay the same: release the lwmutex, wait, re-acquire, return 0. Spurious wakeups remain allowed. Optionally, honour the r4 timeout.
 - Expected saving (HYPOTHESIS): the track, vehicle and character loads are hand-off bound, about 37 s of main-thread waits for about 5 s of producer work. Removing most of the hop latency could save about 20–30 s.
 - It would not shorten the 27 s gap, which has no producer activity; that needs the measurement in §12.4 first.
+
+## 13. Correct HLE lwcond wakeups (V4: offline only; runtime needs authorisation)
+
+### 13.1 Semantics audit (VERIFIED from `ppu_sysprx.cpp`)
+
+- **Old wait:** save the lwmutex owner/recursion → clear → release the binary semaphore → `Sleep(1)` → retake (`INFINITE`) → restore → return 0. The signals are no-ops returning 0, so every hop costs one host `Sleep(1)` (about 1 ms with `timeBeginPeriod(1)`).
+- Guest code re-checks its predicate after every return (FIOS loop `0x65B578–0x65B5A0`), so spurious returns are already part of the contract.
+- The r4 timeout is ignored. V3 saw only `timeout_us=0` waits.
+- `signal_to`'s r4 is a `sys_ppu_thread_get_id` value, which equals the waiter's `ctx->thread_id`.
+- The lwmutex can be released from any thread; recursion depth is restored after the wait.
+- No thread-cancellation path exists in the HLE: guest threads exit only from guest code, and the process ends with `ExitProcess`.
+
+### 13.2 Implementation (`include/ps3emu/lwcond_wake.h`, header-only; ps3recomp `4e0b190`)
+
+- `PS3_LWCOND_WAKE=1[:poll_ms=100][:stats_ms=0]`. Off by default: the old path is unchanged and pinned by tests.
+- Each lwcond has a host record (an SRW lock plus a FIFO of stack waiter nodes, each with its own condition variable).
+- **Wait:** register while the guest lwmutex is still held → release the lwmutex → sleep until signalled, timed out or fallback → retake the lwmutex → restore owner/recursion.
+  - Registering before the release closes the lost-wakeup window. A signal issued after registration but before the sleep sets the node state, and the sleep returns at once.
+  - A signal issued before registration finds no waiter (`sig_empty`). This matches PS3 semantics, where the lwcond has no memory. The guest predicate covers it, because the signaller held the lwmutex.
+- **Signals:** `signal` wakes the oldest waiter, `signal_all` every registered waiter, and `signal_to(tid)` the matching tid, or the oldest if none matches (`to_miss`). All three still return CELL_OK.
+- **Fallbacks:**
+  - after `poll_ms`, the wait returns CELL_OK (`fallback`), so a missed path degrades to slow polling, never a hang;
+  - a full table (4,096 lwconds) uses the old poll path (`nofit`);
+  - `lwcw_shutdown` wakes everyone.
+- **Timeout:** an expired nonzero guest timeout returns ETIMEDOUT `0x8001000B` after the lwmutex is retaken. This is a behaviour change only with WAKE=1, and V3 saw no timed waits.
+- With `stats_ms`, a `[lwc-wake]` counter line is printed periodically.
+
+### 13.3 Tests (`tests/test_lwcond_wake.c`, `tools/test_lwcond_wake.py`)
+
+- **Semantics: 24 checks, 0 failures.** They cover:
+  - signal before registration; signal between prepare and sleep;
+  - single waiter (7 µs lag); FIFO order with 4 waiters; broadcast to 8 plus a late waiter;
+  - `signal_to`, including an unknown tid; 50 host spurious wakeups;
+  - 15 ms timeout and unlinking; fallback at 10 ms; table full (4,096 entries fit, the next is `nofit`);
+  - shutdown with 6 waiters, then the poll path.
+- **Differential (poll vs wake vs wake with `poll_ms=0`, the no-fallback mode):**
+  - producer/consumer through a mirror of `sys_lwcond_wait`, with a recursive lwmutex (depth 2) held across the wait;
+  - configurations 1×1, 2×2, 4×4, 8×8, 4×12 and 12×4, under a 120 s watchdog;
+  - every item was consumed exactly once in all three modes, with owner and recursion intact after each wait, no deadlocks, and 0 fallbacks in wake mode. The 12×4 configuration moved 240,000 items in 2.37 s.
+- **4-hop hand-off chain** (the FIOS shape, tids 1→9→6→19): poll 4,601.5 µs per op vs wake 18.4 µs per op (×250), 0 fallbacks.
+- **Pins:** the hook order in `sys_lwcond_wait` and the three signal lines. The fixture's `g_wait` mirrors the same sequence. The `test_lwcond_layout` and `test_lwcond_trace` stubs are updated.
+- **Full suite** (`suite_t161c`): 141 pass, 43 skip, 2 fail. The 2 failures are the inherited `test_rt_pool_srv_layout` and `test_vpc_watch`.
+- **ps3recomp audit:** 25 inherited BLOCKs, none in T161 files.
+- Not done: no TSan (Windows host). Concurrency was checked by stress testing only.
+
+### 13.4 Expected effect (HYPOTHESIS)
+
+- V3: the main thread spends 16.79 s of the 19.41 s track load waiting, for about 1.75 s of producer work, at about 3 polls (3.46 ms) per op. Vehicles (16.2 s) and characters (8.6 s) have the same shape.
+- If the hop latency drops to tens of µs, as offline, the race load could shrink by about 20–35 s.
+- The 27 s gap (§12.4) and env's idle 6.38 s episode should not change: no producer is active during them.
+
+### 13.5 Phase 6: the gap's pending FIOS op (offline: BLOCKED)
+
+- The logs can't reconstruct it. `[lwc-ep]` records only cv, mutex, LR and the stack-scan code pointers, and the gap window has no op pointer, file, offset or open record.
+- **Code path** (lifted return sites):
+  - `0x65B59C` in `func_0065B45C` (wait wrapper `0x66BB38`) ← `0x65B790` in `func_0065B748`;
+  - ← `0x741138` in `func_007410D4` ← `0x3C1D50` in `func_003C1C38`;
+  - ← `0x759460` in `func_007593F4` ← `0x6FE558` in `func_006FE51C` ← `0x3BC4B4` in `func_003BC470`.
+- The first five frames match the menu-phase waits, so this is the generic synchronous-read path. The deeper frames come from a heuristic stack scan and may be stale.
+- Identifying the op needs a runtime dump of `func_0065B748`'s op descriptor (`r31+0x88/0x90`), its path and its offset at the `0x65B59C` wait for the episode after the last vehicle. This would be one optional diagnostic launch; its cause is not guessed here.
+
+### 13.6 A/B runtime plan (needs authorisation)
+
+- **Build once:** `generated\analysis\t161\tools\build_t161.cmd w` → `build\motorstorm-t161-w` (ps3recomp `4e0b190`, the same SPU lifter args and port as V3). Then `run_t161.py prepare w`, and pin the exe SHA.
+- **Launches:** `run_t161.py launch A v4`, then `launch B v4`, one after the other on the same exe.
+  - Both use fresh HDD copies, fast pacing (1.5 s settle, 2 retries), the 195 s cap and the same windows.
+  - **A** = the V3 arm L environment (wake off). **B** = A + `PS3_LWCOND_WAKE=1:poll_ms=100:stats_ms=1000`.
+- **Analysis:** `startup_timeline_t161.py`, `lwc_t161.py`, `lwc_tids_t161.py`, `bench_t161.py`, plus the `[lwc-wake]` counters.
+- **Pass criteria:**
+  - no new errors; the same route and the race reached;
+  - in B, `fallback`, `to_miss` and `nofit` are about 0;
+  - the track, vehicle and character phases are shorter than in A;
+  - light-scene FPS is not worse than A, within run-to-run noise.
+- If B passes, a second B run checks repeatability.
