@@ -178,7 +178,7 @@ The table is for C0r1. The other five runs agree within ±0.5 s per phase, excep
 
 ## 10. Commits
 
-- **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4).
+- **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4). `8ab589f`: window-local wait accounting and the `PS3_LWCOND_TRACE` episode/signal tracer, plus tests (§12).
 - **root `agent/t161-fast-race-benchmark`:** this report and `tools/*.py`. `logs/` (timelines, suite log, bench output) is gitignored and stays private.
 - Run data, `ab/` runtime directories and `stderr.log` excerpts stay private and untracked.
 
@@ -265,3 +265,83 @@ Three launches in total, run one after another. Each had a fresh private HDD, th
 1. **Adopt fast pacing** (`NavPolicy` 1.5 s / 2 retries) for all race benchmarks. Saving: 22.5 s, VERIFIED.
 2. **Find the race-load producer.** Use the two measurements in §11.2, then make a real `sys_lwcond_signal` / wait wake in place of `Sleep(1)` polling, but only once it is shown to be on the critical path. A wake can't fix the 26.8 s gap if no producer is running then. Expected saving 0 to tens of seconds (HYPOTHESIS).
 3. **Warm the shader cache** (§3), about 3 s to the heavy window.
+
+## 12. HLE wait attribution (V3: 1 build + 1 launch)
+
+### 12.1 Instrumentation (ps3recomp `8ab589f`, off by default)
+
+- **`[hle-wait]` is now window-local.** Each thread has two rows (16 NID slots each), stamped with the window index and recycled at the first call of each window. Boot imports no longer use up a thread's capacity. Drops are reported per row (`dropped=N`), per table (tid out of range) and as `late=` (a call that straddles the window switch). There are no allocations.
+- **`PS3_LWCOND_TRACE=<ms>[:tids=..][:lrs=..][:min_ms=2][:max=N][:gap_us=300]`** groups consecutive `sys_lwcond_wait` polls into episodes per (tid, cv, lr).
+  - Each episode records the cv and mutex, the LR, its start and end times, the poll count, the timeout argument and an `over_timeout` count.
+  - `sys_lwcond_signal`, `_all` and `_to` are linked to every open episode on their cv. Each episode records the signaller's tid, LR, first and last signal time, and a stack-scan backtrace.
+  - Aggregates cover all threads. Detailed `[lwc-ep]` lines are limited to the selected tids or LRs, within a budget. All tables are fixed-size.
+  - It only observes: the wait still releases the lwmutex, calls `Sleep(1)` and re-acquires it, and the signals still return `CELL_OK` without waking anyone.
+- **Tests.** `test_sc_wait_acct` covers boot overflow, repeated windows, slot reuse, counter resets, per-window overflow and late stragglers. `test_lwcond_trace` covers the C fixture (including 4 waiters and 2 signallers) and pins the hooks.
+  - Both report 0 failures. `test_lwcond_layout` now stubs the hooks.
+  - Full suite: 140 pass, 43 skip, 2 fail. The failures are the inherited `test_rt_pool_srv_layout` and `test_vpc_watch`.
+  - `test_d3d12_shader_cache` failed once under `--jobs 3`, then passed alone with 0 failures (timing).
+  - Audit: the inherited 25 BLOCKs, none in T161 files.
+
+**Run V3.**
+- Build `build/motorstorm-t161-l`, exe SHA-256 `5e55d4c0d5d16370c1d92e9e5fa43acd0011f4912db272bd2c2a96eac4e9ffd9`.
+- Run `generated/runs/20261029-223347-t161-fast-LV3`, arm L: fast pacing, fresh HDD, original route, 195 s cap, `PS3_LWCOND_TRACE=1000:tids=1:min_ms=2:max=60000`.
+- 0 `[hle-wait]` drops of any kind. 0 error lines (V2: 0).
+- Timeline: track 35.85 s, env 55.26, vehicles 65.20, last vehicle 81.37, characters 108.98, race entry 124.78 (V2: 123.84).
+- Tools: `tools/lwc_t161.py`, `tools/lwc_tids_t161.py`.
+
+### 12.2 Main-thread wait breakdown (VERIFIED, elapsed time)
+
+| Phase | Length | Main thread in `sys_lwcond_wait` | Other main-thread imports | Episodes ≥ 2 ms (median) | FIOS mediathread tid 6 work |
+|---|---|---|---|---|---|
+| track | 19.41 s | 16.79 s (86.5 %) | < 1 ms | 4,433 (3.46 ms, 3 polls) | 1,069 `cellFsRead` 0.03 s, 1,312 `cellSpursEventFlagWait` 1.72 s |
+| env | 9.94 s | 8.38 s (84 %) | < 1 ms | 397, one 6.38 s | 137 reads, 189 waits 0.20 s |
+| vehicles | 16.17 s | 13.76 s (85 %) | < 1 ms | 3,340 (3.53 ms) | 541 reads, 950 waits 0.79 s |
+| **gap** | 27.61 s | 26.60 s (96 %) | < 1 ms | **one 27.58 s episode, 23,085 polls** | **0 reads, 0 waits** |
+| characters | 8.62 s | 6.78 s (79 %) | < 1 ms | 673 (3.61 ms) | 1,001 reads, 1,366 waits 1.50 s |
+
+- Every main-thread wait is on one lwcond: cv `0x105432C0` (mutex `0x105432F0`), LR `0x66BB70`.
+- `0x66BB38` is FIOS's condition-wait-with-deadline wrapper. At `0x66BB70` it takes the infinite path.
+- The caller loop `0x65B578–0x65B5A0` re-checks an op-done flag after each wake. In other words, the main thread is waiting for FIOS ops to complete.
+- Every wait in the run, on every thread, has `timeout_us=0`, so the HLE's ignored timeout never matters (`over_timeout=0`).
+- The rest of the main thread's time is `sys_timer_usleep` and CPU (main thread 0.01–0.08 cores).
+
+### 12.3 Producer/consumer chain (VERIFIED)
+
+All threads are FIOS threads. Each one sits in its own `sys_lwcond_wait` poll whenever it is not working.
+
+1. The main thread (tid 1) and mediathread tid 6 kick the scheduler with `sys_lwcond_signal` on cv `0x10486310` (LR `0x66BAB8`).
+2. The FIOS scheduler (tid 9) waits on that cv. When it sees work, it broadcasts (`signal_all`, LR `0x66BA08`):
+   - to cv `0x104863C8`, the mediathreads tids 6–8;
+   - to cv `0x105432C0`, the main thread.
+3. Mediathread tid 6 does the actual work:
+   - `cellFsRead`: about 30 µs per call;
+   - SPU decompression: `cellSpursEventFlagWait`, about 1.3 ms per call.
+4. Completion is broadcast back by tid 9, and the main thread sees it at its next poll (wake lag p50 0.5–0.6 ms, p90 1.0 ms).
+
+HLE signals are no-ops (§11.2), so every hop costs up to one `Sleep(1)` (about 1.1 ms). One op is about 3 hops: 3.46 ms and 3 polls.
+
+### 12.4 Root cause
+
+**The 19.45 s track load is classified as 1 + 3: repeated cv polling, because the HLE never delivers wakeups (VERIFIED).**
+- 4,433+ FIOS ops are processed one after another, each costing about 3.5 ms of hand-off latency between pollers.
+- The producer's actual work is about 1.75 s: 0.03 s of reads plus 1.72 s of SPU decompression waits.
+- The process is idle at about 0.25 cores. The producer is not slow, and timeouts play no part.
+- The vehicle and character loads show the same pattern.
+
+**The 26.8–27.6 s gap is classified as 5: a synchronisation dependency, not identified (PARTIAL).**
+- The main thread waits for one FIOS op (call chain via `0x3BC4B4`, `0x6FE558`, `0x759460`, `0x741138`). The scheduler goes round about 8,170 times (one round per 3.4 ms, driven by the main thread's own kicks) without dispatching any I/O.
+- Across the whole process: no `cellFsRead`, no SPU work, 0.16 cores; all other threads are in `sys_timer_usleep`, mutex or queue waits.
+- The gap is 26.8–27.6 s in all four runs (V1A 26.93, V1B 27.41, V2 26.80, V3 27.61), whatever the instrumentation.
+- No timed waits occur, and `sys_time_get_current_time` (tid 6, about 260/s in every phase) is monotonic QPC. So a FIOS deadline is excluded, but not a time or count condition in game code.
+- The env phase's single 6.38 s episode (137 reads) looks like the same kind of wait.
+- **Remaining gap:** which op this is, and what its completion depends on. Finding out would take a dump of the FIOS op descriptor (file, offset, state) at the `0x65B59C` wait, for the episode that starts after the last vehicle. That needs another authorised launch.
+
+### 12.5 Overhead and recommendation
+
+**Overhead** against V2: race entry +0.94 s (+0.8 %), track load 19.41 s vs 19.45 s, light-scene FPS 21.28 vs 21.85 (−2.6 %). Window lines amount to 15,062 `[lwc*]` lines in 195 s.
+
+**Recommended optimisation (not implemented; needs an authorised A/B):**
+- Make the HLE lwcond deliver wakeups. One way: a per-lwcond generation counter plus a host wait primitive (`WaitOnAddress` or a condition variable), so that `signal`, `signal_all` and `signal_to` wake the waiter instead of leaving it to time out of `Sleep(1)`.
+- The guest-visible semantics stay the same: release the lwmutex, wait, re-acquire, return 0. Spurious wakeups remain allowed. Optionally, honour the r4 timeout.
+- Expected saving (HYPOTHESIS): the track, vehicle and character loads are hand-off bound, about 37 s of main-thread waits for about 5 s of producer work. Removing most of the hop latency could save about 20–30 s.
+- It would not shorten the 27 s gap, which has no producer activity; that needs the measurement in §12.4 first.
