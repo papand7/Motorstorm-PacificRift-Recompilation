@@ -1,6 +1,10 @@
 # T169: game validation plan
 
-## Result of the authorised launches (D1, F1): the corrections did not run
+## Result of D2 and F2: the corrections ran
+
+**D2 and F2 were both valid, with switches confirmed effective. F2 removed almost all terrain clipping; `RSX_DEPTH_STATE=1` damages vehicles.** Details: `D2_F2_GAME_RESULTS.md`, `VISUAL_CORRECTION_EFFECTIVENESS.md`. All authorised launches are used; any further launch needs new authorisation.
+
+## Earlier launches (D1, F1): the corrections did not run
 
 **BLOCKED: both launches ran at baseline, so no correction has been tested in the game.** `RSX_VISUAL_PROFILE` is applied in `d3d12_init`, and the game's D3D12 path never calls that function: `rsx_d3d12_backend_init` calls `init_d3d12` directly, and only the Vulkan and Metal backends call `rsx_draw_engine_init`. **VERIFIED:** neither run logged `[visual]` or `Backend init`, and F still logged `[XFER] ... not applied` despite `0x1BF`. The `test_t169_visual` pin only checks where the text sits in the source, so it couldn't catch this.
 

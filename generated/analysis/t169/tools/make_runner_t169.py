@@ -1,6 +1,6 @@
 """T169: arms D and F of GAME_VALIDATION_PLAN.md, derived from t165/ab/run_t165.py: same route, flyover skip and arm T environment.
-Differences: caps 205 s game / 210 s host; the T169 exe; RSX_VISUAL_PROFILE per arm; c33.x timeline; bounded RSX_VISUAL_DIAG;
-the debug layer in both arms with its messages counted by dbwin_d3d12_t169.py; one RSXI frame last (race entry + 25 s, or host 190 s
+Differences: caps 205 s game / 210 s host; the T169 exe; explicit switches per arm (D2/F2), stop conditions on log lines; c33.x timeline; bounded RSX_VISUAL_DIAG;
+the debug layer in both arms with its messages counted by dbwin_d3d12_t169.py; no RSXI; RSX_VISUAL_DIAG lines from race entry + 25 s (or host 190 s
 if earlier), because a capture can trip the 4 s Present timeout that ends a run; a refusal to start in a remote session.
   py -3 generated/analysis/t169/tools/make_runner_t169.py
   py -3 generated/analysis/t169/ab/run_t169.py prepare t ; dryrun D|F ; launch D|F <tag>"""
@@ -26,20 +26,53 @@ i0, i1 = src.index("EXEDIR = HERE.parents[1]"), src.index("RACE_STOP = {")
 src = src[:i0] + """EXEDIR = HERE
 VALID = {'D3D12_DBG': '1'}
 ARMS = {
-    'D': ('t', {**ENV_LEAN, **TEXRES, **VALID, 'RSX_VISUAL_PROFILE': '0x80'}),
-    'F': ('t', {**ENV_LEAN, **TEXRES, **VALID, 'RSX_VISUAL_PROFILE': '0x1BF'}),
+    'D': ('t', {**ENV_LEAN, **TEXRES, **VALID, 'RSX_DEPTH_STATE': '1'}),
+    'F': ('t', {**ENV_LEAN, **TEXRES, **VALID, 'RSX_COLOR_XFER': '7', 'RSX_GUEST_SAMPLERS': '15', 'RSX_TEX_MIPS': '1', 'RSX_ZETA_EXACT': '1',
+                'RSX_RT_WINDOW': '1', 'RSX_RT_FEEDBACK': '1', 'RSX_DEPTH_STATE': '1', 'RSX_MRT_STATE': '1'}),
 }
+EXPECT = {'D': 'profile=0x0 xfer=0x0 samplers=0x0 mips=0 zeta_exact=0 rt_window=0 rt_feedback=0 msaa=0 depth_state=1 mrt_state=0',
+          'F': 'profile=0x0 xfer=0x7 samplers=0xF mips=1 zeta_exact=1 rt_window=1 rt_feedback=1 msaa=0 depth_state=1 mrt_state=1'}
+RX_SERIOUS = re.compile(r'Present\\(\\) Timeout|DXGI_ERROR_DEVICE|DeviceRemoved|DEVICE_REMOVED|device removed|resynchron|fifo.*(corrupt|resync)', re.I)
 """ + src[i1:]
+# D2/F2 stop conditions, checked on every log line and every controller tick
+sub("    def feed(self, stream, line):\n        now = self.now()\n",
+    "    def feed(self, stream, line):\n        now = self.now()\n"
+    "        if line.startswith('[visual] effective'):\n"
+    "            self.effective = line.strip()\n"
+    "            self.note('visual_effective', line=line[:200])\n"
+    "            if EXPECT[ARM] not in line:\n"
+    "                self.finish('requested switches not effective')\n"
+    "                return\n"
+    "        if line.startswith('[visual-active]'):\n"
+    "            self.note('visual_active', line=line[:400])\n"
+    "        if RX_SERIOUS.search(line):\n"
+    "            self.note('serious', line=line[:240])\n"
+    "            self.finish('serious error: ' + line[:80])\n"
+    "            return\n")
+sub("    def check_global(self):\n        if self.done.is_set():\n            return True\n",
+    "    def check_global(self):\n        if self.done.is_set():\n            return True\n"
+    "        if self.now() > 90 and not getattr(self, 'effective', None):\n"
+    "            self.finish('no [visual] effective line within 90 s')\n"
+    "            return True\n"
+    "        if ctypes.windll.user32.GetSystemMetrics(0x1000):\n"
+    "            self.finish('session became remote')\n"
+    "            return True\n"
+    "        if self.now() - getattr(self, 'mem_t', -99) >= 15:\n"
+    "            self.mem_t = self.now()\n"
+    "            subprocess.Popen(['tasklist', '/FI', 'IMAGENAME eq MotorStormPacificRiftRecomp.exe', '/FO', 'CSV', '/NH'], stdout=open(self.rt / 'mem.csv', 'a'), stderr=subprocess.DEVNULL)\n")
+sub("import hashlib, json, os,", "import ctypes, hashlib, json, os,")
 sub("RSXI_AT_S = 10.0   # T165: after the skip presses", "RSXI_AT_S = 25.0   # T169: after the timing window\nRSXI_LATEST_S = 190.0")
 sub("RUN_NAME = 't165'", "RUN_NAME = 't169'")
 sub("if self.race_t is not None and self.now() - self.race_t >= RSXI_AT_S and not (self.rt / 'rsxi_go').exists():",
     "if self.race_t is not None and (self.now() - self.race_t >= RSXI_AT_S or self.now() >= RSXI_LATEST_S) and not (self.rt / 'rsxi_go').exists():")
 sub("self.note('rsxi_trigger', after_race_s=RSXI_AT_S)", "self.note('rsxi_trigger', after_race_s=round(self.now() - self.race_t, 2))")
-sub("'RSXI_COUNT': '3', 'RSXI_STRIDE': '120',", "'RSXI_COUNT': '1', 'RSXI_STRIDE': '120',")
+# D2/F2: no RSXI. It tripped the 4 s Present timeout in D1 and F1, and that timeout now cancels the sequence.
+j0, j1 = src.index("        'RSXI': '1', 'RSXI_DIR'"), src.index("        'RSX_XFER_LOG': '48'")
+src = src[:j0] + src[j1:]
 sub("        'RSX_XFER_LOG': '48', 'RSX_TEXREC_STATS': '1',\n",
     "        'RSX_XFER_LOG': '48', 'RSX_TEXREC_STATS': '1',\n"
     "        'RSX_VPC_WATCH': '33', 'RSX_VPC_WATCH_LANE': '0', 'RSX_VPC_WATCH_MS': '250', 'RSX_VPC_WATCH_MAX': '4096',\n"
-    "        'RSX_VISUAL_DIAG': '1', 'RSX_VISUAL_DIAG_GO': str(rtdir / 'rsxi_go'), 'RSX_VISUAL_DIAG_MAX': '3000',\n")
+    "        'RSX_VISUAL_DIAG': '1', 'RSX_VISUAL_DIAG_GO': str(rtdir / 'rsxi_go'), 'RSX_VISUAL_DIAG_MAX': '2000', 'RSX_VISUAL_ACTIVE': '1',\n")
 sub("'CELLMARK_DUMP': '12', 'CELLMARK_DUMP_EVERY': '64',", "'CELLMARK_DUMP': '16', 'CELLMARK_DUMP_EVERY': '64',")
 sub("'--timeout', '195']   # + fast_startup HARD_GRACE_S 15 = 210 s hard deadline", "'--timeout', '205']   # + HARD_GRACE_S 5 (set in main) = 210 s hard deadline")
 sub("raise SystemExit('usage: run_t165.py launch B|X|Y|S <tag>')", "raise SystemExit('usage: run_t169.py launch D|F <tag>')")

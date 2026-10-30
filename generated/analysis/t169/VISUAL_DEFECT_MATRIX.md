@@ -1,6 +1,6 @@
 # T169: visual defect matrix
 
-**Update (runtime):** D1 and F1 ran with no correction active, because `RSX_VISUAL_PROFILE` never reaches the game's D3D12 path. See `GAME_VALIDATION_PLAN.md`. Runtime status here stays unverified.
+**Update (runtime):** D2 and F2 ran the corrections. The patch-and-depth-state link below did not hold, and depth state damages vehicles. See `VISUAL_CORRECTION_EFFECTIVENESS.md`.
 
 2026-10-30. **No game launch.** Evidence: the existing T165 capture B3 frame f002192 (exe `performance_next/ab/exe_n`, sha256 `0304156b…49b3`, ps3recomp `a049b1e`, switches: texture residency only), T145, T133, T120, plus new offline tests. New code: ps3recomp `agent/t169-visual-fidelity-recovery`, based on `b1eb158`.
 
