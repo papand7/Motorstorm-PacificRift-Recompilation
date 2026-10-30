@@ -52,3 +52,9 @@ The launches require that the texture A/B has completed or that its owner has co
 ## Still to deliver after the launches
 
 `GAME_AB_RESULTS.md`, individual and frame-matched runs, rendering comparisons, real fetch coverage, remaining bottlenecks and the integration recommendation. **Current recommendation: do not merge or enable; there is no game evidence.**
+
+## Texture A/B attempt: FAILED, no data
+
+With the user's approval, E1, T1, E2 and T2 launched at 11:35 on the exe `0304156b…49b3`. All four stopped within about 3 s of starting (game wall 0.3 s in E1, no milestone): `controller_error NameError: HARD_KILL_S`. The generators' slice of `run_t161.py` removed that constant, in `run_next.py` and `run_t162.py` alike. The runner also returned rc 0, so the sequence did not stop at E1. The game and the exes are not implicated. No texture number exists, and T162 did not launch.
+
+Fixed offline: the generators restore `HARD_KILL_S = 200.0`; `seq_et.sh` and `seq_t162.sh` stop on a controller error; `tools/check_runner_names_t162.py` finds names a runner reads and never defines. It now reports only `SRC_EXE`, which is also unresolved in the working T161 runner. A rerun needs new approval.
