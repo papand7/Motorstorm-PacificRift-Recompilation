@@ -73,3 +73,19 @@ Draw counts are identical across configs by construction. The additional shadow 
 **Instrumentation overhead:** `[vis-draw]` costs one stderr line per draw. Don't time runs with it on. Off, it costs one branch per draw and a few counter increments.
 
 **Comparability rule for the game A/B:** same shader-cache state, local session (no remote `Present` mode), and count `wait_ms ≈ 84` frames before comparing.
+
+## Phase 4: corrected arm G against A, B, C
+
+One run per arm, local session, with no frames in the host-GPU-wait mode. G ran about an hour after A, B, C.
+
+| Arm | All FPS | Light FPS | Light p50 ms | Heavy FPS | Heavy p50 ms | Heavy draws | PSO misses | Miss ms |
+|---|---|---|---|---|---|---|---|---|
+| A | 9.3 | 15.5 | 46.3 | 7.2 | 129.9 | 6178 | 127 | 5258 |
+| B | 9.5 | 15.5 | 45.4 | 7.3 | 126.7 | 6012 | 127 | 4852 |
+| C | 9.7 | 15.5 | 45.4 | 7.2 | 130.8 | 6242 | 127 | 4893 |
+| G | 8.9 | 14.1 | 48.8 | 6.4 | 141.1 | 6600 | 128 | 5611 |
+
+- Reinterpreted draws: 774 of 1,454,187, 2 per frame. Feedback copies: 4838, within the range of A to C (4137 to 6508).
+- 4 frames at or above 500 ms, as in A, B, C.
+- **G is slower, PARTIAL and unattributed.** Light frames with identical median draws are about 7% slower. Two extra draws per frame are unlikely to explain 3 ms, and heavy frames had 6% more draws, but one run can't separate the rewrite, the diagnostics and machine state.
+- Rewrite compile time wasn't measured separately. GPU time wasn't measured reliably.

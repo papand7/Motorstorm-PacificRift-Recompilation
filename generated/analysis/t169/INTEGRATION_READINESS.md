@@ -38,3 +38,11 @@
 **Order:** merge after T165's base. Then run the plan's arms against the merged exe, because the hash above stops applying as soon as anything is merged.
 
 **Windows-specific:** the profile sets unset switches with `_putenv_s` at the top of `rsx_d3d12_backend_init`. Backends other than D3D12 don't read it.
+
+## Phase 4 update
+
+The `0xBF` over A8R8G8B8 item above now has a fix: commit `66b5478`, opt-in `RSX_RT_REINTERP=1`, executed in game (774 draws, 0 refused). Not merged or pushed, defaults unchanged.
+
+Don't default `RSX_DEPTH_STATE=1` without the decode. Don't default the decode until its semantics are checked against a reference (`NEXT_VISUAL_CORRECTNESS_PLAN.md`).
+
+Suite at `66b5478`: 121 pass, 3 fail, 43 skip. Two failures are inherited; `test_spurs_wws_concurrency` failed once and passed 5 of 5 on rerun.

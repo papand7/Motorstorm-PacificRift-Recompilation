@@ -15,3 +15,10 @@
 | PS3 fidelity | **BLOCKED**: no reference | A PS3 image or video of this route |
 
 **Not in scope of these runs:** per-switch effects inside F2, GPU-based validation, GPU timestamps.
+
+## Phase 4 update
+
+- **Vehicle speckle with depth state: resolved in the corrected arm**, VERIFIED in one run (`ARM_C_CORRECTED_RESULTS.md`). Requires `RSX_RT_REINTERP=1`.
+- **Velocity decode semantics:** HYPOTHESIS, no PS3 reference; blur at high speed unobserved.
+- **Far vehicles sliced into slivers, flat patches on terrain:** open, in arms A, B, C and G, so not caused by depth state or the decode.
+- **Shoreline:** not assessed.

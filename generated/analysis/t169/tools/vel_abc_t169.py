@@ -8,7 +8,7 @@ from PIL import Image
 
 T = Path(__file__).resolve().parents[1]
 RUNS = T.parents[1] / 'runs'
-ARMS = {'A': 'VA', 'B': 'VB', 'C': 'VC'}
+ARMS = {'A': 'VA', 'B': 'VB', 'C': 'VC', 'G': 'VG'}
 num = lambda k, l: float(m[1]) if (m := re.search(k + r'=?\s*([\d.]+)', l)) else 0.0
 BOX = {'vehicle': (440, 340, 840, 720), 'terrain': (0, 420, 440, 720), 'far': (300, 180, 980, 400)}
 

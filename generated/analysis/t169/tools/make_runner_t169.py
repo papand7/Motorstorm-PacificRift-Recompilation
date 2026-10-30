@@ -20,7 +20,7 @@ def sub(old, new, count=1):
 
 
 sub("SRC_EXES = {'n': ROOT / 'build' / 'motorstorm-perfnext-tex' / 'MotorStormPacificRiftRecomp.exe'}",
-    "SRC_EXES = {'t': ROOT / 'build' / 'motorstorm-t169' / 'MotorStormPacificRiftRecomp.exe', 'c': ROOT / 'build' / 'motorstorm-t169' / 'MotorStormPacificRiftRecomp.exe'}")
+    "SRC_EXES = {'t': ROOT / 'build' / 'motorstorm-t169' / 'MotorStormPacificRiftRecomp.exe', 'c': ROOT / 'build' / 'motorstorm-t169' / 'MotorStormPacificRiftRecomp.exe', 'g': ROOT / 'build' / 'motorstorm-t169p4' / 'MotorStormPacificRiftRecomp.exe'}")
 sub("HARD_KILL_S = 200.0   # as T161 (this slice replaces its line)", "HARD_KILL_S = 203.0   # before the 205 s game cap")
 i0, i1 = src.index("EXEDIR = HERE.parents[1]"), src.index("RACE_STOP = {")
 src = src[:i0] + """EXEDIR = HERE
@@ -36,13 +36,16 @@ VEL_RSXI = {'RSXI': '1', 'RSXI_COUNT': '1', 'RSXI_STRIDE': '1', 'RSXI_MINDRAWS':
 ARMS['A'] = ('t', {**ARMS['F'][1], **VEL_RSXI, 'RSX_RT_REINTERP': '0'})
 ARMS['B'] = ('t', {**ARMS['A'][1], 'RSX_DEPTH_STATE': '0'})
 ARMS['C'] = ('c', {**ARMS['A'][1], 'RSX_RT_REINTERP': '1'})
+# Phase 4: arm C with the corrected rewrite (exe g, ps3recomp d2d9ef9). The capture waits for a frame with the composite and a vehicle velocity writer.
+ARMS['G'] = ('g', {**ARMS['C'][1], 'RSX_RT_REINTERP_DIAG': '0074B441,02193941', 'RSXI_NEED_FP': '02193941,02FB4541'})
 VEL_CAP_S = 38.0
 EXPECT = {'D': 'profile=0x0 xfer=0x0 samplers=0x0 mips=0 zeta_exact=0 rt_window=0 rt_feedback=0 msaa=0 depth_state=1 mrt_state=0',
           'F': 'profile=0x0 xfer=0x7 samplers=0xF mips=1 zeta_exact=1 rt_window=1 rt_feedback=1 msaa=0 depth_state=1 mrt_state=1'}
 EXPECT['A'] = EXPECT['F']
 EXPECT['B'] = EXPECT['F'].replace('depth_state=1', 'depth_state=0')
 EXPECT['C'] = EXPECT['F'] + ' rt_reinterp=1'
-RX_SERIOUS = re.compile(r'Present\\(\\) Timeout|DXGI_ERROR_DEVICE|DeviceRemoved|DEVICE_REMOVED|device removed|resynchron|fifo.*(corrupt|resync)', re.I)
+EXPECT['G'] = EXPECT['C']
+RX_SERIOUS = re.compile(r'Present\\(\\) Timeout|DXGI_ERROR_DEVICE|DeviceRemoved|DEVICE_REMOVED|device removed|resynchron|fifo.*(corrupt|resync)|\\[rt-reinterp\\] fp=0x(0074B441|02193941)|compile FAIL \\(fp=0x(0074B441|02193941)', re.I)
 """ + src[i1:]
 # D2/F2 stop conditions, checked on every log line and every controller tick
 sub("    def feed(self, stream, line):\n        now = self.now()\n",
@@ -77,13 +80,13 @@ sub("if self.race_t is not None and self.now() - self.race_t >= RSXI_AT_S and no
     "if self.race_t is not None and (self.now() - self.race_t >= RSXI_AT_S or self.now() >= RSXI_LATEST_S) and not (self.rt / 'rsxi_go').exists():")
 sub("self.note('rsxi_trigger', after_race_s=RSXI_AT_S)", "self.note('rsxi_trigger', after_race_s=round(self.now() - self.race_t, 2))")
 sub("        if self.race_t is not None and self.now() - self.race_t >= RACE_STOP.get(ARM, RACE_STOP_S):\n",
-    "        if ARM in 'ABC' and self.race_t is not None and self.now() - self.race_t >= VEL_CAP_S and not (self.rt / 'vel_go').exists():\n"
+    "        if ARM in 'ABCG' and self.race_t is not None and self.now() - self.race_t >= VEL_CAP_S and not (self.rt / 'vel_go').exists():\n"
     "            (self.rt / 'vel_go').write_text('go\\n')\n"
     "            self.note('vel_capture_trigger', after_race_s=round(self.now() - self.race_t, 2))\n"
     "        if self.race_t is not None and self.now() - self.race_t >= RACE_STOP.get(ARM, RACE_STOP_S):\n")
 sub("    envs.update({k: v.replace('{rt}', str(rtdir)) for k, v in ARMS[ARM][1].items()})   # the arm keys last\n",
     "    envs.update({k: v.replace('{rt}', str(rtdir)) for k, v in ARMS[ARM][1].items()})   # the arm keys last\n"
-    "    if ARM in 'ABC':\n"
+    "    if ARM in 'ABCG':\n"
     "        envs.update({'RSXI_DIR': str(rtdir / 'rsxi'), 'RSXI_TRIGGER_FILE': str(rtdir / 'vel_go')})\n")
 # D2/F2: no RSXI. It tripped the 4 s Present timeout in D1 and F1, and that timeout now cancels the sequence.
 j0, j1 = src.index("        'RSXI': '1', 'RSXI_DIR'"), src.index("        'RSX_XFER_LOG': '48'")
