@@ -1,6 +1,6 @@
 # T169: regression validation
 
-**Result: no new failure traces to T169 code. `test_spurs_kick_wake` is new on this machine but also fails on the earlier commit that passed it, so it isn't this change.** Rendering results: `D2_F2_GAME_RESULTS.md`.
+**Result: no new failure traces to T169 code. `test_spurs_kick_wake` is a flaky test, not a regression (see the end of this file).** Rendering results: `D2_F2_GAME_RESULTS.md`.
 
 ## Preflight for D2 and F2 (ps3recomp `774c81d`)
 
@@ -49,4 +49,38 @@ Code: ps3recomp `001a56f` on `b1eb158`. Logs: `logs/` in the main checkout (`vis
 
 **Regression found by the game runs:** `RSX_VISUAL_PROFILE` has no effect in the game (`GAME_VALIDATION_PLAN.md`). The test passed because it pins source text, not behaviour. Not fixed.
 
-**Not covered:** real-GPU behaviour, frame time, memory in game, sand boxes, tyres, grain and edges in the actual scene, the `0xBF` smear risk with `RSX_DEPTH_STATE`, and any bit combination beyond the fixtures. `GAME_VALIDATION_PLAN.md` covers these, pending approval.
+**Not covered:** real-GPU behaviour, frame time, memory in game, sand boxes, tyres, grain and edges in the actual scene, and any bit combination beyond the fixtures. `GAME_VALIDATION_PLAN.md` covers these, pending approval.
+
+## Vehicle isolation update (ps3recomp `542420e`)
+
+**Suite:** PASS 121, FAIL 3, SKIP 43. **WARP fixtures:** 10 of 10 pass. Backend-level `test_t169_rt_reinterp`, `test_t169_profile` and `test_t169_visual` pass.
+
+**`test_t169_rt_reinterp` (new, real backend on WARP):** tagged pixel values through the velocity chain.
+
+| `RSX_DEPTH_STATE` | `RSX_RT_REINTERP` | Pixel R,G | Meaning |
+|---|---|---|---|
+| 0 | 0 | 0, 0 | Wiped: the old renderer |
+| 1 | 0 | 1, 56 | **The defect:** kept, read as bytes |
+| 1 | 1 | 128, 64 | **Corrected:** x 0.50048828, y 0.25 |
+| 0 | 1 | 0, 0 | Wiped: zero stays zero |
+
+**Failures:**
+- `test_rt_pool_srv_layout`, `test_vpc_watch`: inherited.
+- `test_d3d12_shader_cache`: **new, one failure, cause unknown.** Its child exe returned non-zero with no output in the suite, then passed 10 of 10 repeats (2 plain, 8 in the suite's environment). It doesn't build the backend, and the text checks on the backend passed. PARTIAL as unrelated.
+
+### `test_spurs_kick_wake`: flaky test, not a regression
+
+**Classification: flaky; no regression VERIFIED.** Harness: `tools/spurs_kick_matrix_t169.py`, interleaved, 14 runs, High performance power scheme. `libs/spurs`, `runtime`, `tests` and the two test scripts show no diff between the three revisions.
+
+| Revision | Condition | Runs | Failed | Off median, range (us) | On median, range (us) |
+|---|---|---|---|---|---|
+| `774c81d` current | idle | 4 | 3 | 53-15401 | 40-60 |
+| `001a56f` earlier pass | idle | 3 | 3 | 50-69 | 42-60 |
+| `b1eb158` baseline | idle | 3 | 3 | 53-63 | 42-60 |
+| current / baseline | 1 ms timer held | 1 / 1 | 1 / 1 | 56 / 55 | 46 / 47 |
+| current / baseline | all cores loaded | 1 / 1 | 0 / 0 | 13870 / 6948 | 49 / 44 |
+
+- **Why it flips:** the test asserts `on * 2 < off` on the median across four sections. With the wake off, latency is bimodal: about 50 us or about 7-16 ms. The median can land on either mode with the same code.
+- **The wake still works:** on-median stayed 40-60 us and on p90 at most 135 us. Off p90 reached about 7-16 ms in at least one section of every run.
+- **Environment:** every revision fails idle and the two loaded runs pass, so load pushes off towards the slow mode. Timer resolution doesn't decide it: holding 1 ms failed, and 15.6 ms both passed and failed. The final idle run and the later suite run (off 6842 us) passed on current code, so what sets the mode when idle is **unresolved**.
+- **Thresholds unchanged.** Comparing p90 would match what the wake improves, but that's a test change for its own review.

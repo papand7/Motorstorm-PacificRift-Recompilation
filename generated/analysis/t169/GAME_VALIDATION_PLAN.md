@@ -72,3 +72,19 @@ Only the 2-launch fallback (D and F) was authorised and used. T165's proposed gr
 **Still needed from the user:** a PS3 reference image or video of the same scene. Without it, darker mid-tones and bright sand can only be judged from the guest's registers.
 
 **Default change rule:** make a bit default only after its arm passes and a PS3 reference doesn't contradict it.
+
+## Vehicle isolation A/B (prepared, not launched; needs separate authorisation)
+
+**Executable:** both arms use the existing `02b5c83cbb15d61f9cfea46f50868ac4c4c95593fb60976cc862ccf010a23a6f` (ps3recomp `774c81d`), so no build is needed. `make_runner_t169.py` has the arms and `run_t169.py dryrun A` and `dryrun B` pass the hash check; the `[visual] effective` line stops a run with the wrong switches. Launch: `py -3 generated/analysis/t169/ab/run_t169.py launch A|B <tag>`, one each, in a local console session.
+
+| Arm | Switches | Prediction if the cause is right |
+|---|---|---|
+| A | F2 set, `RSX_DEPTH_STATE=1` | Vehicle speckled, as F2 |
+| B | F2 set, `RSX_DEPTH_STATE=0` | Vehicle clean; decal boxes wrong again; no vehicle motion blur |
+| C (optional, later) | Arm A + `RSX_RT_REINTERP=1` | Vehicle clean with real motion blur. **Needs a new build and its own authorisation** |
+
+All other settings stay the same as F2. A and B only test that the speckle follows depth state within the F2 bundle. Only C tests the decode, so a clean C is what would confirm the cause.
+
+**Compare at matched race clocks:** terrain clipping; vehicle materials and speckle (median Laplacian); decals and shadows; frame-time p50, p95, p99; PSO misses and miss ms; draw counts; `[visual-active]` counters; `D3D12_DBG` message counts. Count `wait_ms` near 84 frames first.
+
+**Stop conditions:** as D2 and F2 (serious errors, remote session, 205 s cap).

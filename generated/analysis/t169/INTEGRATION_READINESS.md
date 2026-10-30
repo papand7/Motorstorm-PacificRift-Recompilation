@@ -1,6 +1,6 @@
 # T169: integration readiness
 
-**Not ready to merge as a default set. The opt-in plumbing works in the game, but `RSX_DEPTH_STATE=1` damages vehicles (`REMAINING_VISUAL_DEFECTS.md`), and there's no PS3 reference.** No default changed. Nothing was pushed or merged.
+**Not ready to merge as a default set. The opt-in plumbing works in the game, but `RSX_DEPTH_STATE=1` exposes a velocity misread that speckles vehicles (`REMAINING_VISUAL_DEFECTS.md`), and there's no PS3 reference.** No default changed. Nothing was pushed or merged.
 
 | Item | Value |
 |---|---|
@@ -22,14 +22,14 @@
 | `0x10` | `RSX_RT_WINDOW` | Active in F2. Effect not separable |
 | `0x20` | `RSX_RT_FEEDBACK` | Active in F2. Effect not separable |
 | `0x40` | `RSX_MSAA` (needs `0x02`) | Not tested in game |
-| `0x80` | `RSX_DEPTH_STATE` | **Not ready: vehicle regression** |
+| `0x80` | `RSX_DEPTH_STATE` | **Not ready alone: needs the velocity decode, untested in game** |
 | `0x100` | `RSX_MRT_STATE` | Active in F2. Effect not separable |
 
 **Known gaps:**
 - `0xBF` over A8R8G8B8 has no fix. It needs a decompiler decode, and should be done before or with `0x80` if arm D smears.
 - Blue rectangle: not reproduced.
 - CONTROL0-disabled units are still sampled; effect unknown.
-- Two suite failures predate this work, and `test_spurs_kick_wake` now fails on this machine at both commits (`REGRESSION_VALIDATION.md`).
+- Two suite failures predate this work, and `test_spurs_kick_wake` is flaky on this machine at all three tested revisions (`REGRESSION_VALIDATION.md`).
 
 **Conflicts with T167 and T168:** `libs/video/rsx_d3d12_backend.c` will conflict textually at the include block, the GP macro block, `gs_desc_for`/`gs_set`, the upload counter, the top of `d3d12_init`, and the vdiag record site. These are small and additive.
 

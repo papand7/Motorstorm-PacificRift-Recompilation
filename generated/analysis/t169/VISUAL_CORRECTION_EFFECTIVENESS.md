@@ -9,7 +9,7 @@ A = verified in-game improvement, B = active with visual effect inconclusive, C 
 | Correction | Class | Evidence | Limit |
 |---|---|---|---|
 | F2 bundle, terrain clipping | **A** | Clipped white 18.9 → 0.18 % and `c33.x` 0.95 → 0.49 on frames paired by race clock | Clipping only, not PS3 fidelity; includes the depth regression |
-| `RSX_DEPTH_STATE=1` | **D** | 88 % of draws change state. Compared with D1 and F1 at race clock 00:01.33, the vehicle is speckled and its materials are lost; rectangular patches remain | Runs as coded, gives a wrong picture. Cause open |
+| `RSX_DEPTH_STATE=1` | **D** | 88 % of draws change state. Compared with D1 and F1 at race clock 00:01.33, the vehicle is speckled and its materials are lost; rectangular patches remain | Runs as coded, correct in itself, and exposes the `0xBF` velocity misread (`D2_F2_GAME_RESULTS.md`): reproduced offline, HYPOTHESIS in game |
 | `RSX_COLOR_XFER=7` | **B** | 724,864 sRGB draws, 81 rewrites, 0 refused, log says `applies it` | The likely exposure driver (HYPOTHESIS); no single-switch run. `xfer_expand` stayed 0 |
 | `RSX_GUEST_SAMPLERS=15` | **B** | 17 samplers, 447,034 binds | Terrain bands gone in F2; not attributable |
 | `RSX_TEX_MIPS=1` | **B** | 297 multi-level uploads, 2,841 levels | Near sand looks soft; could be over-blur or just unclipped. Vehicle grain is worse |
@@ -56,7 +56,7 @@ The edge and detail falls can't be read as less aliasing or less texture detail:
 | D2 | 149.3 | 13.3 | 0.88 | 2.0 |
 | F2 | 126.4 | 9.4 | 0.01 | 5.4 |
 
-The D1 and F1 values agree, and D2 changes only `RSX_DEPTH_STATE`. So the depth-state link is strong, on one matched frame: **VERIFIED as a difference, cause HYPOTHESIS**.
+The D1 and F1 values agree, and D2 changes only `RSX_DEPTH_STATE`. So the depth-state link is strong, on one matched frame: **VERIFIED as a difference; cause reproduced offline, not yet confirmed in game**.
 
 ## Observations
 

@@ -38,3 +38,27 @@
 `mrt_draws` counts every draw under the switch, so it shows the switch is on, not that an MRT mask differed.
 
 **Frames and timing:** see `RENDERING_PERFORMANCE_CORRELATION.md`. **Images and classes:** see `VISUAL_CORRECTION_EFFECTIVENESS.md`.
+
+## Vehicle depth-state isolation (offline, no launch)
+
+**Root cause: strong, but not confirmed in game.** `RSX_DEPTH_STATE=1` is correct and only triggers the defect. Honouring stencil on full-screen op 915 keeps object velocity that the old renderer wiped. The kept velocity then hits an older bug: format `0xBF` reads the RGBA8 velocity target as unorm bytes, so the final composite (`0x02193941`) jitters its blur taps by garbage vectors.
+
+| Candidate | Finding | Label |
+|---|---|---|
+| Depth compare | Scene draws use only LEQUAL (874) and GREATER (15, the decal boxes) in the complete B3 frame; no EQUAL. LEQUAL draws keep the compare the host already used | **VERIFIED, ruled out** |
+| Alpha-tested passes | Alpha test off on all 928 draws | **VERIFIED, ruled out** |
+| Depth encoding | Host D24_UNORM_S8_UINT is unchanged by the switch | **VERIFIED, ruled out** |
+| Depth writes | Velocity pass mixes write 0 and 1; no link to the speckle found. Not separately tested in game | PARTIAL |
+| Missing stencil | The old missing stencil hid the bug: op 915 `NOTEQUAL 255` wiped the velocity written by ops 597-914 | **VERIFIED** from snapshots |
+| Velocity misread | Stored as PK2H then UP4UB, read as `0xBF` without decode. Jitter median 4.72 px, p99 15.69 px; decoded 0.40 / 9.05 px | **VERIFIED** in state, shader logic, bytes and fixture; **HYPOTHESIS** as the game's cause |
+
+**Evidence:** `tools/velocity_repro_t169.py` models one composite tap on captured B3 surfaces. Median Laplacian on tagged pixels: wiped 1.0, kept and misread 2.0, kept and decoded 1.50. Its contact sheet shows the same clean, speckled, clean split as D1, D2 and the corrected read. D1, D2 and F2 give 1.0, 2.0 and 5.4 on the matched vehicle region.
+
+**Limits:**
+- The model uses B3, not the 00:01.33 frame, with one tap at weight 1.
+- It uses substitute noise instead of guest `0x02190000`, and y's high byte is missing from the BMP.
+- The D1 RSXI frame stops at 2048 of about 4500 records, and D2 and F2 have no intermediate surfaces, so a direct D1/D2 comparison of op indices, shader output and transitions at the same race clock wasn't possible.
+- Byte order is only self-consistent on the host, with no PS3 reference.
+- The soft near sand in F2 may be the same mechanism: **HYPOTHESIS**. F2's darker vehicle and any link to the radial streaks aren't explained.
+
+**Correction:** `RSX_RT_REINTERP=1` (ps3recomp `542420e`), default off. It keys on format and RT class, not on vehicles. **No executable was built with it.** Plan: `GAME_VALIDATION_PLAN.md`.

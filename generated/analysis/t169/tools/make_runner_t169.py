@@ -3,7 +3,7 @@ Differences: caps 205 s game / 210 s host; the T169 exe; explicit switches per a
 the debug layer in both arms with its messages counted by dbwin_d3d12_t169.py; no RSXI; RSX_VISUAL_DIAG lines from race entry + 25 s (or host 190 s
 if earlier), because a capture can trip the 4 s Present timeout that ends a run; a refusal to start in a remote session.
   py -3 generated/analysis/t169/tools/make_runner_t169.py
-  py -3 generated/analysis/t169/ab/run_t169.py prepare t ; dryrun D|F ; launch D|F <tag>"""
+  py -3 generated/analysis/t169/ab/run_t169.py prepare t ; dryrun D|F|A|B ; launch D|F|A|B <tag>"""
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -30,8 +30,12 @@ ARMS = {
     'F': ('t', {**ENV_LEAN, **TEXRES, **VALID, 'RSX_COLOR_XFER': '7', 'RSX_GUEST_SAMPLERS': '15', 'RSX_TEX_MIPS': '1', 'RSX_ZETA_EXACT': '1',
                 'RSX_RT_WINDOW': '1', 'RSX_RT_FEEDBACK': '1', 'RSX_DEPTH_STATE': '1', 'RSX_MRT_STATE': '1'}),
 }
+ARMS['A'] = ARMS['F']   # T169 vehicle isolation: the F2 set
+ARMS['B'] = ('t', {**ARMS['F'][1], 'RSX_DEPTH_STATE': '0'})   # the F2 set with depth state alone off
 EXPECT = {'D': 'profile=0x0 xfer=0x0 samplers=0x0 mips=0 zeta_exact=0 rt_window=0 rt_feedback=0 msaa=0 depth_state=1 mrt_state=0',
           'F': 'profile=0x0 xfer=0x7 samplers=0xF mips=1 zeta_exact=1 rt_window=1 rt_feedback=1 msaa=0 depth_state=1 mrt_state=1'}
+EXPECT['A'] = EXPECT['F']
+EXPECT['B'] = EXPECT['F'].replace('depth_state=1', 'depth_state=0')
 RX_SERIOUS = re.compile(r'Present\\(\\) Timeout|DXGI_ERROR_DEVICE|DeviceRemoved|DEVICE_REMOVED|device removed|resynchron|fifo.*(corrupt|resync)', re.I)
 """ + src[i1:]
 # D2/F2 stop conditions, checked on every log line and every controller tick
@@ -75,7 +79,7 @@ sub("        'RSX_XFER_LOG': '48', 'RSX_TEXREC_STATS': '1',\n",
     "        'RSX_VISUAL_DIAG': '1', 'RSX_VISUAL_DIAG_GO': str(rtdir / 'rsxi_go'), 'RSX_VISUAL_DIAG_MAX': '2000', 'RSX_VISUAL_ACTIVE': '1',\n")
 sub("'CELLMARK_DUMP': '12', 'CELLMARK_DUMP_EVERY': '64',", "'CELLMARK_DUMP': '16', 'CELLMARK_DUMP_EVERY': '64',")
 sub("'--timeout', '195']   # + fast_startup HARD_GRACE_S 15 = 210 s hard deadline", "'--timeout', '205']   # + HARD_GRACE_S 5 (set in main) = 210 s hard deadline")
-sub("raise SystemExit('usage: run_t165.py launch B|X|Y|S <tag>')", "raise SystemExit('usage: run_t169.py launch D|F <tag>')")
+sub("raise SystemExit('usage: run_t165.py launch B|X|Y|S <tag>')", "raise SystemExit('usage: run_t169.py launch D|F|A|B <tag>')")
 sub("ARM, RUN_NAME = arm, f't165-{arm}{tag}'", "ARM, RUN_NAME = arm, f't169-{arm}{tag}'")
 sub("    fast_startup.MAX_TIMEOUT_S = 195.0" + NL, "    fast_startup.MAX_TIMEOUT_S = 205.0" + NL + "    fast_startup.HARD_GRACE_S = 5.0" + NL)
 sub("    got = preflight(HDD1)\n",

@@ -1,10 +1,10 @@
 # T169: remaining visual defects
 
-**The next blocker is `RSX_DEPTH_STATE=1`: it speckles the vehicles, and it's in the F2 set.** Launching again needs new authorisation.
+**The next blocker is the `0xBF` velocity misread, which `RSX_DEPTH_STATE=1` exposes as vehicle speckle.** Launching again needs new authorisation.
 
 | Defect | Label | Next change |
 |---|---|---|
-| Vehicle speckle, lost materials with `RSX_DEPTH_STATE=1` | Difference **VERIFIED** on one matched frame; cause HYPOTHESIS (multi-pass or depth-equal vehicle draws now failing because of host depth precision or vertex variance) | Offline first: read the vehicle's `[vis-draw]` lines and depth state, then reproduce on a fixture. Then one run of F2 without depth state, which also separates the rest of the bundle |
+| Vehicle speckle, lost materials with `RSX_DEPTH_STATE=1` | Difference **VERIFIED** on one matched frame; cause reproduced offline as kept velocity read as unorm bytes (depth compare, encoding and alpha test ruled out); not confirmed in game | Arms A and B in `GAME_VALIDATION_PLAN.md`, then optional arm C with `RSX_RT_REINTERP=1` |
 | Rectangular patches | Present in baseline, D2 and F2. The depth-state decal hypothesis is **not supported**: `RSX_DEPTH_STATE` didn't remove them | Identify the draws by region; check stencil, since `RSX_STENCIL_EXACT` wasn't in F2 |
 | Dark vehicle, tyres in F2 | Unresolved while speckle is present | Judge again without depth state |
 | Soft near sand in F2 | Unresolved: possibly mip bias or level selection, or simply no longer clipped | Same-region comparison with mips off |
