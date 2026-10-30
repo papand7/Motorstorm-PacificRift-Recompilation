@@ -22,7 +22,7 @@ RenderableProxy::Render 0x482680, kinds 0-5 (T84D)
 | `gframe` in `[rsx-frame-perf]` | Guest flips |
 | `passes` | Replays within that guest frame |
 
-**The four passes are a record limit, not four renderings.** The backend holds `MAX_DRAWS` = 2,048 records and replays early when full. In the T161 runs CC1 and CC2 (10,801 frame lines), `passes == ceil(records / 2048)` held in all but one line per run. The exceptions are 2 replays with 4 records, around frame 1,920, before the race. The log prints `early replay (records): 2048 records`. Each replay resets the count, so a record is replayed once.
+**The four passes are a record limit, not four renderings.** The backend holds `MAX_DRAWS` = 2,048 records and replays early when full. In the T161 runs CC1 and CC2 (10,801 frame lines), `passes == ceil(records / 2048)` held in all but one line per run. The exceptions are 2 replays with 4 records, around frame 1,920. The log prints `early replay (records): 2048 records`. Each replay resets the count, so a record is replayed once.
 
 | Scene | Records/frame | Passes |
 |---|---|---|
