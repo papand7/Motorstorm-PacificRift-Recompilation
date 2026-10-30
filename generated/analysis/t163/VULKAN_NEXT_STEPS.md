@@ -1,11 +1,9 @@
 # T163: next steps
 
-**Status against milestones:** M1 partial (reproducible Windows build of the fixed-function path). M2, M3 and M4 are blocked at the step below.
+**Status against milestones:** M1 done (reproducible Windows build with guest programs). M2 partial: scenes run clean under validation on both GPUs, with no D3D12 comparison. M3 and M4 not started.
 
-**Blocker:** glslang, spirv-tools and the validation layer. The signed LunarG SDK 1.4.341.1 installer is downloaded at `build/t163-vksdk-dl/vulkan_sdk.exe` (SHA-256 `bcf2d75aa9556889ab974858666e20b3655b6055a0db704ccb47279ff33b5bfe`, Authenticode valid), but running it was denied by the session's permission policy and it **has not been run**. Either the user installs it, or the user allows the silent install to `build/vulkan-sdk`.
-
-**Order after that:**
-1. Rebuild with glslang found. Run all host scenes with guest programs under `VK_LAYER_KHRONOS_validation` on both GPUs. Fix whatever fails. Settle the stencil contradiction.
+**Order from here:**
+1. Add a stencil scene to settle the stale comment. Port `PS3_ANISO` so `--mip-aniso` can pass.
 2. Differential harness: make the scene builders drive D3D12 (WARP and hardware) and compare full images, reporting pixel count and maximum channel difference.
 3. Batch submission: record per pass, and submit and wait only at readback, present or real dependencies. Prerequisite for any benchmark.
 4. Synthetic 2,000 and 6,900 draw workloads, both APIs, default configurations, medians and spread.
@@ -18,4 +16,4 @@
 - **Shared HLSL:** already the design; decompiler output feeds both compilers. Differences in glslang's HLSL front end remain to be tested.
 - **State dedup (T159):** don't port it yet. Under per-draw submission, state setup is unlikely to be the first-order cost (HYPOTHESIS). Measure after batching.
 
-**In-game test:** not justified yet. No game launch was made or is requested.
+**In-game test:** not justified yet: the game path does not reach this backend. No game launch was made or is requested.

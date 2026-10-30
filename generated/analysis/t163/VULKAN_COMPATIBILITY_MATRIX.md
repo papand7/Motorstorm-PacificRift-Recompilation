@@ -1,6 +1,6 @@
 # T163: Vulkan vs D3D12 compatibility matrix
 
-Tree: `ps3recomp-t163-vulkan` (`afdcabd` + `cc343a0`). Status words apply to **Windows at this commit**. "Tested" means run here. "Implemented" means source only, not run here, because guest programs need glslang (see `VULKAN_NEXT_STEPS.md`). No row has been compared against D3D12.
+Tree: `ps3recomp-t163-vulkan` (`afdcabd` + `cc343a0`, `f11ecd4`). **Update:** the engine rows marked Implemented have now run in the host scenes (see `VULKAN_RENDERING_VALIDATION.md`), but only for what those scenes draw; stencil and blending are still not tested by a scene. Status words apply to **Windows at this commit**. "Tested" means run here. "Implemented" means source only, not run here, because guest programs need glslang (see `VULKAN_NEXT_STEPS.md`). No row has been compared against D3D12.
 
 | Subsystem | D3D12 (game path) | Existing Vulkan | Status | Missing work |
 |---|---|---|---|---|

@@ -1,6 +1,6 @@
 # T163: recovery implementation
 
-**Branch:** ps3recomp `agent/t163-vulkan-recovery` (worktree `ps3recomp-t163-vulkan`), base `afdcabd`, commit **`cc343a0`**. Not merged, not pushed.
+**Branch:** ps3recomp `agent/t163-vulkan-recovery` (worktree `ps3recomp-t163-vulkan`), base `afdcabd`, commits **`cc343a0`** and **`f11ecd4`**. Not merged, not pushed.
 
 **Change (64 insertions, 6 deletions; CRLF preserved):**
 - `CMakeLists.txt`: `PS3RECOMP_RSX_VULKAN` allowed on Windows (default stays OFF); `ps3recomp_host` built when it is ON.
@@ -13,7 +13,8 @@
 - Vulkan-Headers `v1.4.341` (`b5c8f99`), clone at `build/t163-vkheaders/src`
 - clang-cl LLVM 23.1.3, Ninja, Release
 - `cmake -S ps3recomp-t163-vulkan -B build/t163-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release -DPS3RECOMP_RSX_VULKAN=ON -DPS3RECOMP_VULKAN_INCLUDE_DIR=<headers>`, then `--target ps3recomp_host`
-- Result: rc 0. CMake reports `glslang not found; guest programs unavailable`.
+- Result: rc 0. With `-DPS3RECOMP_VULKAN_SDK=<sdk>` CMake reports `guest programs available`. Without it, `glslang not found`.
+- `f11ecd4` (16 insertions): the SDK's glslang CMake package has relative paths that don't match its layout, so `PS3RECOMP_VULKAN_SDK` names its libraries directly. The installer needs an Administrator prompt.
 
 **Requirements found:** Vulkan 1.0 entry points (backend header); glslang and spirv-tools for guest programs; the validation layer for validation. A full list of device features was not derived.
 
