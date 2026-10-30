@@ -53,7 +53,7 @@ Light- and heavy-scene FPS, race compile and PSO stalls, and frame pacing: no da
 
 **VERIFIED:** same route inputs and timing as T162 A1 (all 4 presses, `nav_ok`) and matching HDD hashes. Page loads match to about 100 s. T162 A1 then finished loading and entered the race at 135 s. T167 A1 instead kept reloading `split_vehicle`, `characters` and `animations` pages until about 182 s, with SPURS nearly idle.
 
-**Unresolved:** the cause. Candidates: the RDP reconnect at 16 s, ordinary load nondeterminism, or a regression in the new executable or diagnostics. One run can't separate them, and no launch of this executable has reached a race, so a regression is not excluded.
+Investigated in `LOADING_STALL_ROOT_CAUSE.md`. No launch of this executable has reached a race yet.
 
 ## Phase 4
 
@@ -67,6 +67,6 @@ Light- and heavy-scene FPS, race compile and PSO stalls, and frame pacing: no da
 
 ## Next
 
-1. Find out why A's load repeated, from the existing logs, before any launch.
-2. Rerun A and B under new authorization, with the session left disconnected throughout.
-3. The next optimization stays open until that data exists. PSO creation on the render thread is the candidate.
+Loading cause: `LOADING_STALL_ROOT_CAUSE.md`. Answer: the load was the same as T162's but ran about 15 times slower from 120 s, and the host timer going coarse is the leading explanation.
+
+New request: `NEXT_GAME_TEST_REQUEST.md`. The generated runner and sequencer now use it: 240 s game cap, 245 s host, 100 heavy frames, race entry by 175 s. The phase tables above describe the launch that ran, with the 205 s and 210 s caps. The next optimization stays open until valid A/B data exists; PSO creation on the render thread is the candidate.

@@ -48,3 +48,20 @@ T162 binaries for the bench predate T162's final commit by minutes, before its f
 ## Harness
 
 `test_run_guard_t167`: 24 checks, 0 failures. Each stop condition on synthetic directories: unexpected exit, wrong termination, `GcKernel::Present() Timeout`, controller errors, device removal, Present failures, FIFO resync, missing race frames, missing markers, hash mismatch, slow-mode share. Real T162 B1 stops; real A1 stops only on too few heavy frames.
+
+## Continuation: source `61d32fd`
+
+Run on the tree committed as ps3recomp `61d32fd`. No game launched. The game exe was not rebuilt: `ab/exe_g` is still `b2a720e2…` from `8a12a61`, so it has neither `PS3_KEEP_TIMER_RES` nor `RSX_TIMER_DIAG`.
+
+| Check | Result |
+|---|---|
+| `run_all_t167` (`ev/suite_t167c.txt`) | 145 PASS, 43 SKIP, 2 FAIL. The two are `test_rt_pool_srv_layout` and `test_vpc_watch`, inherited from T162. This is the full rerun the earlier section lacked |
+| `validate_t167 correct` | 60 PASS, 0 failures |
+| `validate_t167 compile` | 6 PASS, 0 failures |
+| `nopso_regress_t167` | 57 PASS, 0 failures |
+| `test_host_timer_res` | 0 failures. Minimized: `Sleep(1)` 15.72 ms by default, 1.91 ms with `PS3_KEEP_TIMER_RES=1` |
+| `test_vs_compile_async` | 0 failures, includes the opt-in pin for `RSX_ASYNC_COMPILE_DIAG` |
+| `test_run_guard_t167` | 34 PASS, 0 failures, plus the two real runs: T167 A1 rejected with 3 reasons, T162 A1 accepted |
+| `test_ab_seq_t167` | 7 PASS, 0 failures |
+
+`correct` covers async on and off; frames match the CPU path. The new diagnostics were pinned and compiled but `[vca]` and `[timer-res]` lines have not been read from a game. These are synthetic or host-level results: none shows that the load is fixed in the game.

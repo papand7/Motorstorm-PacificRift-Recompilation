@@ -51,3 +51,7 @@ Loop-and-skip alone would add roughly 25 × 65 ms = 1.6 s of VS time at race ent
 These workloads have few programs, so they prove the mechanism, not a game-scale gain. **Hit rate was not measured**: `rsc_stats` keeps requests but no run printed them. Zero duplicates means no variant compiled twice. PSO time per variant in these runs was not separated out.
 
 Unchanged and unresolved: with `RSX_SHADER_CACHE=1` the cache is in memory only, so every launch pays again. PSO creation (up to 2.1 s in one frame) stays on the render thread and is the largest remaining stall on either path.
+
+## In-game status
+
+Arm A: fetch off, 25 compiles, 284 ms total, at most 29.9 ms, last at frame 1623, all on the render thread. This is the CPU path through the loading phase only, and no compile happened near the 120 s slowdown. No race data, so fetch compile stalls and the async path are still unmeasured in game. See `ASYNC_COMPILATION_VALIDATION.md`.

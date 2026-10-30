@@ -60,6 +60,24 @@ with tempfile.TemporaryDirectory() as t:
     check(has(post(make(t, 'menu', err=menu)), 'race frames'), 'frames, but no race')
     slow = '\n'.join(frame(i, wait=84.0 if i < 100 else 0.1) for i in range(800)) + '\n'
     check(has(post(make(t, 'slow', err=slow)), '84 ms'), 'the 84 ms mode invalidates a run')
+    def spurs(rates):
+        out = [frame(i) for i in range(800)]
+        for k, r in enumerate(rates):
+            out.append(f'[rsx-hb] ms={k * 10000} frames=1')
+            out.append(f'[spurs-busy] sn=0 runs={r} busy_ms=1.0')
+        return NL.join(out) + NL
+    NL = chr(10)
+    check(G.spurs_collapse(spurs([3800] * 6)) == [], 'steady SPURS rate: no collapse')
+    check(G.spurs_collapse(spurs([3800, 3800, 3800, 30000, 80000, 3000])) == [], 'a rising SPURS rate at race entry is no collapse')
+    check(G.spurs_collapse(spurs([3800] * 4 + [255] * 3 + [100])) == [40, 50, 60], 'the T167 A1 collapse is found, the partial last window is not')
+    check(has(post(make(t, 'coll', err=spurs([3800] * 4 + [255] * 3 + [100]))), 'SPURS rate collapsed'), 'a collapse invalidates a run')
+    check(has(post(make(t, 'tres', err=few + '[timer-res] ms=1 sleep1_ms=15.60 coarse=1 iconic=1 visible=1 foreground=0' + NL)), 'host timer coarse'), 'a coarse timer invalidates a run')
+    check(not has(post(make(t, 'tres0', err='[timer-res] ms=1 sleep1_ms=1.60 coarse=0 iconic=0 visible=1 foreground=1' + NL + few)), 'host timer coarse'), 'a fine timer does not')
+    check(has(post(make(t, 'nosum', summary='')), 'no summary.md'), 'missing summary.md')
+    check(has(post(make(t, 'noctl', ctl='')), 'no controller log'), 'missing controller log')
+    late = make(t, 'late', ctl='[  180.00] race_entry {}' + NL)
+    check(has(G.post_failures(late, late / 'controller.log', 0, race_deadline_s=175.0), 'deadline'), 'a late race entry invalidates a run')
+    check(not has(G.post_failures(late, late / 'controller.log', 0), 'deadline'), 'no deadline unless asked')
     exe = Path(t) / 'x.exe'
     exe.write_bytes(b'abc')
     good = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'

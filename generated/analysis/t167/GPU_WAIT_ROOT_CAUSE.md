@@ -57,3 +57,7 @@ No local or disconnected offline run exists, because this session is remote. Tha
 - Why the mode starts and stops, and whether client or encoder state drives it.
 - Whether `RSX_PRESENT_INTERVAL=0` behaves the same in the game (see `GAME_AB_PLAN.md`).
 - D3D12 timestamps exist (`RSX_GPU_PROF`), but only the host holds queue state, so nothing here observes the hold directly. The evidence is the fence, the GPU time and the switch.
+
+## T167 arm A (remote from 16 s, 205 s)
+
+The 84 ms mode did **not** occur. 5 of 6,737 frames had `wait_ms` above 50: gframes 773 and 782, about when the session reconnected, and 3083, 4006 and 4018 at about 62 ms wall time. Frames kept 32 FPS, so the mode played no part in the loading stall. This run has one more remote-connected case that never entered the mode, and it adds no evidence on why the mode starts. `wait_ms` is CPU blocking on a fence, not GPU execution, as above. Windows' event logs and the backend, which has no resize handler, show no swapchain or display event. Finer display logs were not enabled.

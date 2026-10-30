@@ -59,7 +59,29 @@ def race_frames(err):
     return len(gframes), 100.0 * slow / n if n else 0.0
 
 
-def post_failures(run_dir, controller, exit_code, min_race=500, min_heavy=100, max_slow=1.0, expected_exit=(0,)):
+def spurs_collapse(err, window_s=10.0, low=3.0):
+    """Windows, in s, whose SPURS iterations fall under 1/low of the median so far, once 3 windows exist. T167 A1: 3,800 -> 255 per 10 s,
+    the host timer gone coarse, and the race load never ended. The last, partial window is ignored."""
+    c, t = {}, 0.0
+    for l in err.splitlines():
+        if l.startswith('[rsx-hb]'):
+            m = re.search(r'ms=([0-9]+)', l)
+            t = int(m.group(1)) / 1000.0 if m else t
+        elif l.startswith('[spurs-busy]'):
+            m = re.search(r'runs=([0-9]+)', l)
+            if m:
+                k = int(t // window_s)
+                c[k] = c.get(k, 0) + int(m.group(1))
+    out, seen = [], []
+    for k in sorted(c)[:-1]:
+        if len(seen) >= 3 and c[k] < sorted(seen)[len(seen) // 2] / low:
+            out.append(int(k * window_s))
+        else:
+            seen.append(c[k])
+    return out
+
+
+def post_failures(run_dir, controller, exit_code, min_race=500, min_heavy=100, max_slow=1.0, expected_exit=(0,), race_deadline_s=None):
     run_dir = Path(run_dir)
     err, out, summary, ctl = read(run_dir / 'stderr.log'), read(run_dir / 'stdout.log'), read(run_dir / 'summary.md'), read(controller)
     fails = []
@@ -67,6 +89,10 @@ def post_failures(run_dir, controller, exit_code, min_race=500, min_heavy=100, m
         fails.append(f'unexpected exit code {exit_code}')
     if not err:
         fails.append('no stderr.log')
+    if not summary:
+        fails.append('no summary.md')
+    if not ctl:
+        fails.append('no controller log')
     m = re.search(r'termination: (.*)', summary)
     if not m:
         fails.append('no termination line in summary.md')
@@ -84,8 +110,16 @@ def post_failures(run_dir, controller, exit_code, min_race=500, min_heavy=100, m
     resync = (out + err).count('FIFO resync')
     if resync:
         fails.append(f'{resync} FIFO resync(s)')
-    if 'race_entry' not in ctl:
+    entry = re.search(r'^\[ *([0-9.]+)\] race_entry', ctl, re.M)
+    if not entry:
         fails.append('no race_entry marker')
+    elif race_deadline_s is not None and float(entry.group(1)) > race_deadline_s:
+        fails.append(f'race entry at {entry.group(1)} s, deadline {race_deadline_s:.0f} s')
+    low = spurs_collapse(err)
+    if low:
+        fails.append(f'SPURS rate collapsed from {low[0]} s: host timer resolution lost?')
+    if '[timer-res]' in err and 'coarse=1' in err:
+        fails.append('host timer coarse during the run')
     rf, slow = race_frames(err)
     if rf < min_race:
         fails.append(f'{rf} race frames, need {min_race}')

@@ -18,7 +18,7 @@ import run_guard_t167 as G
 AB = HERE.parent / 'ab'
 EXE = AB / 'exe_g' / 'MotorStormPacificRiftRecomp.exe'
 NAME = EXE.name
-HOST_MARGIN_S = 240   # the runner's own host cap is 210 s; this only stops a hung wrapper
+HOST_MARGIN_S = 275   # the runner's own host cap is 245 s; this only stops a hung wrapper
 NL = chr(10)
 
 
@@ -67,7 +67,7 @@ def post_check(tag, code):
     if i < 0:
         return ['no run_dir in wrapper.log']
     run = log[i + 8:].split(' leftover_process')[0].strip()
-    return G.post_failures(run, rt / 'controller.log', code, min_race=500, min_heavy=0)
+    return G.post_failures(run, rt / 'controller.log', code, min_race=500, min_heavy=100, race_deadline_s=175.0)
 
 
 def sequence(sha, wait_s, log, state=session_class, games=game_count, launcher=launch, post=post_check, pre=G.pre_failures, exe=EXE,
