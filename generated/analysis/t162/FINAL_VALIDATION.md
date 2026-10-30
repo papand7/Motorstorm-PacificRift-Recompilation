@@ -74,3 +74,7 @@ All four exited at the 195 s cap with no controller error and no D3D12 error lin
 **Host, PARTIAL:** the same load phase ran at about 280 frames in 28 s (E3), 760 (T3) and 1,620 (T161 C1), so the game was far slower before any texture switch mattered. Host load at launch was 24–38 %. A 10 s sample afterwards, with no game running: explorer 1.34 cores, SSX Tricky 0.57, disk queue 0.55, on 12 logical CPUs. That does not explain a threefold slowdown; the cause is unproven.
 
 T162 has not launched: with race entry near 180 s it would measure no heavy scene.
+
+## T162 launch D (12:15): stopped at the host gate
+
+Launch 1 of 5. Exe `5098e7e3…c8573`, no controller error, 0 debug-layer errors. Race entry 134 s against the 130 s gate; light window complete (460 frames, 10.81 FPS with `RSX_VTX_STATS` on, so not a performance figure); transition 73 of 100 frames; heavy 0 frames. A1, B1, A2 and B2 did not launch. SSX Tricky, EADesktop and EpicGamesLauncher were still running.
