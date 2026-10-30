@@ -1,18 +1,19 @@
 # T171: integration readiness
 
-**Not ready to merge as a confirmed visual fix.** Cause and offline behaviour are verified; the in-game picture is not.
+**Correction is correct and low-risk, and has one visible in-game improvement. It does not resolve the blocky patches, and its FPS cost is unmeasured.** Not pushed or merged.
 
-- Commit: ps3recomp `b282e26` on `agent/t171-tire-track-depth-fix`, on top of `542420e` (T169 head). Not pushed or merged.
-- Exe: `build/motorstorm-t171/MotorStormPacificRiftRecomp.exe`, SHA-256 `4450EA1FA8D31BCFD6F24CA9B6018459331DAD96D6E4D14989B9511D6D12A8BE`, built with port-t161. Never launched.
+- Commit: ps3recomp `b282e26` on `agent/t171-tire-track-depth-fix`, on top of `542420e`.
+- Exe SHA-256: `4450EA1FA8D31BCFD6F24CA9B6018459331DAD96D6E4D14989B9511D6D12A8BE`. Two authorized launches, both complete.
 - Rollback: `RSX_SHADER_WINDOW=0`.
 
-## Risks
+## Open
 
-1. Water and surf (`0x07200641`, `0x070B0701`) also change. This is guest-correct, but the shoreline is unverified.
-2. VB's blocky patches may have a different cause and survive the fix.
-3. The fix leaves the depth-write, RT-feedback and window mismatches in place, and these may still affect track edges.
-4. Vehicle speckle: T171 leaves depth state and vehicle programs unchanged, so no new risk is expected. The capture checks this.
+1. Rectangular patches remain with the fix on and need their own investigation. Candidate draws, unproven: fp `0x022C20C1` boxes and stale `0x0243AB00` content.
+2. No close-up tracks, and no arm B RSXI frame with a WPOS draw. Sky-and-trees removal rests on the mechanism, the fixture and the fragment comparison.
+3. FPS comparison contaminated by T170's suite during arm B. A clean comparison needs a new authorization and an idle machine.
+4. Depth-write and RT-feedback mismatches remain; `RSX_DEPTH_STATE` stays off.
+5. No PS3 reference exists.
 
-## Gate
+## Decision
 
-Run `GAME_CAPTURE_REQUEST.md` once authorized; merge only if its expected evidence holds.
+The arm A/B evidence supports keeping the default-on correction. The patch defect should stay open as a separate item.

@@ -19,13 +19,13 @@ Tree: ps3recomp-t171, tracked sources as committed in `b282e26`. Logs are privat
 
 ## Debug layer and game
 
-Debug-layer coverage is the fixtures' only; the game was not launched. T145's in-game result (no PSO failures, no new messages) was from an older build.
+The authorized A/B ran with the debug layer on: 0 compile or PSO failures in both arms and no watchdog. The message set is the same apart from foreign test processes during arm B (see `PERFORMANCE_IMPACT.md`).
 
 ## Audit
 
 - The root repo's commit hook audits report commits.
-- ps3recomp has no hook or audit script of its own. Running root's `tools/audit_public.py --staged` from that tree printed 25 BLOCKs and a failed status. None is on the five committed files; they are other paths such as `runtime/spu/tests/out_*/spu_recomp.*` and `scratch/ppu_conformance.cpp`. The commit was made in the same command, so it did not wait on this result. Each listed path needs its own review before any public release; none was changed by T171.
+- ps3recomp has no hook or audit script of its own. Running root's `tools/audit_public.py --staged` from that tree printed 25 BLOCKs and a failed status. None is on the five committed files; they are other paths such as `runtime/spu/tests/out_*/spu_recomp.*` and `scratch/ppu_conformance.cpp`. The commit was made in the same command, so it did not wait on this result. `--staged` audits the whole index: all 25 paths exist at `542420e`, so none is new. Each needs its own review before any public release.
 
 ## Working-tree note
 
-`scratch/ppu_conformance.cpp` and `scratch/ppu_conformance_run.bat` show as modified in the T171 worktree. T171 did not edit them on purpose, they are not committed, and they were left alone.
+`scratch/ppu_conformance.cpp` and `scratch/ppu_conformance_run.bat` show as modified in the T171 worktree. `tools/test_ppu_lift.py` rewrites them during the suite. They are not committed and were left alone.
