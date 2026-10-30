@@ -1,5 +1,7 @@
 # T169: grain and aliasing
 
+**Update (runtime):** D1 and F1 ran with no correction active, because `RSX_VISUAL_PROFILE` never reaches the game's D3D12 path. See `GAME_VALIDATION_PLAN.md`. Runtime status here stays unverified.
+
 **Primary cause: missing mip chains, with unit 0's point sampling on the cutouts (mismatch VERIFIED, T133 and B3; fixture effect VERIFIED; game untested).**
 
 | Candidate | Finding | Label |

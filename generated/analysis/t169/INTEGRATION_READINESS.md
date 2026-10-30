@@ -1,6 +1,6 @@
 # T169: integration readiness
 
-**Ready to merge as opt-in diagnostics and a profile switch. Not ready to change any default.** Nothing was pushed or merged.
+**Not ready to merge: `RSX_VISUAL_PROFILE` does nothing in the game, because it sits in `d3d12_init`, which the D3D12 path doesn't call. It must move to `rsx_d3d12_backend_init` with a behavioural test.** No default may change. Nothing was pushed or merged.
 
 | Item | Value |
 |---|---|

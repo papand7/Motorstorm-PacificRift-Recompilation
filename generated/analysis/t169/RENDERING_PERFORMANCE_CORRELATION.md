@@ -1,5 +1,7 @@
 # T169: rendering and performance correlation
 
+**Update (runtime):** D1 and F1 ran with no correction active, because `RSX_VISUAL_PROFILE` never reaches the game's D3D12 path. See `GAME_VALIDATION_PLAN.md`. Runtime status here stays unverified.
+
 **Result: no correctness fix here is demonstrated to save host work. Most add a small, bounded cost.** Fix them for correctness, and don't expect FPS. The one candidate saving is unmeasured.
 
 Costs below are from B3's state (capture census) and WARP fixtures, so they aren't frame times. GPU frame time, fence waits and memory in game weren't measured: no launch was authorised, and WARP timing says nothing about a GPU.

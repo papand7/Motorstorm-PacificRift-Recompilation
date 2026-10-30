@@ -1,5 +1,7 @@
 # T169: blocky shadows
 
+**Update (runtime):** D1 and F1 ran with no correction active, because `RSX_VISUAL_PROFILE` never reaches the game's D3D12 path. See `GAME_VALIDATION_PLAN.md`. Runtime status here stays unverified.
+
 **Likely cause: decal boxes drawn with the wrong depth state and wrong address mode. Mismatches VERIFIED, fixture VERIFIED, link to the screenshot a strong HYPOTHESIS. Game untested.**
 
 ## What these draws are (VERIFIED, B3 ops 569–583)

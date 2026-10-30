@@ -1,5 +1,7 @@
 # T169: terrain overexposure
 
+**Update (runtime):** D1 and F1 ran with no correction active, because `RSX_VISUAL_PROFILE` never reaches the game's D3D12 path. See `GAME_VALIDATION_PLAN.md`. Runtime status here stays unverified.
+
 **Status: PARTIAL.** A verified defect feeds the game's auto-exposure wrong data, and its direction fits the symptom. The final link has no controlled game measurement, and T165's single X1 sample doesn't confirm it. No exposure multiplier or tone mapper was added.
 
 ## The original pipeline (VERIFIED from B3 draws and shaders, T113)

@@ -1,5 +1,7 @@
 # T169: RSX colour pipeline
 
+**Update (runtime):** D1 and F1 ran with no correction active, because `RSX_VISUAL_PROFILE` never reaches the game's D3D12 path. See `GAME_VALIDATION_PLAN.md`. Runtime status here stays unverified.
+
 **Implemented:** no new transfer code. `RSX_VISUAL_PROFILE` bit 0x01 turns on the existing per-draw `RSX_COLOR_XFER=7`. **Default unchanged.** Forcing it globally isn't needed: each draw's transfers come from its own registers.
 
 | Bit | Does | Follows | Non-requesting state |

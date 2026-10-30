@@ -14,7 +14,7 @@ Code: ps3recomp `001a56f` on `b1eb158`. Logs: `logs/` in the main checkout (`vis
 | Full tools suite, 165 scripts | PASS 120, FAIL 2, SKIP 43, TIMEOUT 0 | PARTIAL |
 | Full executable build | rc 0 | VERIFIED: links only |
 | `tools/audit_public.py --tree` on the changed ps3recomp files | Passed | VERIFIED |
-| Game launch, in-game debug layer, FPS | **Not run; none authorised** | BLOCKED |
+| Corrections in game | D1 and F1 ran at baseline; profile not applied | BLOCKED |
 
 **Suite limits:**
 - It ran before the final edits to `rsx_visual_profile.h` and the test. The backend hooks were already in. `test_t169_visual` and the build ran after those edits; the suite wasn't repeated.
@@ -22,5 +22,9 @@ Code: ps3recomp `001a56f` on `b1eb158`. Logs: `logs/` in the main checkout (`vis
 - The 43 skips are mostly POSIX or Metal tests, so those paths weren't exercised.
 
 **Build:** `build/motorstorm-t169/MotorStormPacificRiftRecomp.exe`, 410,805,760 bytes, sha256 `766c45916524b85ff5343807c6bd467f8ec0e07097aba9fa9ab37b3d17f70491`. The backend object was compiled at 15:01:39, after the commit at 15:01:11 and after the last source edit. Never launched.
+
+**Preflight rerun on the final source, before the game runs:** suite PASS 120, FAIL 2 (the same two), SKIP 43, TIMEOUT 0; `test_t169_visual` and all WARP fixtures rc 0; exe hash re-verified. Audit: `--staged --private-reports` (what the hook runs) passes; strict `--staged` has 50 findings, all the path rule on generated reports (30 T169, 20 from T138, T139 and T165), none on content; `--tree` on the ps3recomp files passes.
+
+**Regression found by the game runs:** `RSX_VISUAL_PROFILE` has no effect in the game (`GAME_VALIDATION_PLAN.md`). The test passed because it pins source text, not behaviour. Not fixed.
 
 **Not covered:** real-GPU behaviour, frame time, memory in game, sand boxes, tyres, grain and edges in the actual scene, the `0xBF` smear risk with `RSX_DEPTH_STATE`, and any bit combination beyond the fixtures. `GAME_VALIDATION_PLAN.md` covers these, pending approval.

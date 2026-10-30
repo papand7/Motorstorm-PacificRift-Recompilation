@@ -1,5 +1,7 @@
 # T169: sampler translation
 
+**Update (runtime):** D1 and F1 ran with no correction active, because `RSX_VISUAL_PROFILE` never reaches the game's D3D12 path. See `GAME_VALIDATION_PLAN.md`. Runtime status here stays unverified.
+
 **Implemented:** profile bits 0x02 (`RSX_GUEST_SAMPLERS=15`) and 0x04 (`RSX_TEX_MIPS=1`), independent of colour. Default unchanged, because neither was ever isolated in game. T110's translator needed no fix.
 
 **Audit, register to D3D12 (`rsx_sampler_xlate.h`, `gs_*`, VERIFIED by code and `test_sampler_xlate`):**
