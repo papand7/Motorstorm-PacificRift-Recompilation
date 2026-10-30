@@ -4,6 +4,8 @@
 
 ## 1. Result
 
+**Final comparison (§16, 4 launches):** `PS3_LWCOND_WAKE` cuts race entry from 122.7 s to 41.9 s (2.9×). All runs were correct: same route and draws, no errors, every fallback idle. It stays off by default, because the light race scene is 2.8 % slower and uses 0.9 more cores with it.
+
 **Validated (§11):** fast pacing saves 22.5 s (race entry 137.3 s vs 159.8 s; V2 123.8 s). Heavy scene 3.83 FPS over frames 600–711. The 85 s race load runs at 0.15–0.27 cores with no CPU, I/O, mutex or SPURS limit; the main thread's sub-2 ms `sys_lwcond_wait` waits are the unmeasured remainder.
 
 - **Race entry is 145–150 s** in the six logged A/B runs (T154 ×4, T158 ×2). One run (C1) took 165 s because of a slow boot.
@@ -673,3 +675,54 @@ HLE signals are no-ops (§11.2), so every hop costs up to one `Sleep(1)` (about 
 - **ps3recomp `agent/t161-fast-race-benchmark`:** `afdcabd`, once-only init, `fb=1` attribution and tests (on top of `28a3e64`).
 - **root `agent/t161-fast-race-benchmark`:** this section, `tools/fb_attr_t161.py` and `tools/make_runner_t161.py` (arms C/D). `tools/run_lwc_tests_t161.cmd` and `build_t161.cmd` (arm `x`) are gitignored and stay local.
 - Not merged or pushed.
+
+## 16. Authorised C1 → D1 → C2 → D2 comparison (V5 exe, 4 launches, 2026-10-30)
+
+- **Setup:**
+  - exe `b1fdb0bd…c01fc` (hash checked before each launch by `ab/seq_cd.sh`); sequential, no retries; all 4 rc 0.
+  - Host load before each launch: 15 / 18 / 17 / 8 %. SSX Tricky (another project) ran throughout at about 0.5 cores, so the host was not idle. Both arms saw the same load.
+  - Summary: `tools/cd_t161.py` → `ab/cd_summary.json` (private).
+  - Runs: `generated/runs/20261030-{065154-…-CC1, 065514-…-DD1, 065832-…-CC2, 070151-…-DD2}`.
+- **Termination:** C runs hit the 195 s cap (race frames 691 / 697). D runs stopped at race entry + 150 s (1,185 / 1,143 frames). The heavy scene is matched over race frames 600–690, which all four runs reached.
+
+| | C1 | C2 | D1 | D2 | D vs C (means) |
+|---|---|---|---|---|---|
+| race entry (s) | 124.0 | 121.4 | 42.1 | 41.7 | **−80.8 s (−66 %, 2.9× faster)** |
+| exe init → first GUI page (s) | 9.1 | 8.6 | 2.5 | 2.4 | −6.4 s |
+| track + env + vehicle + character loads (s) | 80.4 | 78.9 | 13.6 | 13.7 | −66.0 s |
+| light FPS (frames 40–499) | 20.70 | 20.95 | 20.14 | 20.34 | **−0.59 (−2.8 %)**; C–C spread 0.25 |
+| light p50 / p95 / p99 ms | 47.4 / 53.1 / 62.9 | 46.9 / 53.8 / 66.2 | 49.2 / 55.4 / 70.3 | 48.3 / 54.3 / 67.9 | p50 +1.6 ms |
+| heavy FPS (frames 600–690) | 3.65 | 3.35 | 3.70 | 3.29 | 0.0 (C–C spread 0.30) |
+| heavy p95 / p99 ms | 304 / 342 | 317 / 353 | 308 / 368 | 338 / 386 | within C–C spread for p95, p99 +30 ms |
+| CPU boot → race (cores) | 0.56 | 0.64 | 1.78 | 1.77 | load is CPU-bound now |
+| CPU race +10..+55 s, light (cores) | 2.87 | 2.96 | 3.78 | 3.80 | **+0.88 cores (+30 %)** |
+| median draws light / heavy | 2,004 / 6,956 | 2,004 / 6,973 | 2,004 / 6,957 | 2,004 / 6,958 | identical |
+| peak working set / private (MB) | 645 / 1,090 | 642 / 1,110 | 654 / 1,108 | 643 / 1,104 | ±1 % |
+| FIFO resyncs, fatal/TDR/AV lines | 0 | 0 | 0 | 0 | none |
+
+**Wake counters (D1 / D2):**
+- waits 841,167 / 840,580; signalled 834,789 / 834,082;
+- timeouts 0, shutdown 0, nofit 0, to_miss 0;
+- fallbacks 6,372 / 6,492, `[lwc-wake-fb]` dropped 0.
+
+**Fallback attribution (`fb=1`, VERIFIED):**
+- **100 % `nosig`** (6,372 / 6,372 and 6,492 / 6,492): no signal reached the lwcond during the wait, so no wakeup was lost or delayed.
+- 99.9 % come from 7 worker threads (tids 3–9) on 4 lwconds (`0x104856D8`, `0x10485620`, `0x104863C8`, `0x10486310`), all with lr `0x66BB70`. Sites are `661BDC/660214 → 65E5C0/3CE1F0 → 66B848`, about 4.7 polls/s per thread: an idle worker pool waking every `poll_ms`.
+- The main thread: 1 fallback per run.
+- The two runs give the same rows.
+
+**Pass criteria (§15.6):**
+- Route identical and race reached in all 4 runs: pass.
+- No new error categories; timeouts, `to_miss` and nofit all 0: pass.
+- Draw counts within the C–C noise: pass (identical).
+- D's heavy FPS within the C–C spread: pass.
+- Every fallback attributed to an idle waiter: pass.
+
+**Not covered by the criteria, and against default-enable:** in the light race scene, D is 2.8 % slower (outside the C–C spread, 2 runs per arm, PARTIAL) and uses 0.9 more cores. HYPOTHESIS: each of about 4,400 signalled wakeups per second is now an immediate host context switch, where the poll path batched them into 1 ms sleeps.
+
+**Decision:** `PS3_LWCOND_WAKE` stays **opt-in, off by default**.
+- The load-time gain is VERIFIED and large: race entry 2.9× faster in both runs.
+- The steady-state race cost (−2.8 % FPS, +30 % CPU) is evidence against a default change. This benchmark could not measure it on a fully idle host.
+- Next step: enable wakeups only for waits outside the race loop, or batch signal_all wakes, then compare light FPS and CPU again.
+- The performance baseline for later work is **arm C** (wake off): the T161 V5 exe with the lean environment.
+- `test_spurs_kick_wake` (the T161 suite's one load-dependent failure) was not rerun on an idle host: still HYPOTHESIS (host load).
