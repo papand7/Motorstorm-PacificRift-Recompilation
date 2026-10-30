@@ -58,3 +58,19 @@ The launches require that the texture A/B has completed or that its owner has co
 With the user's approval, E1, T1, E2 and T2 launched at 11:35 on the exe `0304156b…49b3`. All four stopped within about 3 s of starting (game wall 0.3 s in E1, no milestone): `controller_error NameError: HARD_KILL_S`. The generators' slice of `run_t161.py` removed that constant, in `run_next.py` and `run_t162.py` alike. The runner also returned rc 0, so the sequence did not stop at E1. The game and the exes are not implicated. No texture number exists, and T162 did not launch.
 
 Fixed offline: the generators restore `HARD_KILL_S = 200.0`; `seq_et.sh` and `seq_t162.sh` stop on a controller error; `tools/check_runner_names_t162.py` finds names a runner reads and never defines. It now reports only `SRC_EXE`, which is also unresolved in the working T161 runner. A rerun needs new approval.
+
+## Texture A/B rerun (E3, T3, E4, T4; approved; 11:37–11:50): ran, not a valid comparison
+
+| Run | Race entry s | Light frames, FPS | Heavy frames, FPS | Host CPU, cores |
+|---|---|---|---|---|
+| E3 (off) | 180.5 | 285, 21.4 (incomplete) | 0 | 0.77 |
+| T3 (on) | 136.3 | 460, 20.3 | 251, 10.7 (incomplete) | 1.69 |
+| E4 (off) | 173.0 | 208, 10.9 (incomplete) | 0 | 0.67 |
+| T4 (on) | 183.0 | 229, 20.8 (incomplete) | 0 | 0.69 |
+| T161 C1 / C2, other exe | 124.0 / 121.4 | 460, 20.7 / 20.95 | 91, 3.65 / 97, 3.34 | 1.43 / 1.42 |
+
+All four exited at the 195 s cap with no controller error and no D3D12 error line. **There is no off-arm heavy data, so no texture speedup can be claimed.** T3's 10.7 FPS against T161's 3.5 is a promising single run on another exe with a different load pace: HYPOTHESIS. T3 and T4 are the same arm and entered the race 47 s apart.
+
+**Host, PARTIAL:** the same load phase ran at about 280 frames in 28 s (E3), 760 (T3) and 1,620 (T161 C1), so the game was far slower before any texture switch mattered. Host load at launch was 24–38 %. A 10 s sample afterwards, with no game running: explorer 1.34 cores, SSX Tricky 0.57, disk queue 0.55, on 12 logical CPUs. That does not explain a threefold slowdown; the cause is unproven.
+
+T162 has not launched: with race entry near 180 s it would measure no heavy scene.
