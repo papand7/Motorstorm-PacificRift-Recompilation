@@ -66,7 +66,7 @@ Missing components: each attribute starts from its `vertex_data4f` register and 
 
 ## 5. Known gaps
 
-- **`nopso`:** a gvf record whose guest-FP pipeline fails is counted and not drawn, where the CPU path would draw it with the fallback shader. 0 in all tests; the game A/B must check it. Fix if seen: a gvf fallback PSO.
+- **`nopso`: closed (`ee8b13c`, `69489f2`), VERIFIED offline.** A gvf record whose guest-FP pipeline fails is expanded at replay from its ring snapshot into fat vertices and drawn through the CPU path's fallback pipeline, in order, with no retry of the failed pipeline. `lost` counts only an out-of-memory refusal and is reported loudly. Results: `FINAL_VALIDATION.md`.
 - Non-indexed draws, indexed TRIANGLES/QUADS and inline arrays stay on the CPU (under 1 % of indices in game).
 - The `sparse` threshold (raw > 64 KB and > 2 × the compact record) is heuristic. The share it sends to the CPU in game is unknown until step 1 of the plan.
 

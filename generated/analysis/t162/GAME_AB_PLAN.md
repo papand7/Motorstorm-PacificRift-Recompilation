@@ -1,4 +1,4 @@
-# T162 — proposed game validation (NOT authorised; no launch in T162)
+# T162 — game validation plan (D, A1, B1, A2, B2; conditionally authorised, gate not met, no launch yet: `FINAL_VALIDATION.md`)
 
 Both steps use one exe built from ps3recomp `agent/t162-gpu-vertex-pipeline`. The recipe is the T161 arm-x recipe, with this tree in place of `ps3recomp-t161`:
 - same port (`port-t161`), PPU staging lift, Wws AOT, Havok `--chain-chunks`;
@@ -46,7 +46,7 @@ Same race-frame ranges: light frames 40–499, heavy frames 600 to the last fram
 **Pass criteria:**
 1. route identical and race reached in all 4 runs; no new error categories; 0 FIFO resyncs;
 2. draw counts equal to A's;
-3. **`nopso` = 0**, otherwise B leaves draws out;
+3. **`lost` = 0, and `nopso` = `cpu_drawn`**; a nonzero `nopso` now means fallback draws, not missing ones;
 4. the CELLMARK dumps visually equivalent to A's (dumps are not run-to-run deterministic; compare by eye and by the stable overlays);
 5. light-scene FPS within the A–A spread (the light scene is PPU-bound, so no gain is expected);
 6. heavy scene: `expand_ms` lower by at least 30 %, frame time not worse, GPU time per pass not higher than A + 1 ms.
