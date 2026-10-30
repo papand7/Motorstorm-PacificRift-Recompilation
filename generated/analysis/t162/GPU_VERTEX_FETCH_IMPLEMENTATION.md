@@ -81,7 +81,7 @@ Logs: `logs_correct_draw.txt`, `logs_perf_bench.{txt,json}`, `suite_t162gvf.txt`
 
 ## 7. Next step
 
-Request authorisation for `GAME_AB_PLAN.md`: 1 diagnostic launch, then 4 A/B launches.
+The game A/B ran and fetch failed in game: both B launches ended on `GcKernel::Present() Timeout` at race start, with the watchdog stack in `D3DCompile` (cause HYPOTHESIS). Off by default; do not integrate. See `GAME_AB_RESULTS.md`.
 
 ## 8. Full suite (`run_all_t157 ps3recomp-t162-gpuvtx`, on `a89cf5f`)
 

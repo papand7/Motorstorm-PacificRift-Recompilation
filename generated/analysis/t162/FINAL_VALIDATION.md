@@ -2,7 +2,7 @@
 
 2026-10-30. Labels: VERIFIED / PARTIAL / HYPOTHESIS / BLOCKED.
 
-**Status: offline correctness VERIFIED, exe pinned, game A/B BLOCKED on the texture A/B gate. No game launched; no in-game number exists.** GPU fetch stays off by default.
+**Status: offline correctness VERIFIED. Game A/B ran (5 of 5 launches) and FAILED for fetch: both B launches ended on `GcKernel::Present() Timeout` at race start, 0 race frames. No frame-matched comparison exists. Do not integrate or enable. See `GAME_AB_RESULTS.md`.** GPU fetch stays off by default.
 
 ## Commits
 
@@ -45,13 +45,9 @@
 | Env | `ab/run_t162.py`: A = T161 arm C + `RSX_GPU_PROF=60`; B = A + `RSX_GPU_VERTEX_FETCH=1`; D = T161 arm C + `RSX_VTX_STATS=1000` |
 | Caps | 195 s game, 210 s hard, `PS3_FC_WATCHDOG_MS=2000`, fresh HDD copy per run, hash check per launch (`ab/seq_t162.sh`) |
 
-## Launch gate: BLOCKED
+## Launch gate
 
-The launches require that the texture A/B has completed or that its owner has confirmed it will not overlap. It has not started: there is no `performance_next/ab/seq_et.log` and no runs. No live session claims it. One peer session disclaimed it and said its notes name this session; a second left without answering. Neither counts as the owner's confirmation.
-
-## Still to deliver after the launches
-
-`GAME_AB_RESULTS.md`, individual and frame-matched runs, rendering comparisons, real fetch coverage, remaining bottlenecks and the integration recommendation. **Current recommendation: do not merge or enable; there is no game evidence.**
+The host gate was not met at launch D. The user then told me to go ahead with A1, B1, A2, B2 without repeating D. Runs, rendering status, coverage, bottlenecks and the integration recommendation: `GAME_AB_RESULTS.md`.
 
 ## Texture A/B attempt: FAILED, no data
 

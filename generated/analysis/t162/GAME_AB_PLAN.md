@@ -1,4 +1,4 @@
-# T162 — game validation plan (D, A1, B1, A2, B2; conditionally authorised, gate not met, no launch yet: `FINAL_VALIDATION.md`)
+# T162 — game validation plan (D, A1, B1, A2, B2; executed 2026-10-30, results in `GAME_AB_RESULTS.md`)
 
 Both steps use one exe built from ps3recomp `agent/t162-gpu-vertex-pipeline`. The recipe is the T161 arm-x recipe, with this tree in place of `ps3recomp-t161`:
 - same port (`port-t161`), PPU staging lift, Wws AOT, Havok `--chain-chunks`;
