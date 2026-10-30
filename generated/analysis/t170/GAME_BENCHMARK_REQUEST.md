@@ -1,8 +1,8 @@
-Commits: ps3recomp `fda8c9b` (branch `agent/t170-major-performance`, on T169 head `542420e`), reports on `agent/t170-performance-report`. Host: Ryzen 5 9600X, 50 GB, RTX 5060 (driver 32.0.16.1088), integrated AMD Radeon (driver 32.0.21042.62, selected by `CELLMARK_IGPU=1`). **Not a Radeon 890M: none is available here.** No game launched for T170.
+Commits: ps3recomp `fda8c9b` (branch `agent/t170-major-performance`, on T169 head `542420e`), reports on `agent/t170-performance-report`. Host: Ryzen 5 9600X, 50 GB, RTX 5060 (driver 32.0.16.1088), integrated AMD Radeon (driver 32.0.21042.62, selected by `CELLMARK_IGPU=1`). **Not a Radeon 890M: none is available here.** One game launch for T170 (arm A).
 
 # Game benchmark request
 
-**Not authorized and not run.** Needs explicit approval.
+**Authorized for three launches; stopped after one.** Arm A ran; its post-launch guard failed (FIFO resync after a guest crash), so arms B and C were not launched. See `GAME_BENCHMARK_RESULTS.md`. Arms B and C need the crash explained first.
 
 | item | value |
 |---|---|
@@ -21,8 +21,8 @@ All arms: T165/T169 `ENV_LEAN` and `TEXRES` (`RSX_TEX_SLOTS=1024 RSX_TEX_CACHE=1
 
 | arm | adds |
 |---|---|
-| A | nothing: write-combined fix only |
-| B | `RSX_VP_FAST_FETCH=1 RSX_FP_SCAN_MEMO=1` |
+| A | `RSX_VP_FAST_FETCH=0 RSX_FP_SCAN_MEMO=0 RSX_VP_PARALLEL=0`: write-combined fix only |
+| B | `RSX_VP_FAST_FETCH=1 RSX_FP_SCAN_MEMO=1 RSX_VP_PARALLEL=0` |
 | C | B + `RSX_VP_PARALLEL=3` |
 
 ## Stop conditions
@@ -35,4 +35,4 @@ All arms: T165/T169 `ENV_LEAN` and `TEXRES` (`RSX_TEX_SLOTS=1024 RSX_TEX_CACHE=1
 
 ## Before launching
 
-A runner must be derived from `t169/tools/make_runner_t169.py` with `VALID` removed; it is not written yet. `PS3_KEEP_TIMER_RES` is absent from this branch because T167 is not merged, so the timer caveat above applies.
+The runner is `tools/make_runner_t170.py` (writes the private `ab/run_t170.py`); summaries come from `tools/summary_t170.py`. `PS3_KEEP_TIMER_RES` is absent from this branch because T167 is not merged, so the timer caveat above applies.
