@@ -1,50 +1,72 @@
-# T167: proposed game validation
+# T167: controlled game A/B
 
-**Not authorized. Nothing here has run.**
+**BLOCKED: arm A produced no race data and arm B was not launched. Phases 3 and 4 have no answer.** The earlier six-arm proposal is replaced by this authorized two-arm plan.
 
 ## Executable
 
-`build/motorstorm-t167/MotorStormPacificRiftRecomp.exe`
-SHA-256 `b2a720e243ecd297e4b86c3d312f249be9720c13bd545533e9ae0e2f55e5b6ae`
-ps3recomp `8a12a61` (detached `ps3recomp-t167-exe`), T162's recipe: `port-t161`, PPU staging lift, WWS AOT, Havok `--chain-chunks`. One exe for every arm.
+`build/motorstorm-t167/MotorStormPacificRiftRecomp.exe`, pinned copy `ab/exe_g/`
+SHA-256 `b2a720e243ecd297e4b86c3d312f249be9720c13bd545533e9ae0e2f55e5b6ae`, ps3recomp `8a12a61`.
 
-## Runner
+## Settings
 
-Generate `run_t167.py` from `t162/tools/make_runner_t162.py`: same route, inputs and T161 arm C environment, with `RSX_GPU_PROF=60`, `RSX_WAIT_DIAG=1`, `RSX_SHADER_COMPILE_DIAG=1` on every arm. The runner isn't written yet.
+Both arms: `run_t167.py` (from `tools/make_runner_t167.py`), T162 arm A's environment and route, fresh private HDD per launch, 205 s game cap, 210 s host cap, `RSX_GPU_PROF=60`, `RSX_WAIT_DIAG=1`, `RSX_SHADER_COMPILE_DIAG=1`. `RSX_PRESENT_INTERVAL` unset in both.
 
-## Arms, in order
+| Arm | Added |
+|---|---|
+| A | `RSX_GVF_ASYNC=0`, fetch off |
+| B | `RSX_GVF_ASYNC=1`, `RSX_GPU_VERTEX_FETCH=1` |
 
-| # | Arm | Session | Environment added | Purpose |
-|---:|---|---|---|---|
-| 1 | R1 | remote | none (interval 1) | Mode present? |
-| 2 | R0 | remote | `RSX_PRESENT_INTERVAL=0` | Wait gone? |
-| 3 | R1b | remote | none (interval 1) | Mode still present, bracket |
-| 4 | F0 | remote | `RSX_PRESENT_INTERVAL=0`, `RSX_GPU_VERTEX_FETCH=1` | Timeout gone? |
-| 5 | F0b | remote | same as F0 | Repeat |
-| 6 | L | local console or disconnected | `RSX_GPU_VERTEX_FETCH=1` | Clean timing, normal Present |
+Sequencer: `tools/ab_seq_t167.py`, one launch per arm, no retries.
 
-Six launches at most; stop earlier on any stop condition. Arm 6 needs the session state changed by someone at the machine.
+## Phase 1: VERIFIED
 
-## Bounds
+- Suite: 144 PASS, 43 SKIP, 2 FAIL. Both failures are inherited (`test_rt_pool_srv_layout`, `test_vpc_watch`).
+- Rebuild rc=0. `validate_t167 correct` and `compile`: 0 failures. `nopso_regress`: 0 failures.
+- Source trees and executable at `8a12a61`, hash above verified. Dry run passed for both arms. Public-source audit passed.
 
-- Expected race entry: 145–165 s in T158. A 195 s cap gave T162 A1 only 62 heavy frames.
-- Host cap: 310 s per launch (T105's session length), so about 31 minutes at most. This is the harness's cap only, not a game timeout.
-- Capture windows: light scene race frames 40–499, heavy scene from frame 600, race entry frame and the transition frame.
-- Stop at race entry + 150 s.
+## Phase 2: what happened
 
-## Stop on error
+| Time | Event |
+|---|---|
+| 14:15:48 | Session disconnected (event 24) |
+| 14:23:58 | Sequencer found `disconnected`; A launched |
+| 14:24:16 | Session reconnected over RDP (event 25), about 16 s into A |
+| 14:27:26 | A ended at the 205 s cap, exit 0. Sequencer stopped; B not launched |
 
-`run_guard_t167.py pre` before each launch (`--allow-remote` for arms 1–5), and `post` after. Any failure ends the sequence: unexpected exit, game timeout, `GcKernel::Present() Timeout`, controller error, device removal, FIFO resync, missing race frames or markers, hash mismatch. Arms 1 and 3 pass `--max-slow-pct 100`, because they are expected to show the mode. The post check needs `--min-heavy-frames 100`.
+Post-check failures: no `race_entry` marker, 0 race frames, session changed during the launch.
 
-## What counts as proof
+## Arm A measurements (frontend and load only)
 
-**84 ms resolved:** arm 1 or 3 has over 1% of frames with `wait_ms` above 50, and arm 2 has 0, with `[wait-diag]` showing no drain above 50 ms. If neither arm 1 nor 3 enters the mode, the result is **inconclusive**, since 6 of 23 remote runs never did.
+| Metric | Value |
+|---|---|
+| Race entry | not reached in 205 s |
+| Most draws in a frame | 60 |
+| `rsx-frame-perf` lines | 6,737 |
+| `wait_ms` above 50 | 5 |
+| `GcKernel::Present() Timeout` | 0 |
+| Debug-layer messages, FIFO resyncs | 0, 0 |
+| Host CPU | 53 s, 0.26 cores (T162 A1: 238 s, 1.22 cores) |
 
-**Compile no longer causes the timeout:** arms 4 and 5 both reach 100 heavy frames with no timeout; `[shader-compile]` shows fetch programs on the worker (`async=1`) and render-thread VS compile at the race-entry frame near the CPU path's 798 ms; worst frame no longer than A1's 3.17 s plus 10%.
+Light- and heavy-scene FPS, race compile and PSO stalls, and frame pacing: no data. These numbers say nothing about async compilation.
 
-**Report as well:** frame time, fence wait, GPU time, Present, compile calls, unique variants, hit rate if logged; visual check of the 12 CELLMARK dumps, since they aren't byte-comparable between runs. Arm 2 also needs a check for visible tearing or pacing changes.
+## A did not reach the race
 
-## Known gaps
+**VERIFIED:** same route inputs and timing as T162 A1 (all 4 presses, `nav_ok`) and matching HDD hashes. Page loads match to about 100 s. T162 A1 then finished loading and entered the race at 135 s. T167 A1 instead kept reloading `split_vehicle`, `characters` and `animations` pages until about 182 s, with SPURS nearly idle.
 
-- If arm 4 or 5 still times out, PSO creation is the next suspect, and the plan ends there without more launches.
-- Arms 1–5 can't give clean performance numbers for fetch: only arm 6 can, and one launch shows no variability.
+**Unresolved:** the cause. Candidates: the RDP reconnect at 16 s, ordinary load nondeterminism, or a regression in the new executable or diagnostics. One run can't separate them, and no launch of this executable has reached a race, so a regression is not excluded.
+
+## Phase 4
+
+| Question | Answer |
+|---|---|
+| Eliminates shader stalls | unknown |
+| Preserves draw output | unknown in game; offline validation passes |
+| Improves race pacing | unknown |
+| New graphical defects | unknown |
+| PSO still the dominant stall | unknown in game; T162 A1 showed up to 2.1 s |
+
+## Next
+
+1. Find out why A's load repeated, from the existing logs, before any launch.
+2. Rerun A and B under new authorization, with the session left disconnected throughout.
+3. The next optimization stays open until that data exists. PSO creation on the render thread is the candidate.

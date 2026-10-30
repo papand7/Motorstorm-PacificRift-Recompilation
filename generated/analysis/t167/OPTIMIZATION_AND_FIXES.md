@@ -25,3 +25,7 @@ ps3recomp `8a12a61` on `agent/t167-gpu-wait-shader-stall`, one local commit over
 ## Tools
 
 `generated/analysis/t167/tools/`: `validate_t167`, `compile_summary_t167`, `vs_compile_bench_t167`, `rdp_natural_exp_t167`, `frame_modes_t167`, `run_guard_t167`, `test_run_guard_t167`, `nopso_regress_t167`, `run_all_t167`. In ps3recomp: `probe_present_pace.c`, `test_vs_compile_async.c`, `test_vs_compile_async.py`.
+
+## Game A/B status
+
+BLOCKED, no in-game result for `RSX_GVF_ASYNC`: see `GAME_AB_PLAN.md`.
