@@ -1,5 +1,7 @@
 # T165: bounded game diagnostic plan (NOT AUTHORISED; needs approval)
 
+> **Status 2026-10-30: all 4 launches used. Results are in `GAME_TEST_RESULTS.md`; this plan is kept as written.**
+
 **Exe:** `performance_next/ab/exe_n/MotorStormPacificRiftRecomp.exe`, sha256 `0304156bac3e6553b23cbb3ea24763c90f33b4c3aae01ac725ddf2a8ad3449b3`. No rebuild is needed for steps 1–2: it already has RSXI and all the switches. Only step 3 needs a build, of `agent/t165-vehicle-render-fix`.
 
 **Before launching:** run ListAgents and check that no `run_*.py` or `seq_*.sh` is running (T162, T164 and the residency benchmarks have priority).

@@ -27,7 +27,7 @@ Read-only (const state). Off, the cost is one branch per recorded draw.
 
 | Capture | Draws | Transfers | Texture sources |
 |---|---|---|---|
-| Race, T145 A1 | 22 | `host_xfer=none`; `srgb_output` on 16; gamma 7 on units 2/14/15; expansion 0 | upload 164, rt_exact 82, null 22, zeta 16, zeta_as_color 2 |
+| Race, T145 A1 (corrected: the first census dropped draws with `-nan`) | 1,446 | `host_xfer=none`; `srgb_output` on 608; gamma 7 on units 0/2/14/15; expansion 0 | upload 12,286, rt_exact 5,004, null 930, zeta 574, zeta_as_color 4 |
 | Garage, `runs/20261025-102805-garage-capture-probe` | 2,494 | capture predates the transfer fields | upload 21,709, rt_exact 7,203, zeta 1,240, null 1,058, zeta_as_color 14 |
 
 The race light constants quoted in the root-cause report come from the same capture's draw op 423 (VP c40, c41).

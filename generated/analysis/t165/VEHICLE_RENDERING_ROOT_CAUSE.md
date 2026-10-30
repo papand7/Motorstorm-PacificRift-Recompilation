@@ -1,61 +1,48 @@
-# T165: vehicle black surfaces, root cause status
+# T165: vehicle black surfaces, root cause
 
-2026-10-30. Offline only: no launch, merge or push. **The root cause is not confirmed.** The leading candidate is below, with what it needs to be proven.
+2026-10-30. **Status: PARTIAL. The cause is established for the tested frame, but not yet checked on the start-grid view of the screenshot, and no default has changed.**
 
-## Which run produced the screenshot
+## Result
 
-| Item | Value | Label |
+**Colour transfers off (`RSX_COLOR_XFER` unset) are the main cause of the crushed-black vehicle surfaces (VERIFIED on one matched race frame).** The guest requests sRGB texture decode and sRGB output. The default D3D12 path applies neither, so lighting runs on gamma-encoded values.
+
+| Evidence | Result | Label |
 |---|---|---|
-| File | `Pictures/Screenshots/Screenshot 2026-10-30 114320.png`. Assumed to be the supplied one: newest file, shows the start grid. 914×358, so fine detail cannot be judged | PARTIAL |
-| Run | Written at 11:43:20, inside `perfnext-TT3` (11:40:29–11:43:47), about race entry + 34 s | VERIFIED timing; the link to the run is inferred from it |
-| Exe | `exe_n`, sha256 `0304156b…3449b3`, D3D12, ps3recomp `a049b1e` | VERIFIED |
-| Arm T switches | `RSX_TEX_SLOTS=1024 RSX_TEX_CACHE=1 RSX_TEX_WWATCH=1 RSX_TEX_BUDGET_MB=1024`, so **after** the residency fix | VERIFIED |
-| Off in that run | `RSX_COLOR_XFER`, `RSX_GUEST_SAMPLERS`, `RSX_TEX_MIPS`, `RSX_DEPTH_STATE`, `RSX_ZETA_EXACT`, `RSX_RT_FEEDBACK` | VERIFIED (`runner_argv.json`) |
+| Guest request, baseline frame f002192 (B3) | All 570 draws on the scene target `0x00750000` (format `0x3148`) have `srgb_output=1`, `host_xfer=none`. Every vertex-program group has texture gamma on (mask 7 = RGB, alpha excluded) on some unit | VERIFIED |
+| Those draws include the vehicles | The player quad and rider are fully visible in the pass snapshot at op 547, and every earlier draw on that target has this state | VERIFIED |
+| Same frame with `RSX_COLOR_XFER=7` (X1, `frame_001`, identical camera and pose) | Front tyre near-black 58.1 % to 24.9 %, left tyre 64.8 % to 31.0 %, sidewall and knobble detail returns. Whole-frame clipped white 6.5 % to 2.9 % | VERIFIED |
+| Texture binding | `noslot=0`, `stale=0`, `evict_other=0` across B3 and X1; no null texture bound in draws before op 586 | VERIFIED |
+| Sign expansion (bit 0x2) | 0 draws request it, so only bits 0x1 and 0x4 matter here | VERIFIED |
 
-## What the screenshot shows
+**Why it goes black:** RSX computes `encode(decode(t)·L)`, ours `t·L`. For dark albedo in shade, the missing encode is the larger effect, so values collapse toward 0. A near-black tyre has no room to recover on screen.
 
-| Class | Observation | Label |
+**Corrections to the earlier report:**
+- "No capture contains a vehicle draw" was wrong as evidence. My parsers rejected any RSXI line with bare `-nan` (in VP c38) and dropped about 95 % of draws ("22 draws" was really 485 in one frame). Fixed. The T145 race frames were never checked for vehicles with the fixed parsers.
+- "Shaded 2–4× too dark, lit up to 2× too bright" holds only in direction. Measured median X luma against B: 0–8 → 13, 16–32 → 27, 64–128 → 62, 192–250 → 210. Dark tones lift and clipping falls, but mid-tones fall too (cliff shade 108.6 → 70.7, helmet 106.1 → 61.7). The model is not quantitatively confirmed.
+
+## What is not proven
+
+| Item | Status |
+|---|---|
+| Grid view of the screenshot (several back-lit vehicles) under X | No X capture of it: X1's RSXI frame was cut by the 195 s cap with no snapshots. The matched frame is the player quad close up, also at the race start. HYPOTHESIS that the distant grid behaves the same |
+| A single named defective draw | No per-draw image exists (RSXI snapshots are per pass, and the origin test gave one value for all draws because c0–c3 are view-projection). Attribution is the group above, not one op |
+| Bodywork reported as black | In B3 the nearest quad's paint is **not** black. Black is confined to tyres, dark parts and, in the screenshot, small back-lit vehicles |
+| Bits 0x1 and 0x4 separately in game | Not run: the launch allowance is used up. Separately verified on WARP only |
+| Hardware reference | No PS3 image compared; correctness rests on the guest registers and the transfer definitions |
+
+## Separate defects (not fixed)
+
+| Defect | Evidence | Label |
 |---|---|---|
-| Black opaque pixels | Wheels, frames and much of the buggy bodywork are near-black. Riders and some paint (blue, pink, yellow) keep their colour, so whole-vehicle texture loss is unlikely | PARTIAL |
-| Transparent pixels | No sand is clearly visible through solid bodywork. "Missing-looking" areas read as dark opaque or open frames at this resolution | PARTIAL |
-| Discarded fragments | Ragged, speckled edges on bodies. Could be alpha test, or unfiltered sampling | HYPOTHESIS |
-| Missing triangles | None provable | not established |
-| Over-brightness | Sand and sky saturate while vehicles go black: too much contrast, not one wrong material | VERIFIED as appearance |
-| Separate defects, not vehicle | Blocky rectangular shadow patches on the sand; a solid blue rectangle at top centre | cause unknown |
+| Blocky rectangular patches on the sand | Absent at op 547, present in the end-of-frame target and final image, in both arms. Candidate: ops 569–583, `fp 0x022C20C1`, 15 boxes of 18 vertices, cull front (3), depth func 4, blended | Timing VERIFIED; the draw is a HYPOTHESIS |
+| Unit 0 filtering | Guest asks min 4, mag 2, wrap, mips on 552 bindings; the host uses `point_clamp`, while the same request on units 1–4 gets `linear_wrap`. The default host sampler ignores the guest here | VERIFIED mismatch; effect on ragged edges untested |
+| Washed-out sand | Sand left 213.0 → 210.0 and sand right 193.0 → 191.7: X barely changes it, so sand brightness has another cause. T166's area | VERIFIED |
+| Blue rectangle | Not seen in the captured frames | not established |
 
-## Leading candidate: colour transfers off (HYPOTHESIS, strong)
+## For T166
 
-The guest asks for sRGB texture decode and sRGB output on the main scene. The default D3D12 path applies neither, so lighting runs on gamma-encoded values.
-- **Requested:** `srgb_output=1` on the main scene (T145: every draw on `0x00750000`) and gamma mask 7 on units 2/14/15 (race capture A1, 16 of 22 draws `srgb_output=1`, all `host_xfer=none`).
-- **Mechanism:** RSX gives `encode(decode(t)·L)`; ours gives `t·L`. The curves are exact (`tools/lit_transfer_model_t165.py`); the WARP fixture confirms the transfer code itself.
-- **Prediction, using the captured VP c40 = 4.5 and c41 ≈ 0.28** (their reading as sun and ambient is a HYPOTHESIS):
-
-| Albedo | Light | RSX | Default | Default / RSX |
-|---|---|---|---|---|
-| 0.20 | 0.05 | 0.021 | 0.010 | 0.47 |
-| 0.50 | 0.05 | 0.104 | 0.025 | 0.24 |
-| 0.50 | 0.28 | 0.272 | 0.140 | 0.52 |
-| 0.20 | 4.50 | 0.422 | 0.900 | 2.13 |
-
-Shaded surfaces come out 2–4× too dark and lit ones up to 2× too bright. One cause would explain both black vehicles and the blown-out beach.
-
-**Weak support:** T145 arm D1 (`RSX_COLOR_XFER=7`) has lower saturation than A1 in the last flyover frame: 6.1 % vs 15.3 % of pixels ≥ 250. The frames are not at matched moments, so this does not prove it. T145 made no visual claim either.
-
-**Contributors, not separated:** unit 0 point/clamp with no mips (T162 D2) could give the ragged edges, and tiling UVs clamped to a dark edge texel could give patches. HYPOTHESIS.
-
-## Checked and not the cause, within the evidence
-
-| Candidate | Result | Limit |
-|---|---|---|
-| 96-slot overflow | The screenshot is from the 1,024-slot arm, and the defect is still there. Arm T does texture the flyover banner that arm E leaves washed out (frames 8–11), so residency is a real but separate defect | "no slot" count not logged in T3 (`RSX_TEXREC_STATS` off), budget eviction not measured |
-| Null SRVs read as black | 22 race and 1,058 garage null bindings: the program samples none of them (`tools/null_census_t165.py`) | no vehicle programs in these captures |
-| Sign expansion not applied | 0 units request it in those captures | same |
-| Shadow compare translation | `test_fp_shadow_compare` passes | correct shadow-map contents not checked |
-
-## Not established
-
-No capture contains a vehicle draw (T162; still true). So the program, texture, alpha, depth and cull state of the affected draws are unknown, and the isolations A–F cannot run offline. See `GAME_TEST_PLAN.md`.
+Enabling transfers fixes dark crush and most clipping on rocks and foliage, but not the sand. Don't implement a competing transfer path: `RSX_COLOR_XFER` already exists.
 
 ## Commits
 
-ps3recomp `b1eb158` on `agent/t165-vehicle-render-fix` (base `a049b1e`). Root: branch `agent/t165-vehicle-render-report` (base `main` `4bdeed3`).
+ps3recomp `b1eb158` (diagnostic only, unchanged). Root: this report on `agent/t165-vehicle-render-report`.

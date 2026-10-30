@@ -1,14 +1,15 @@
 """T165: read-only census of RSXI draw events: colour transfers, alpha, blend, depth, cull and texture
 resolution of the draws on the main scene target, per capture.
 usage: python material_census_t165.py <rsxi_dir> [...]   (--show-one prints one event)"""
-import collections, glob, json, os, sys
+import collections, glob, json, os, sys, re
+NAN = re.compile(r'-?nan(?:\(ind\))?|-?inf')   # RSXI prints non-finite constants bare; plain json.loads drops those draws
 
 
 def walk(d):
     for p in sorted(glob.glob(os.path.join(d, 'frames', '*', 'events.jsonl'))):
         for line in open(p, encoding='utf-8', errors='replace'):
             try:
-                e = json.loads(line)
+                e = json.loads(NAN.sub('NaN', line))
             except ValueError:
                 continue
             if e.get('e') == 'draw':

@@ -1,11 +1,12 @@
 """T165: which texture units resolve to a null SRV in RSXI draws, on which target, and whether the fragment
 program actually samples them (scanned from the dumped HLSL). usage: null_census_t165.py <rsxi_dir> [...]"""
-import collections, glob, json, os, re, sys
+import collections, glob, json, os, re, sys, re
+NAN = re.compile(r'-?nan(?:\(ind\))?|-?inf')   # RSXI prints non-finite constants bare; plain json.loads drops those draws
 for d in sys.argv[1:]:
     c = collections.Counter(); ex = {}
     for p in sorted(glob.glob(os.path.join(d, 'frames', '*', 'events.jsonl'))):
         for line in open(p, encoding='utf-8', errors='replace'):
-            try: e = json.loads(line)
+            try: e = json.loads(NAN.sub('NaN', line))
             except ValueError: continue
             if e.get('e') != 'draw': continue
             g = e['guest']; fp = g.get('fp', '')
