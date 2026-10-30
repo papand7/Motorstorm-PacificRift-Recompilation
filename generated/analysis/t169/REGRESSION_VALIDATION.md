@@ -84,3 +84,12 @@ Code: ps3recomp `001a56f` on `b1eb158`. Logs: `logs/` in the main checkout (`vis
 - **The wake still works:** on-median stayed 40-60 us and on p90 at most 135 us. Off p90 reached about 7-16 ms in at least one section of every run.
 - **Environment:** every revision fails idle and the two loaded runs pass, so load pushes off towards the slow mode. Timer resolution doesn't decide it: holding 1 ms failed, and 15.6 ms both passed and failed. The final idle run and the later suite run (off 6842 us) passed on current code, so what sets the mode when idle is **unresolved**.
 - **Thresholds unchanged.** Comparing p90 would match what the wake improves, but that's a test change for its own review.
+
+## Velocity validation preflight (ps3recomp `542420e`, exe `59019e06...ba08`)
+
+**No new deterministic regression.** Suite: PASS 122, FAIL 2, SKIP 43. Failures: inherited `test_rt_pool_srv_layout` and `test_vpc_watch`. WARP fixtures: 10 of 10. `test_t169_rt_reinterp`: 0 failures. Public audit passed. `RSX_RT_REINTERP` reads as on only for exactly `1`.
+
+- **Build:** incremental in `build/motorstorm-t169` from a clean `542420e` worktree, pinned as `ab/exe_c`. The `774c81d` exe stays pinned as `ab/exe_t`.
+- **`test_spurs_kick_wake`:** PASS this run (off 11084 us, on 51 us). Still classified flaky: the pass doesn't change that.
+- **`test_d3d12_shader_cache`:** PASS this run. Its one earlier failure remains unexplained.
+- **Coverage gap found in game:** the test passes while the game's velocity readers are refused, since the fixture binds no cube unit. A green `test_t169_rt_reinterp` doesn't show the correction reaches the game.

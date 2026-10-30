@@ -22,7 +22,7 @@
 | `0x10` | `RSX_RT_WINDOW` | Active in F2. Effect not separable |
 | `0x20` | `RSX_RT_FEEDBACK` | Active in F2. Effect not separable |
 | `0x40` | `RSX_MSAA` (needs `0x02`) | Not tested in game |
-| `0x80` | `RSX_DEPTH_STATE` | **Not ready alone: needs the velocity decode, untested in game** |
+| `0x80` | `RSX_DEPTH_STATE` | **Not ready alone: `RSX_RT_REINTERP` was refused on both velocity readers in game, so the decode is still untested** |
 | `0x100` | `RSX_MRT_STATE` | Active in F2. Effect not separable |
 
 **Known gaps:**

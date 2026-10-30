@@ -3,7 +3,7 @@ Differences: caps 205 s game / 210 s host; the T169 exe; explicit switches per a
 the debug layer in both arms with its messages counted by dbwin_d3d12_t169.py; no RSXI; RSX_VISUAL_DIAG lines from race entry + 25 s (or host 190 s
 if earlier), because a capture can trip the 4 s Present timeout that ends a run; a refusal to start in a remote session.
   py -3 generated/analysis/t169/tools/make_runner_t169.py
-  py -3 generated/analysis/t169/ab/run_t169.py prepare t ; dryrun D|F|A|B ; launch D|F|A|B <tag>"""
+  py -3 generated/analysis/t169/ab/run_t169.py prepare t ; dryrun D|F|A|B|C ; launch D|F|A|B|C <tag>"""
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -20,7 +20,7 @@ def sub(old, new, count=1):
 
 
 sub("SRC_EXES = {'n': ROOT / 'build' / 'motorstorm-perfnext-tex' / 'MotorStormPacificRiftRecomp.exe'}",
-    "SRC_EXES = {'t': ROOT / 'build' / 'motorstorm-t169' / 'MotorStormPacificRiftRecomp.exe'}")
+    "SRC_EXES = {'t': ROOT / 'build' / 'motorstorm-t169' / 'MotorStormPacificRiftRecomp.exe', 'c': ROOT / 'build' / 'motorstorm-t169' / 'MotorStormPacificRiftRecomp.exe'}")
 sub("HARD_KILL_S = 200.0   # as T161 (this slice replaces its line)", "HARD_KILL_S = 203.0   # before the 205 s game cap")
 i0, i1 = src.index("EXEDIR = HERE.parents[1]"), src.index("RACE_STOP = {")
 src = src[:i0] + """EXEDIR = HERE
@@ -30,12 +30,18 @@ ARMS = {
     'F': ('t', {**ENV_LEAN, **TEXRES, **VALID, 'RSX_COLOR_XFER': '7', 'RSX_GUEST_SAMPLERS': '15', 'RSX_TEX_MIPS': '1', 'RSX_ZETA_EXACT': '1',
                 'RSX_RT_WINDOW': '1', 'RSX_RT_FEEDBACK': '1', 'RSX_DEPTH_STATE': '1', 'RSX_MRT_STATE': '1'}),
 }
-ARMS['A'] = ARMS['F']   # T169 vehicle isolation: the F2 set
-ARMS['B'] = ('t', {**ARMS['F'][1], 'RSX_DEPTH_STATE': '0'})   # the F2 set with depth state alone off
+# T169 velocity validation: the F2 set; exe t is ps3recomp 774c81d, exe c 542420e. RSXI only at race entry + VEL_CAP_S, past the timing window.
+VEL_RSXI = {'RSXI': '1', 'RSXI_COUNT': '1', 'RSXI_STRIDE': '1', 'RSXI_MINDRAWS': '200', 'RSXI_SNAP': 'passes', 'RSXI_MAX_EVENTS': '0', 'RSXI_MAX_SNAPS': '64',
+            'RSXI_VP_CONSTS': '0', 'RSXI_UNITS': '0', 'RSXI_GEOM': '0', 'RSXI_RTS': '01650000,01DD0000,00750000,022D0000'}
+ARMS['A'] = ('t', {**ARMS['F'][1], **VEL_RSXI, 'RSX_RT_REINTERP': '0'})
+ARMS['B'] = ('t', {**ARMS['A'][1], 'RSX_DEPTH_STATE': '0'})
+ARMS['C'] = ('c', {**ARMS['A'][1], 'RSX_RT_REINTERP': '1'})
+VEL_CAP_S = 38.0
 EXPECT = {'D': 'profile=0x0 xfer=0x0 samplers=0x0 mips=0 zeta_exact=0 rt_window=0 rt_feedback=0 msaa=0 depth_state=1 mrt_state=0',
           'F': 'profile=0x0 xfer=0x7 samplers=0xF mips=1 zeta_exact=1 rt_window=1 rt_feedback=1 msaa=0 depth_state=1 mrt_state=1'}
 EXPECT['A'] = EXPECT['F']
 EXPECT['B'] = EXPECT['F'].replace('depth_state=1', 'depth_state=0')
+EXPECT['C'] = EXPECT['F'] + ' rt_reinterp=1'
 RX_SERIOUS = re.compile(r'Present\\(\\) Timeout|DXGI_ERROR_DEVICE|DeviceRemoved|DEVICE_REMOVED|device removed|resynchron|fifo.*(corrupt|resync)', re.I)
 """ + src[i1:]
 # D2/F2 stop conditions, checked on every log line and every controller tick
@@ -70,6 +76,15 @@ sub("RUN_NAME = 't165'", "RUN_NAME = 't169'")
 sub("if self.race_t is not None and self.now() - self.race_t >= RSXI_AT_S and not (self.rt / 'rsxi_go').exists():",
     "if self.race_t is not None and (self.now() - self.race_t >= RSXI_AT_S or self.now() >= RSXI_LATEST_S) and not (self.rt / 'rsxi_go').exists():")
 sub("self.note('rsxi_trigger', after_race_s=RSXI_AT_S)", "self.note('rsxi_trigger', after_race_s=round(self.now() - self.race_t, 2))")
+sub("        if self.race_t is not None and self.now() - self.race_t >= RACE_STOP.get(ARM, RACE_STOP_S):\n",
+    "        if ARM in 'ABC' and self.race_t is not None and self.now() - self.race_t >= VEL_CAP_S and not (self.rt / 'vel_go').exists():\n"
+    "            (self.rt / 'vel_go').write_text('go\\n')\n"
+    "            self.note('vel_capture_trigger', after_race_s=round(self.now() - self.race_t, 2))\n"
+    "        if self.race_t is not None and self.now() - self.race_t >= RACE_STOP.get(ARM, RACE_STOP_S):\n")
+sub("    envs.update({k: v.replace('{rt}', str(rtdir)) for k, v in ARMS[ARM][1].items()})   # the arm keys last\n",
+    "    envs.update({k: v.replace('{rt}', str(rtdir)) for k, v in ARMS[ARM][1].items()})   # the arm keys last\n"
+    "    if ARM in 'ABC':\n"
+    "        envs.update({'RSXI_DIR': str(rtdir / 'rsxi'), 'RSXI_TRIGGER_FILE': str(rtdir / 'vel_go')})\n")
 # D2/F2: no RSXI. It tripped the 4 s Present timeout in D1 and F1, and that timeout now cancels the sequence.
 j0, j1 = src.index("        'RSXI': '1', 'RSXI_DIR'"), src.index("        'RSX_XFER_LOG': '48'")
 src = src[:j0] + src[j1:]
@@ -79,7 +94,7 @@ sub("        'RSX_XFER_LOG': '48', 'RSX_TEXREC_STATS': '1',\n",
     "        'RSX_VISUAL_DIAG': '1', 'RSX_VISUAL_DIAG_GO': str(rtdir / 'rsxi_go'), 'RSX_VISUAL_DIAG_MAX': '2000', 'RSX_VISUAL_ACTIVE': '1',\n")
 sub("'CELLMARK_DUMP': '12', 'CELLMARK_DUMP_EVERY': '64',", "'CELLMARK_DUMP': '16', 'CELLMARK_DUMP_EVERY': '64',")
 sub("'--timeout', '195']   # + fast_startup HARD_GRACE_S 15 = 210 s hard deadline", "'--timeout', '205']   # + HARD_GRACE_S 5 (set in main) = 210 s hard deadline")
-sub("raise SystemExit('usage: run_t165.py launch B|X|Y|S <tag>')", "raise SystemExit('usage: run_t169.py launch D|F|A|B <tag>')")
+sub("raise SystemExit('usage: run_t165.py launch B|X|Y|S <tag>')", "raise SystemExit('usage: run_t169.py launch D|F|A|B|C <tag>')")
 sub("ARM, RUN_NAME = arm, f't165-{arm}{tag}'", "ARM, RUN_NAME = arm, f't169-{arm}{tag}'")
 sub("    fast_startup.MAX_TIMEOUT_S = 195.0" + NL, "    fast_startup.MAX_TIMEOUT_S = 205.0" + NL + "    fast_startup.HARD_GRACE_S = 5.0" + NL)
 sub("    got = preflight(HDD1)\n",

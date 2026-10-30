@@ -88,3 +88,9 @@ All other settings stay the same as F2. A and B only test that the speckle follo
 **Compare at matched race clocks:** terrain clipping; vehicle materials and speckle (median Laplacian); decals and shadows; frame-time p50, p95, p99; PSO misses and miss ms; draw counts; `[visual-active]` counters; `D3D12_DBG` message counts. Count `wait_ms` near 84 frames first.
 
 **Stop conditions:** as D2 and F2 (serious errors, remote session, 205 s cap).
+
+## Velocity validation: launches used
+
+**All three authorised launches ran, one per arm, no retries. No launches remain.** Results: `D2_F2_GAME_RESULTS.md`. The plan's arm C prediction wasn't tested, because the decode was refused on both programs.
+
+**Next step, needs new authorisation:** one build with `rsx_fp_apply_rt_y16x16f` also matching `rsx_tex<u>.Sample(`, a fixture with a bound cube unit, then one launch of arm C. Pass condition before reading any picture: `[rt-reinterp]` absent and `reinterp_refused=0`. Capture at a fixed frame rather than a time trigger if possible, since the three time-triggered captures landed on different frame types.
