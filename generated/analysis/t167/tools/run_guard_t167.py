@@ -89,7 +89,7 @@ def post_failures(run_dir, controller, exit_code, min_race=500, min_heavy=100, m
     rf, slow = race_frames(err)
     if rf < min_race:
         fails.append(f'{rf} race frames, need {min_race}')
-    elif rf < 600 + min_heavy:
+    elif min_heavy and rf < 600 + min_heavy:
         fails.append(f'{max(rf - 600, 0)} heavy frames, need {min_heavy}')
     if slow > max_slow:
         fails.append(f'{slow:.1f}% of frames in the 84 ms GPU-wait mode, limit {max_slow}%')
