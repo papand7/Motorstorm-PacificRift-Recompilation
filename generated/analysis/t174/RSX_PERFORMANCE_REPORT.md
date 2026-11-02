@@ -104,7 +104,7 @@ Other measurements:
 
 **AMD difference.** A temporary build wrote indices 0..n−1 with no vertex reuse: AMD was then 3/3 identical. So the indexed draw and the record layout are correct, and the difference appears only when vertices are actually reused. WARP and RTX do not show it, and the written bytes are proven equal. The bench draws many coplanar overlapping triangles, so small differences may decide which triangle wins a pixel. The cause inside the AMD driver or hardware is HYPOTHESIS. Whether real game frames would show it is unknown. **Treat this as unresolved on that GPU**, and do not enable the switch there until game frames are compared.
 
-**Suite failures.** `test_rt_pool_srv_layout` and `test_vpc_watch` are inherited from T170's baseline. `test_spurs_kick_wake` is a known flaky timing test unrelated to RSX; it also failed on an isolated rerun, so it is not cleared by that rerun. T170's baseline was 146 pass, 43 skip, 2 fail, and the extra passes here include T174's new test and fixtures that now build.
+**Suite failures.** `test_rt_pool_srv_layout` and `test_vpc_watch` are inherited from T170's baseline. `test_spurs_kick_wake` is a known flaky timing test unrelated to RSX; it also failed on an isolated rerun, so it is not cleared by that rerun. This run covers all 169 `tools/test_*.py` scripts (168 at `fda8c9b` plus `test_vp_indexed`). T170's report gives 146 pass, 43 skip, 2 fail, a total of 191, so its totals are not directly comparable; I did not find what the other tests were. The comparison that holds is the failure list: the same 2, plus the flaky test.
 
 Existing pins (`test_t119_pins`, `test_rsxi_geom`, `test_vp_fetch_plan`) were not changed. They caught three wiring mistakes during this work, which were fixed in the code.
 
