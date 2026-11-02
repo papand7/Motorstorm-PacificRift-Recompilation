@@ -1,6 +1,6 @@
 # T176: RSX visual fidelity
 
-Code: ps3recomp branch `agent/t176-rsx-visual-fidelity`, commit `5ccbb116`, base `b282e262` (T171). Offline only: no game launch, merge, push or PPU relift.
+Code: ps3recomp branch `agent/t176-rsx-visual-fidelity`, commits `5ccbb116` and `0eb257f6`, base `b282e262` (T171). Offline only: no game launch, merge, push or PPU relift.
 
 ## Result
 
@@ -120,15 +120,30 @@ Run through `generated/analysis/t169/tools/env_t169.cmd`.
 
 | Run | Result |
 |---|---|
-| Full suite | PASS 123, FAIL 3, SKIP 43, TIMEOUT 0 |
+| Full suite, final (`0eb257f6` content) | PASS 126, FAIL 0, SKIP 43, TIMEOUT 0 |
+| Full suite, before the pin updates (`5ccbb116`) | PASS 123, FAIL 3, SKIP 43, TIMEOUT 0 |
 | `test_t176_poly_offset` | PASS: 8 pins and state checks, 5 mapping checks, 8 checks on each of 3 adapters |
 | `test_depth_state`, `test_d3d12_depth_state`, `test_stencil_exact`, `test_shader_window`, `test_t171_track` | PASS |
 | Backend `clang-cl /Zs` | Exit 0. A full game build was not made |
 
-| Failure | Status |
-|---|---|
-| `test_rt_pool_srv_layout`, `test_vpc_watch` | Inherited: also fail in the T169 baseline and T171 |
-| `test_spurs_wws_concurrency` | Known flaky, in SPURS code this change doesn't touch. Reruns: pass, pass, fail (mode guest in the suite). Not investigated |
+No new regression. The three failures of the earlier run:
+
+| Test | Class | Before | After |
+|---|---|---|---|
+| `test_rt_pool_srv_layout` | Inherited stale pin | 1 failure | 0 failures |
+| `test_vpc_watch` | Inherited stale pin and harness | 1 failure, then harness build error | 0 failures, behavioural checks now run |
+| `test_spurs_wws_concurrency` | Intermittent, **not resolved** | Failed in the suite (mode guest) and 1 of 3 reruns | Passed in the final suite. This pass doesn't show it is fixed; not investigated, and T176 doesn't touch SPURS code |
+
+**Pin evidence (VERIFIED; no implementation changed):**
+- `test_rt_pool_srv_layout`: it pinned an inline eviction loop that `089d17a2` moved into `rsx_rtpool_victim.h`. With `RSX_RTPOOL_GF` unset the rule is unchanged: evict only a slot unused this replay, -1 if none. The pin now requires the call, its `used` input and both helper return rules. `test_rtpool_victim` runs that rule: 11 checks, 0 failed.
+- `test_vpc_watch`: it counted 3 `getenv` calls, but `74fd0847` added two opt-in variables, making 5, all still inside the read-once block. The same commit added `clock()`, which production gets from `<time.h>`; the harness lacked that include, so its build failed and **its behavioural checks hadn't run since then**. They now run and pass.
+- Not weakened: on deliberately broken copies (helper evicting regardless of `used`; `RSX_VPC_WATCH_ANY` read removed), both tests failed. `RSX_VPC_WATCH_LANE` and `RSX_VPC_WATCH_MS` still have no behavioural test, as before.
+
+Also passed directly through the wrapper: `test_t101_pins`, `test_t110_pins`, `test_t176_poly_offset`.
+
+**Skipped, 43:** the same count in both runs. The first one inspected reports it needs a POSIX C compiler and dead-section linker; the other 42 were not inspected individually, and none ran here.
+
+**Regression risks:** the flag-off path adds a per-draw branch and diagnostic logging, not exercised in a game build. With the flag on, pipeline count depends on the game's pairs. A source pin can still go stale when code moves.
 
 The suite's `scratch/ppu_conformance.cpp` and `ppu_conformance_run.bat` rewrites were restored and aren't in the commit.
 
@@ -187,4 +202,5 @@ These change the original look, so each needs its own default-off switch, and al
 ## Audit results
 
 - Code commit `5ccbb116`: made **before** an audit ran, because the audit script isn't in the ps3recomp repo and my command didn't stop on that error. Checked afterwards: `audit_public.py --tree` on a copy of its 6 files passed. That repo has no commit hook in effect here.
-- This report: the standalone audit and the root commit hook were run separately; see the final reply.
+- Pin commit `0eb257f6`: `audit_public.py --tree` on a copy of its 2 files passed **before** committing, exit 0.
+- This report: `--staged --private-reports` and the root commit hook are run separately; see the final reply.
