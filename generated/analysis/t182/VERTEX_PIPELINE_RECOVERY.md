@@ -1,6 +1,6 @@
 # T182: vertex pipeline recovery
 
-Status: **`RSX_VP_DIRECT` recovered, off by default, offline only. EXPERIMENTAL.** All timings are synthetic; no FPS gain is claimed.
+Status: **`RSX_VP_DIRECT` recovered, off by default. EXPERIMENTAL.** In game it cut vertex expansion by 14 % but gave no steady race FPS gain, and in-game rendering is unchecked (section 7). Timings in sections 2-4 are synthetic.
 
 Commit `753ff8d9`, branch `agent/t182-unintegrated-recovery`, copied unchanged from the uncommitted work in `ps3recomp-t175`, which was left as it was.
 
@@ -42,7 +42,7 @@ No implementation defect was found, so none was repaired. Checked in source:
 
 - Direct matters most with fast fetch at 1.5x reuse: 40.9 to 34.8 ms on RTX, 38.2 to 25.9 ms on AMD. It writes the same bytes, so upload is unchanged.
 - Peak working set 288, 288 and 321 MiB and peak private 649, 648 and 648 MiB for off, both + indexed and both + direct, RTX, 2.93x. Direct adds no allocation.
-- Real vertex reuse in the race is unknown, so which column applies is unknown.
+- Real vertex reuse was unknown when this was benchmarked. The race measured 3.14x (section 7), so the 2.93x column is the closer one.
 
 ## 3. Pixels
 
@@ -81,3 +81,19 @@ T162 GPU fetch stays out (`UNINTEGRATED_WORK_AUDIT.md`). T175's `patch_lane`, `p
 ## 6. Tests
 
 `test_vp_direct`, `test_vp_indexed`, `test_vp_fetch_plan`, `test_t119_pins`, `test_rsxi_geom` pass; full suite in the audit report. No test was weakened.
+
+## 7. In-game result
+
+One launch per arm, RTX 5060, same race; details and confounders in `RUNTIME_AB_RESULTS.md`.
+
+| Matched steady race frames | B (indexed) | D (B + direct) | Change |
+|---|---:|---:|---:|
+| FPS | 14.71 | 14.56 | -1.0 %, within unmeasured noise |
+| Expand ms | 18.36 | 15.75 | -14.2 % |
+| Upload MB/frame | 37.69 | 38.25 | +1.5 %, with 1.5 % more vertices |
+| Other ms | 31.86 | 35.66 | +11.9 % |
+| Vertex reuse | 3.139 | 3.134 | |
+
+The bench predicted almost nothing for direct at 2.93x on RTX (36.9 to 36.3 ms), and the game agrees on FPS, though expand itself gained more. The render-thread saving doesn't reach the frame rate; the guest side being the limit is a HYPOTHESIS. No frames were captured, so the "no visible difference" pass condition is unchecked.
+
+**Decision:** keep it off.
