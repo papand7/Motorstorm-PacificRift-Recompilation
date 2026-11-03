@@ -1,0 +1,91 @@
+## T22: frame-gap diagnostic preparation (2026-10-25, build only, no launch, no code change)
+
+Source: `ps3recomp-t17`, branch `agent/perf-integration-307b08a`, HEAD `3b38721` (clean). `motorstorm/v0.17-integration` not touched. Supporting files: `generated/analysis/t22/`.
+
+- Build (VERIFIED): `build\motorstorm-perf-t18\MotorStormPacificRiftRecomp.exe`, SHA-256 `17E9CD9FB45269B4A077B13EE63F42C3C092FA703622C54B7BEA0508C7DDC287`, 397,565,952 B.
+  - Configuration: Release, clang-cl 23.1.3, MSVC 14.51 libraries, CMake 4.3.1, Ninja; `RECOMP_DIR=generated\ppu-hooked-staging`, `PORT_HLE_NIDS_GENERATE=ON`. Details: `build_meta.txt`.
+  - A build of this folder was already running (started 14:29, not by this session). My overlapping reconfigure failed (`ninja restat: Permission denied`, `build_exe_collided.log`). After that build finished, `build_exe.cmd` rebuilt 27 SPU objects, relinked, exit 0.
+  - 39,106 warnings, all from the generated SPU C and its headers. Warnings for the instrumented runtime files were in the earlier build's log, which is not available.
+- Switches (VERIFIED in source, and as strings in the exe):
+  - `PS3_FTRACE=<start s>:<seconds>:<path>`:
+    - window relative to the first hook (about boot), times in µs;
+    - default `CAP` 4M spans (128 MB, allocated only when recording);
+    - written when the first span after the window arrives (the runner's `taskkill /F` skips atexit).
+  - `PS3_FTRACE_SYNC=1`: LABEL instants (kind 20), VBLANK instants (kind 21) and every FIFO drain, at about 300 drains/s from the `port/main.cpp` 4 ms loop plus 60 Hz beats. Records no RSX `ref` value.
+  - `PS3_FTRACE_USLEEP_REG=31`: kind 22, `a` = lr, `b` = r31 at syscall 141 entry, once per merged usleep run. Runs merge when they share a thread and lr and are within `MERGE_US` (300 µs) of each other, so a later wait on a different gate inside one run is not recorded.
+  - `PPU_SPINBT=0x10CE8F40`: one host backtrace the first time any thread makes 200,000 consecutive read32 calls to that address. RVAs only; the exe has no map or PDB.
+    - Resolver (VERIFIED by self-test): `spinbt_resolve.py`, which walks the exe's `function_table` (53,278 entries).
+    - The backtrace names the call chain, not the thread. The thread follows from the chain's entry function.
+    - Out-of-line loads are already forced by `RSX_RTVIS` in T17, so this adds no cost.
+  - The header logic passes `tests/test_ftrace_sync.c` (6 checks; `test/test_ftrace_sync.log`). Wiring inside the exe is verified only by reading the source.
+- Static checks (VERIFIED):
+  - At the `sc` in `LockFreeMutex::Lock` (`0x4B64B4`), r29 = r31 = the lock address. lr `0x94CCA8` = gate `+0xC`; lr `0x94CCBC` = guard `+8`.
+  - `JobBatchInternal::Wait` (`0x4AACA0`) reaches the CV through the pointer at `batch+0x20`, and no register at the sleep holds the batch. A gate address therefore cannot be matched to a batch from the trace alone.
+  - Correction to T21: `SystemTimeSleep` (`0x438960`) is a leaf with an inline `sc`, so r31 at the `0x536xxx` sleeps is well defined: the ResourceSystem pointer at `0x536A78`/`0x536CB8`, the saved `+0x91` byte at `0x536B30`. It carries no resource identity.
+  - Developer signatures: `LoadInternal(AsyncPtr&, const char*)`, `(AsyncPtr&, const ResourceIdentifier&)`, `(AsyncPtr&, const char*, ResourceTypeId, bool)`. Mapping the retail copies to these is INFERRED from their RequestInternal calls.
+  - RTTI: `ResourceSystem` has no vtable. File access goes through `evo::resourcesystem::fileaccess`, whose only subclass is `blockingfileaccess`. Its typeinfo `0x1041C4C` is referenced only twice, from that pair.
+    - Retail vtable `0x1041C18` matches the developer build slot for slot (`rv_vtable.py`): D1, D0, Update, Completed, `ReadAsynchronous` (`0x97FCF8`), FileName, `SeekSynchronous`, Cleanup, OpenFile.
+    - `ReadAsynchronous` calls `SeekSynchronous` and then a read on the calling thread.
+  - `cellFsRead` is HLE (`libs/filesystem/cellFs.c:527`), not an lv2 syscall, so ftrace never shows file I/O.
+- New offline results from T17 data (`gap_timeline.py` → `gap_timeline_t17.txt`, `t22_analyze.py` → `t22_analyze_on_t17.txt`):
+  - Same structure in all three gaps (VERIFIED):
+    - 0–60 ms: a normal frame's main-thread work (event receives, CV back-off);
+    - then the `0x536A30` (menu `.ams`) loop: gap 1 from 74.5 to 327.6 ms, 16 sleeps 3–26 ms apart (one gap of 111 ms); gap 2 a single sleep at 76 ms; gap 3 from 85.5 ms;
+    - then 231 ms (gap 1) / 237 ms (gap 2) with no main span at all (no usleep, no syscall ≥ 200 µs);
+    - then the `0x536C68` and `0x536AB8` loops in the last 25–45 ms before the next flip.
+  - Hence `Update` (the time between 1 µs sleeps) takes milliseconds per call, and the largest share of each gap is a silent stretch with no polling. INFERRED: since a `LoadInternal` copy calls RequestInternal before its first sleep, the silent stretch is RequestInternal or the caller's code before it.
+  - Present spinner (question C, answered at 1 s resolution): HOTREAD lines on `0x10CE8F40` stay at 14.5–17.8 per frame, including the gap seconds (15.4, 15.3). Its drop in the gaps is fully explained by fewer frames.
+  - Gap timing on this machine (`hb_gaps.py` → `hb_gaps.txt`):
+    - `depth_surface_created` heartbeat time: 37.4, 38.5, 38.6 and 44.2 s across the four runs here (rtrb-watch, capture-probe, c38-trace, T17);
+    - flip-rate dips at +7.3, +14.0, +16.3 and +21.7 s after it (capture-probe), and the T17 gaps at +16.4 to +19.5 s.
+    - A fixed 45:30 window would miss a dip at +7.3 s whenever `depth_surface_created` comes before 37.7 s (c38-trace: 37.4 s).
+- Prepared launch (NOT run): `powershell -NoProfile -ExecutionPolicy Bypass -File generated\analysis\t22\run_t22_diag.ps1`.
+  - It is the T17 wrapper with only the exe and SHA-256, the run name `perf-t22-sync`, the output folder `generated\analysis\t22\runtime-<ts>` and these changed:
+    - `PS3_FTRACE=40:40:{run_dir}\ftrace.txt`;
+    - `PS3_FTRACE_SYNC=1`;
+    - `PS3_FTRACE_USLEEP_REG=31`;
+    - `PPU_SPINBT=0x10CE8F40`.
+  - Window 40–80 s = `depth_surface_created` + 3 to +36 s across the observed range: every dip seen here, and it ends before the RSXI capture (depth + 85 s). The start time is absolute: dips at +7 to +22 s stay inside the window only while `depth_surface_created` falls between about 33 and 58 s.
+  - Kept: intro skip, renderer settings, RSXI capture, VFS/HDD roots under this machine's root, `--timeout 150`, `--stop-on-fatal`, the wrapper's tree kill at 210 s and final cleanup by 225 s, environment scrub, no retry.
+  - `-DryRun`: preflight OK, no launch (`dryrun.txt`).
+  - Outputs: `generated\runs\<ts>-perf-t22-sync\{ftrace.txt, stderr.log, milestones.json, manifest.json, rsxi\}`, plus `host.csv` and `wrapper.log` in the runtime folder.
+  - Analysis: `t22_analyze.py <run>`, `gap_timeline.py <run>\ftrace.txt`, `spinbt_resolve.py <exe> <run>\stderr.log`.
+- What this launch can answer:
+  - A, partly: the `LoadInternal` sleep sites per gap and their timing (repeating T17 on a new run). It cannot show calls that never sleep, or the silent stretch.
+  - B: the r31 gate addresses of main's CV waits per gap and per normal frame, and whether they repeat. The owning batch or subsystem cannot be shown.
+  - C: the Present spin's call chain, hence its thread, and its rate per frame.
+  - D: whether LABEL and VBLANK instants and drains continue through the gaps.
+- What it cannot answer: the resource identity; time in `Update` and RequestInternal; file I/O vs decompression vs allocation vs guest compute; cache state.
+- Follow-up (PROPOSED, separate approval; existing tracer, configuration only, no code change):
+  - `run_t22_diag.ps1 -WithResourceTrace` adds `PS3_TRACE` from `t22_resource_trace.cfg`:
+    - `tid=1,3-9` (main and the FIOS threads);
+    - `fn=536A30,536AB8,536C68,5346A8,5318F8,530F10,52D240`;
+    - `hle=*`, `hle_min_us=100`;
+    - `regs=r3-r6` plus 8 words at `[r5]`;
+    - `limit=1000000`, `max=400000`;
+    - `out={run_dir}\pt_trace.txt`.
+  - It parses cleanly against the `ps3recomp-t17` tracer (`test/pt_cfg_check.log`: mask ENTER|RET|HLE, 7 fns, 8 tids, no config error). The hooked build defines `ppu_trace_hook_level = 1`.
+  - Gives:
+    - entry/exit time and duration of each `LoadInternal`, `Update` and `RequestInternal` call, with caller lr and thread;
+    - the `Update` iteration count and its `r3` result (still pending or done);
+    - sleep time = `LoadInternal` minus `Update` minus `RequestInternal`;
+    - imports of 100 µs or more (`cellFs*` etc.) inside those frames;
+    - the first 32 bytes at `r5`: the path for `0x536A30` (INFERRED argument), the identifier for `0x536C68`.
+  - Separates slow loading (a long `RequestInternal`/`Update`, or long `cellFs` calls inside them) from excessive polling (many short `Update` calls with sleeps between).
+  - Limits:
+    - "cached or fresh" can be inferred only from the presence or absence of file imports;
+    - longer paths are truncated;
+    - asynchronous FIOS reads appear only on the FIOS threads;
+    - with `fn=` armed, every ENTER/RET hook costs about 17 ns (`docs/TRACING.md`), so gap lengths may grow. The c38-trace run with six armed functions still reached `depth_surface_created` at 39.0 s; garage-frame overhead is unmeasured.
+- Reproduce (from the motorstorm root):
+  - `cmd /c generated\analysis\t22\build_exe.cmd`
+  - `cmd /c generated\analysis\t22\test_ftrace_sync.cmd`
+  - `py -3 generated/analysis/t22/spinbt_resolve.py build/motorstorm-perf-t18/MotorStormPacificRiftRecomp.exe --selftest`
+  - `py -3 generated/analysis/t22/hb_gaps.py generated/runs/<run>…`
+  - `py -3 generated/analysis/t22/gap_timeline.py generated/runs/20261025-132231-perf-t17-ftrace/ftrace.txt`
+  - `py -3 generated/analysis/t22/t22_analyze.py generated/runs/20261025-132231-perf-t17-ftrace`
+  - `py -3 generated/analysis/dis.py 4B63F0 4B64E0`, `… 4AACA0 4AACE4`, `… 536A30 536CF4`, `… 438960 438980`, `… 97FCF8 97FDA0`
+  - `py -3 generated/analysis/t21/rtti.py resourcesystem`
+  - `py -3 generated/analysis/t22/rv_vtable.py N3evo14resourcesystem18blockingfileaccessE`
+  - Tracer config check: build and run with `generated\analysis\t22\test_pt_cfg.cmd "<cfg joined with ;>"`.
+
