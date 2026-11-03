@@ -2,7 +2,8 @@
 by stderr order between [PT] markers. Steady race window (last 55 s). No game launch."""
 import collections, glob, os, re, statistics as S
 ROOT = os.environ.get('MS_GENERATED', 'generated')
-RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', '*t183-Ss1')))[-1]
+TAG = os.environ.get('T183_TAG', 'Ss1')   # T184: Pp1 = arm P (task pool)
+RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', f'*t183-{TAG}')))[-1]
 PT = re.compile(r'\[PT\] t=(\d+) tid=1 ev=(\w+) .*?fn=([0-9A-F]+)')
 IMG = re.compile(r'image=(\d+)')
 frames, cur, ph = [], None, None

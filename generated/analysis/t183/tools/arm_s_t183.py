@@ -4,8 +4,9 @@ Reads the one arm S run (generated/runs/*t183-Ss1, generated/analysis/t183/ab/ru
 import collections, glob, json, os, re, statistics as S, sys
 ROOT = os.environ.get('MS_GENERATED', 'generated')
 WIN = float(sys.argv[1]) if len(sys.argv) > 1 else 55.0
-RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', '*t183-Ss1')))[-1]
-RTD = sorted(glob.glob(os.path.join(ROOT, 'analysis', 't183', 'ab', 'runtime-s1-*')))[-1]
+TAG = os.environ.get('T183_TAG', 'Ss1')   # T184: Pp1 = arm P (task pool)
+RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', f'*t183-{TAG}')))[-1]
+RTD = sorted(glob.glob(os.path.join(ROOT, 'analysis', 't183', 'ab', f'runtime-{TAG[1:]}-*')))[-1]
 PT = re.compile(r'\[PT\] t=(\d+) tid=(\d+) ev=(\w+) .*?fn=([0-9A-F]+).*?(?:dur_us=(\d+))?.*? n=(\d+)')
 KV = re.compile(r'(\w+)=([\d./]+)')
 HAVOK = {'341580667': 'w1 solver', '491898574': 'w2 collide', '308733018': 'w3 raycast', '406081863': 'w4 animation'}
@@ -62,7 +63,7 @@ print(f'run {os.path.basename(RUN)}; window last {WIN:.0f} s; joined race frames
 T = [r['T'] for r in rows]
 def pct(v, p):
     v = sorted(v); return v[min(len(v) - 1, int(p * len(v)))]
-print(f'frame ms mean {S.mean(T):.2f} median {S.median(T):.2f} p95 {pct(T, .95):.2f} p99 {pct(T, .99):.2f}; fps {1000 / S.mean(T):.2f}')
+print(f'frame ms mean {S.mean(T):.2f} median {S.median(T):.2f} p95 {pct(T, .95):.2f} p99 {pct(T, .99):.2f}; fps {1000 / S.mean(T):.2f}; sd {S.pstdev(T):.2f}, se {S.pstdev(T) / len(T) ** .5:.3f}')
 for k in ('ref', 'before', 'havok', 'after', 'emit', 'gap', 'spin'):
     v = [r[k] for r in rows]
     print(f'  {k:7s} mean {S.mean(v):6.2f} median {S.median(v):6.2f} sd {S.pstdev(v):5.2f}')
@@ -133,13 +134,17 @@ for k, v in sorted(lanes.items()):
 print('sc-wait last window per tid:')
 last = {}
 for l in scw:
-    last[re.search(r'tid=(\d+)', l)[1]] = l
+    m_ = re.search(r'tid=(\d+)', l)
+    if m_:
+        last[m_[1]] = l
 for k in sorted(last, key=int):
     print('  ' + last[k][:220])
 print('hle-wait last window per tid:')
 last = {}
 for l in hlw:
-    last[re.search(r'tid=(\d+)', l)[1]] = l
+    m_ = re.search(r'tid=(\d+)', l)
+    if m_:
+        last[m_[1]] = l
 for k in sorted(last, key=int):
     print('  ' + last[k][:220])
 cpu = [json.loads(l) for l in open(os.path.join(RTD, 'cpu.jsonl'), encoding='utf-8')]
@@ -149,3 +154,15 @@ tops = sorted(((b['threads'][k] - a['threads'].get(k, 0)) / dt, k) for k in b['t
 print('host thread CPU, ms per frame (top 10):', [(k, round(x * S.mean(T), 1)) for x, k in tops[:10]])
 print('  live threads sum', round(sum(x for x, _ in tops) * S.mean(T), 1), 'ms/frame;',
       'process', round((b.get('proc_cpu', 0) - a.get('proc_cpu', 0)) / dt * S.mean(T), 1) if 'proc_cpu' in b else '', 'keys', list(b)[:8])
+# T184: host thread churn (distinct thread ids seen in the cpu.jsonl samples of the window) and memory.
+win = [c for c in cpu if c['t'] >= cpu[-2]['t'] - WIN]
+seen = set().union(*(c['threads'] for c in win))
+allseen = set().union(*(c['threads'] for c in cpu))
+print(f'host threads: {len(seen)} distinct ids in the window samples ({len(win)} samples, {win[-1]["t"] - win[0]["t"]:.0f} s); '
+      f'{len(cpu[-2]["threads"])} live at the last sample; {len(allseen)} distinct over the run; '
+      f'new ids per sample in the window {S.mean(len(set(b["threads"]) - set(a["threads"])) for a, b in zip(win, win[1:])):.1f}')
+ws = [float(l.split('","')[-1].strip().strip('"').replace(' K', '').replace('.', '').replace(',', '')) / 1024
+      for l in open(os.path.join(RTD, 'mem.csv'), encoding='utf-8', errors='replace') if l.strip()]
+print(f'working set (mem.csv): peak {max(ws):.0f} MB, last {ws[-1]:.0f} MB, samples {len(ws)}')
+db, di = win[-1]['sys_busy'] - win[0]['sys_busy'], win[-1]['sys_idle'] - win[0]['sys_idle']
+print(f'system CPU busy over the window: {db / (db + di) * 100:.1f}% of all logical CPUs')
