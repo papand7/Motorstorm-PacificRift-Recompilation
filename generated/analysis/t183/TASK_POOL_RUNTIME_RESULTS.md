@@ -45,7 +45,7 @@ There were no retries and no other arms. In total, T183 and T184 used 2 launches
 
 ## 4. Task-pool configuration and pre-launch review
 
-Code: `runtime/spu/spu_task_pool.h` with `runtime/spu/spu_workload.c`, both unchanged since T156.
+Code: `runtime/spu/spu_task_pool.h` with its call site in `runtime/spu/spu_workload.c`. Both are unchanged since T156; T183 only guarded log lines in `spu_workload.c`.
 
 | Point | Finding | Label |
 |---|---|---|
