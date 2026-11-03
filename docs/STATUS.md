@@ -1,5 +1,19 @@
 # Status — 2026-10-21
 
+## T145: RSX shader, material and lighting fidelity (2026-10-28, offline, no build/launch)
+
+- Worktree `ps3recomp-t145`, branch `agent/t145-rsx-shader-lighting-fidelity`, base `e9f3237` (T142 tip). Commits `49fc83f`, `1dff0eb`, `f7f9366`. Not merged or pushed.
+- VERIFIED: WPOS ignored `SET_SHADER_WINDOW` (0x1D88 was never parsed; WPOS = `SV_Position`). MotorStorm's render-target setup (`func_007367FC`, emitted by `func_007360A0`) writes height | 0x1000 (origin bottom). Race FPs `0x070B0701`, `0x07200641` and `0x022CD841` (7 blended scene draws per frame) build screen UVs (720 − y)/710 into the scene copy, the scene and its depth, so on D3D12 those lookups were vertically mirrored. Fix: opt-in `RSX_SHADER_WINDOW=1` (key and rewrite only for programs that read WPOS; w = 1/w).
+- Offline: WARP 35/35 (debug layer + GBV; old text mirrored 128/128, fixed own texel 128/128); real backend 7/7 arms (921,600/921,600 px; non-WPOS pass unchanged); suite 41/41; TU 0 errors, same warning classes; audit 25 inherited.
+- VERIFIED from captures: 634/1582 draws ask for sRGB output and 769 fetch gamma textures; neither is applied without T110's `RSX_COLOR_XFER=7`. Latent: `SRC2.abs` (bit 18) is not decoded (race use unknown: no ucode captured). The surf program `0x07200641` also needs T117. Visual effects are HYPOTHESIS; A/B arms in `generated/analysis/t145/RSX_SHADER_LIGHTING_FIDELITY.md` §10.
+
+## T140: PPU execution and memory-system performance (2026-10-28, offline, no build/launch)
+
+- Worktree `ps3recomp-t140`, branch `agent/t140-ppu-memory-performance`, base `b1ded1e` (T134 tip). Commits `d27441d`, `32c1bd1`, `0ced9c5`, `e701fb7`. Not merged or pushed.
+- VERIFIED (static): lifted loads are inline; all ~3.9 M lifted scalar stores call out-of-line `vm_write*`, which cost 2.9-4.3 ns with every probe off (bench against the real objects). Default-on single-gate fast path: 0.96-1.35 ns, identical memory and SPU lost-reservation events in a 400k-store differential. `PS3_VM_STORE_FAST=0` restores the old path; `PS3_VM_STATS=<ms>` counts stores and `stwcx.` outcomes (opt-in).
+- VERIFIED: raw stores (`stvx`, `stve*x`, `stvlx/rx`, `st*brx`, `dcbz`) bypass SPU lock-line coherence (T131); a synthetic race undid 179-772 of 300k. Opt-in fix `PPU_RAW_STORE_COH=1` (needs a re-lift; 0 undone). `PPU_RESV_STORE=1` now also covers lifted stores.
+- Frame impact HYPOTHESIS: tid 1 runs at most ~28 ms of a 129 ms frame and the RSX is the gate. Test 89/89; lifter conformance 1533/1533; audit 25 inherited. Report and A/B plan: `generated/analysis/t140/PPU_MEMORY_PERFORMANCE.md`.
+
 ## T139: private GitHub deployment preparation (2026-10-28, offline, no push)
 
 - BLOCKED at approval: no GitHub owner chosen and the `gh` token is invalid. No repository was created and nothing was pushed.
@@ -19,6 +33,15 @@
 - The workspace root is now a local Git repository (branch `agent/t138-private-github-setup`, commits `835ad5a`..`558d07a`): allowlist `.gitignore`, README, CONTRIBUTING, SECURITY, docs/ARCHITECTURE, BUILDING, DEVELOPMENT, AGENT_WORKFLOW, ROADMAP, CI (`.github/workflows/ci.yml`, `tools/check_docs.py`), `audit_public.py --private-reports`. Not pushed; no GitHub repository created (`gh` token invalid, destination not chosen).
 - VERIFIED: the 25 inherited audit BLOCKs are all upstream ps3recomp files at `0fe7dbf` (synthetic SPU test lifts, icons, a wiki PDF needing review); 312 local-only ps3recomp commits contain no game/firmware/binary paths or secrets. ps3recomp `origin` is the public upstream: never push agent branches there.
 - Report and the approvals needed before the first push: `generated/analysis/t138/PRIVATE_GITHUB_SETUP.md`.
+
+## T141: RSX blending, MRT state and render-target feedback (2026-10-28, offline, no build/launch)
+
+- Worktree `ps3recomp-t141`, branch `agent/t141-rsx-blending-feedback`, base `876a403` (T137 tip). Commits `7b5fcda`, `fab1e88`, `8301ea6`, `07b453f`. Not merged or pushed.
+- VERIFIED (captures I/G): race ops 594 (`fp_022CD841`) and 595-598 (`fp_070B0701`, blend ONE/INV_SRC_ALPHA, + MRT1) sample the scene `0x00750000` they draw into, at their own pixel, every frame. The backend read a never-refreshed (black) window with `RSX_RT_WINDOW=1`, or the bound render target itself (undefined; GPU-based validation error) without it. Fix `RSX_RT_FEEDBACK=1`: a copy taken just before each such draw, no GPU wait.
+- VERIFIED (WARP, all 2^24 codes; RTX 5060 harness): zeta-as-A8R8G8B8 decoded depth 1.0 as 0xFF0000 (guest reads 0.996; the shore program `fp_07200641` then places cleared depth ~300x closer) and every odd code >= 2^23 as k+1. Fix `RSX_ZETA_EXACT=1` (and RSX_MSAA's sample images). The guest decode (A,R,G = depth[23:16],[15:8],[7:0]) is read from its programs.
+- Targets B..D always mirrored target A's blend (no IndependentBlendEnable). The game's own setters (lifted 0x00733C40, 0x00733A10) copy A's colour mask to B..D but write BLEND_ENABLE_MRT from a separate argument; its value is not captured. `RSX_MRT_STATE=1` honours both registers when written.
+- Offline: WARP 41/41 (debug layer + GBV); real backend harness: feedback region 221,056/221,056 px exact with window + feedback (all black before), far plane FF,FF; T137 harness black 223,020 -> 0, MSAA arm identical; suite 40/40; TU 0 errors; audit 25 inherited. Frame time unchanged in the harness.
+- Surf band and water dots: candidates only (HYPOTHESIS). Runtime A/B arms A-E in `generated/analysis/t141/RSX_BLEND_FEEDBACK_FIDELITY.md` section 10 need authorization.
 
 ## T137: RSX 2x MSAA (2026-10-28, offline, no build/launch)
 

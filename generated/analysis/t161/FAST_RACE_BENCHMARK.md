@@ -1,0 +1,728 @@
+# T161: MotorStorm fast race benchmark harness
+
+2026-10-29. Sections 1–10 were written offline; §11 records the authorised V1/V2 runs (one build, three launches). No merge, no push. Other agents' worktrees untouched. Labels: VERIFIED / PARTIAL / HYPOTHESIS / BLOCKED.
+
+## 1. Result
+
+**Final comparison (§16, 4 launches):** `PS3_LWCOND_WAKE` cuts race entry from 122.7 s to 41.9 s (2.9×). All runs were correct: same route and draws, no errors, every fallback idle. It stays off by default, because the light race scene is 2.8 % slower and uses 0.9 more cores with it.
+
+**Validated (§11):** fast pacing saves 22.5 s (race entry 137.3 s vs 159.8 s; V2 123.8 s). Heavy scene 3.83 FPS over frames 600–711. The 85 s race load runs at 0.15–0.27 cores with no CPU, I/O, mutex or SPURS limit; the main thread's sub-2 ms `sys_lwcond_wait` waits are the unmeasured remainder.
+
+- **Race entry is 145–150 s** in the six logged A/B runs (T154 ×4, T158 ×2). One run (C1) took 165 s because of a slow boot.
+- **The single largest avoidable cost is our own controller.** It holds every menu press for a fixed 6.5 s settle, but pages load 0.1–0.5 s after each press, so about 21 s per run is waiting. A tested pacing policy cuts it to about 6.5 s. Expected race entry: about 124–129 s (HYPOTHESIS until one launch confirms it).
+- **The race load is 85 s at only 0.1–0.3 CPU cores.** The main thread spends 38 s of it inside the game's load-by-path routine `0x536A30`, and the wait behind it is invisible to the existing `[sc-wait]` accounting. ps3recomp now has `PS3_HLE_WAIT_MS`, which attributes it (lwmutex, lwcond, cellFs, cellSpurs). Nothing in the load was changed without that evidence.
+- **The heavy scene becomes measurable.** With a 124 s entry, race frame 600 arrives at about 172 s, leaving about 100 heavy frames before the 200 s cap. At 145 s, C0 got 22 heavy frames and C1 got none.
+- **Checkpointing is not feasible** with this runtime (§5). Guest threads live on host stacks inside AOT-lifted code, so no resumable state exists to save.
+- **Persistent shader cache:** 6.0 s of compiles occur in race frames 0–39 and 500–599, outside both measurement windows. Warming it saves about 3 s before the heavy window, but it must be pinned as part of the cache state (§3).
+
+## 2. Startup timeline (Phase 1)
+
+Tool: `tools/startup_timeline_t161.py <run_dir> <runtime_dir>`. Outputs are `logs/timeline_*.json` for the six runs. Phases are cut at controller events (GUI page loads, presses, loader markers). Per phase it reports duration, RSX passes/s, process CPU cores from `performance.json`, SPURS busy and the top guest-thread waits.
+
+The table is for C0r1. The other five runs agree within ±0.5 s per phase, except C1's boot.
+
+| Phase | Stage (brief term) | s | CPU cores | Notes |
+|---|---|---|---|---|
+| exe start → first GUI page | executable, SPURS, rendering init | 8.7 | — | C1: 16.4 s. Host variance (fresh exe on first launch; cause not verified) |
+| boot GUI → Sony logo | resource loading (fonts, gamesave, FIOS cache open) | 10.6 | | original game init |
+| logos + intro → main menu | scene transitions | 7.4 | | fixed-length logo screens; intro skipped with the game's own button |
+| main menu → race loader (4 Cross) | controller pacing | **27.6** | | 4 × 6.5 s settle. Each page loads ≤ 0.5 s after its press (VERIFIED, `controller.log`) |
+| load screen → track | race setup | 0.5 | | |
+| track world | resource loading | 19.3 | 0.1–0.3 | a single `0x536A30` call from `0x3944FC` lasts 19.4 s |
+| environment | resource loading | 10.2 | 0.1–0.3 | |
+| vehicles, first batch | vehicle loading | 16 | 0.1–0.3 | `0x536A30` calls of 0.5–1.5 s, one per `split_vehicl` page |
+| gap → characters | vehicle / character loading | 26.5–28 | 0.1–0.3 | |
+| characters + rest → PostLevelLoad | | 11 | | |
+| PostLevelLoad → race entry | race setup | 7 | | |
+| **race entry** | | **145.4–149.8** | | C1 165.5 |
+
+- **Shader preparation does not dominate startup.** It is 0.3 s before the race (VP and PSO misses, `[rsx-frame-perf]`, `tools/pso_miss_t161.py`, `logs/pso_miss.json`).
+- **Dominant stages:**
+  1. the race asset load, 85 s (55 → 140 s);
+  2. controller pacing, 27.6 s;
+  3. boot to menu, 27 s, which is original initialisation.
+
+**Why the load is slow (PARTIAL).**
+- During the load, process CPU is 0.09–0.29 cores and SPURS is idle (0.01 busy). The loading screen renders at about 32 passes/s on tid 28.
+- PT function spans (`fn=536A30` in the existing trace config) put the main thread inside `0x536A30` for 37.9 s of the window (73 calls).
+- `0x536A30` takes a path argument (STATUS.md).
+- In the same window `[sc-wait]` shows the main thread blocked for about 0 ms. It only times lv2 syscalls. Every HLE import goes through `ps3_hle_call` and was never timed, including sys_lwmutex/lwcond, cellFs*/AIO, cellSpurs* and cellSync*.
+- **Candidates** (HYPOTHESIS, not distinguishable from the existing logs):
+  - (a) the FIOS media threads deliver data at the cache-fill rate (3.9 MB/s with 1.6 s pauses, `docs/FIOS_SEQUENTIAL_READ_ANALYSIS.md`);
+  - (b) `sys_lwcond_wait` is a poll. It does an unconditional `Sleep(1)` and `signal` is a no-op (`ppu_sysprx.cpp:345-369`), so a producer/consumer handshake over lwcond advances at most once per host ms per hop;
+  - (c) cellSpurs event-flag 2 ms polls.
+- cellFs itself has no delay or rate limit: reads and AIO are synchronous `fread`s (`ppu_fs.cpp:451-523`, `:902-945`).
+
+## 3. Acceleration techniques (Phase 2)
+
+| Technique | Assessment | Expected saving | Status |
+|---|---|---|---|
+| **Adaptive menu pacing** (controller only; same route, same Cross inputs, ≤ 9 presses, none after the loader) | Settle 1.5 s, confirm 6 s, up to 2 re-sends per step if a screen dropped the press | **≈ 21 s** (offline model 26.5 → 6.5 s) | implemented, tested offline; runtime unverified |
+| Attribute the race-load wait (`PS3_HLE_WAIT_MS`) | prerequisite for any load fix | — | implemented in ps3recomp, suite-tested |
+| Fix whatever the attribution shows: an lwcond wake instead of the `Sleep(1)` poll, or FIOS pacing | keeps the game's own sync; a runtime-only change with a regression test | 0 to tens of seconds of the 85 s (HYPOTHESIS) | needs the diagnostic launch first |
+| Persistent shader/PSO cache (`RSX_SHADER_CACHE=2/3`, already in the runtime) | 6.0 s of compiles in race frames 0–39 and 500–599, 0.25 s in the light window, 0.07 s in the heavy | about 3 s earlier heavy window; smoother warmup; no startup gain | available; a cache-state decision |
+| Warm FIOS cache (`cache.dat` holding the race assets) | game-produced state, not fabricated, but it differs from the current pinned 459 MB snapshot and its effect on the load is unknown | unknown | not done; needs the attribution first |
+| Skipping logos, intro or loader stages | forbidden: original initialisation | — | rejected |
+| Boot variance (8.7 vs 16.4 s first GUI) | host-side (AV scan or cold file cache of a new exe, unverified) | ≈ 8 s on a cold exe | mitigation: one discarded warm-up launch per new exe, or require A-A pairs |
+| Redundant initialisation | none identified in the logs: every phase is a game step | — | — |
+
+## 4. Implemented improvements (Phase 5)
+
+**ps3recomp `agent/t161-fast-race-benchmark`** (worktree `ps3recomp-t161`): HLE import wait accounting.
+- `include/ps3emu/sc_wait_acct.h`:
+  - a second table of the same shape, keyed by NID;
+  - `scwa_report_ex(…, hle)` prints `[hle-wait] window_ms=W tid=T total_ms=X nid2A6D9D51=a.ams/n …`;
+  - `PS3_HLE_WAIT_MS=<window>` turns it on;
+  - `PS3_HLE_WAIT_MIN_US` (default 20) skips calls shorter than that, so the 12 slots per thread go to waits.
+  - The `[sc-wait]` output is byte-for-byte unchanged.
+- `runtime/ppu/ppu_hle.cpp`:
+  - one guard in `ps3_hle_call`, built before the first early return, so every dispatch path is counted (ctx handlers, the NID table, lifted PRX exports).
+  - It costs one cached getenv when off and times nothing.
+  - Not covered: the GCM FIFO-full callback (`ppu_register_function`, not an HLE import) and spins inside lifted code.
+- Tests:
+  - `tests/test_sc_wait_acct.c` gains an HLE section (format, NID key folding, defaults);
+  - `tools/test_sc_wait_acct.py` pins the hook: present, off by default, constructed before the first early return, one accumulation site.
+
+**Private tools** (`generated/analysis/t161/tools/`):
+- `nav_policy_t161.py`: `NavPolicy` (pure logic) plus a route simulator. `test_nav_policy_t161.py` covers:
+  - baseline 26.5 s vs 6.5 s;
+  - a slow screen recovered by one retry;
+  - a dropped press;
+  - a never-ready screen ending in nav_manual after 3 presses;
+  - the 9-press bound;
+  - no press before the menu or inside the loader;
+  - no press while the signature keeps changing;
+  - the generated runner keeps the T158 route, caps and environment.
+- `make_runner_t161.py` writes `ab/run_t161.py`: the T158 runner with nav() driven by `NavPolicy`. Arms:
+  - N = T158 pacing;
+  - F = fast pacing;
+  - H = fast pacing plus `PS3_HLE_WAIT_MS=1000` on an exe from `ps3recomp-t161` (not built).
+- `bench_t161.py`: one-run summary.
+  - Windows by race-frame index: warmup 0–39, light 40–499, transition 500–599, heavy 600–hi.
+  - Per window: FPS, p50/p95/p99, draw calls, passes, drain/record/other, compile ms, and a `complete` flag.
+  - `[sc-wait]` and `[hle-wait]` totals over a host-time span (by the `[rsx-hb]` clock).
+  - `test_bench_t161.py` checks it on a synthetic log.
+- `startup_timeline_t161.py`, `pso_miss_t161.py`.
+
+## 5. Checkpoint feasibility (Phase 3): not feasible (VERIFIED from the runtime design)
+
+| Required state | Where it lives in ps3recomp | Restorable? |
+|---|---|---|
+| Guest PPU memory | `vm_base` (main and RSX local) | yes, a byte copy |
+| PPU registers | `ppu_context` per thread | only at a call boundary, see below |
+| **PPU call stacks** | **host stacks**: lifted functions call each other as C functions, so every guest thread sits several host frames deep inside lifted code or an HLE handler (for example `WaitForSingleObject` in lwmutex) | **no**: host frames of AOT code cannot be serialised or rebuilt |
+| SPU state and local stores | host threads running AOT SPU code, or drain hops; LS is restorable, the host position is not | no, except between tasks |
+| SPURS queues and event flags | partly guest memory, partly host (coordinator threads, CVs, `ef_line_committed` hooks, workload tables in `cellSpurs.c`) | would need a full serialiser for the HLE SPURS |
+| DMA state | MFC queues are synchronous in AOT SPU code | yes between tasks only |
+| Guest timers | QPC since first use, scaled to 79.8 MHz (`sys_timer.c:89-106`, SPU decrementer) | needs an offset knob (none exists) |
+| RSX resources and command state | D3D12 resources, PSOs, descriptor heaps, texture caches keyed by guest address, FIFO walker position | rebuildable only by replaying, which is the load itself |
+| Game resource handles | cellFs `FILE*` positions, the FIOS cache files, Win32 semaphores per lwmutex address, waitable timers, WASAPI | partly |
+| Host runtime mappings | NID tables, lifted-function maps (static), per-process PSO tables | static parts yes |
+
+- Saving guest RAM alone is therefore insufficient: no instant exists where all ~28 guest threads are at a resumable boundary.
+- A checkpoint would need a resumable execution model (continuation-style lifting or an interpreter fallback). The first is a large redesign; the second is forbidden by AGENTS.md.
+- **Recommendation:** no checkpointing. Accelerate the real startup (§3) instead.
+
+## 6. Measurement framework (Phase 4)
+
+- **Index:** race frame 0 = first `[rsx-frame-perf]` with ≥ 200 draws, grouped by `gframe` (heavy frames span several RSX passes).
+- **Windows:**
+  - light 40–499 (460 frames);
+  - heavy 600–699 (100 frames, the most the 200 s cap allows with fast pacing).
+  - Warmup 0–39 and transition 500–599 are excluded because they hold the 6 s of compiles. A window counts only if `complete`.
+- **Per window:**
+  - FPS and p50/p95/p99 (`bench_t161.py`);
+  - SPU time (critical-path kind 39 task entries, `[spurs-busy]`);
+  - PPU waits (`[sc-wait]` + `[hle-wait]`, Havok wait `0x30B710` via `phase_sites_t158.py`);
+  - RSX CPU (drain/expand/record/other);
+  - CPU utilisation (`performance.json`, `race_util_t158.py`);
+  - draw calls and passes.
+  - **GPU time is not measurable:** `wait_ms` is 0 and the backend has no timestamp queries (BLOCKED, needs a D3D12 timestamp feature).
+- **Validation on existing data:** `bench_t161.py` on C0r1 reproduces T158's light-scene numbers exactly (21.39 FPS, p50 46.1 ms, p99 62.2 ms; `logs/bench_C0r1.json`). The heavy window is incomplete there (22 frames, 3.6 FPS).
+- **Variance control:**
+  - fresh hash-verified HDD copies per launch (already done);
+  - a pinned shader cache state (cold = `RSX_SHADER_CACHE=1` as now; or a warm level-2 directory seeded by a discarded launch and hashed before each launch);
+  - one discarded warm-up launch for a new exe;
+  - A-A-B-B order, or at least an A-A pair (T154 A-A spread 1.0 %);
+  - compare by race-frame index only.
+
+## 7. Offline test results
+
+| Test | Result |
+|---|---|
+| ps3recomp suite `run_all_t156.cmd --jobs 3` on `ps3recomp-t161` | **139 PASS / 43 SKIP / 2 FAIL**, the same two known base failures (`test_rt_pool_srv_layout`, `test_vpc_watch`) as T158 at `7a88b53` (`logs/suite_t161.txt`). VERIFIED |
+| `test_sc_wait_acct` (incl. the HLE section, run in the suite) | PASS, 0 failures |
+| `ppu_hle.cpp` syntax check with the project clang 23 | clean |
+| `test_nav_policy_t161.py` | 0 failures (26.5 → 6.5 s in the model) |
+| `test_bench_t161.py` | 0 failures |
+| `bench_t161.py` on C0r1 vs `race_ab_t158.py` | identical light-scene FPS and percentiles |
+
+## 8. Expected savings
+
+| Item | Saving | Label |
+|---|---|---|
+| Fast menu pacing | ≈ 21 s (race entry ≈ 124–129 s) | HYPOTHESIS until launched; model VERIFIED |
+| Warm shader cache | ≈ 3 s to the heavy window (none to race entry) | measured compile time; effect HYPOTHESIS |
+| Race-load wait fix | 0 to tens of seconds of the 85 s load | HYPOTHESIS, needs `PS3_HLE_WAIT_MS` data |
+| Cold-exe boot | ≈ 8 s on the first launch of a new exe | host, mitigated by a warm-up launch |
+
+## 9. Proposed controlled runtime validation (needs authorisation)
+
+1. **V1, no build, 2 launches.** `ab/run_t161.py` with the existing T158 C1 exe (SHA-256 `2a040320…1f08`), arm F then arm N, both under the T158 caps (205 s session / 210 s host).
+   - Pass criteria for F:
+     - race entry ≥ 15 s earlier than N;
+     - no `nav_manual`;
+     - draw calls per race frame match N at frames 0/300/460;
+     - heavy window 600–699 `complete`.
+2. **V2, one build plus 1 launch.** Build `ps3recomp-t161` with the C1 SPU configuration as `build/motorstorm-t161-h`, then run arm H.
+   - Use `bench_t161.py --wait-span 55:140` to attribute the 85 s load wait per thread and import.
+   - Any fix (lwcond wake, FIOS pacing) follows as a separate task with its own regression test and A/B.
+
+## 10. Commits
+
+- **ps3recomp `agent/t161-fast-race-benchmark`:** `2115697`: HLE wait accounting plus tests (§4). `8ab589f`: window-local wait accounting and the `PS3_LWCOND_TRACE` episode/signal tracer, plus tests (§12). `4e0b190`: opt-in `PS3_LWCOND_WAKE` host wakeups plus tests (§13). `28a3e64`: `signal_to` wakes only the named waiter, plus stale-waiter tests (§14). `afdcabd`: once-only init and `fb=1` fallback attribution, plus tests (§15).
+- **root `agent/t161-fast-race-benchmark`:** this report and `tools/*.py`. `logs/` (timelines, suite log, bench output) is gitignored and stays private.
+- Run data, `ab/` runtime directories and `stderr.log` excerpts stay private and untracked.
+
+## 11. Authorised runtime validation (V1: 2 launches, V2: 1 build + 1 launch)
+
+Three launches in total, run one after another. Each had a fresh private HDD, the exe SHA-256 checked before launch, a 195 s game timeout (well inside the 205 s / 210 s caps) and no retries. The renderer, SPU and performance environment is the T158 arm B set in every arm.
+
+| Run | Exe SHA-256 | Arm | Run dir (private) |
+|---|---|---|---|
+| V1A | `2a040320…1f08` (T158 C1) | F: fast pacing (1.5 s settle, 2 retries) | `runs/20261029-213249-t161-fast-FV1A` |
+| V1B | `2a040320…1f08` (T158 C1) | N: T158 pacing (6.5 s settle, 0 retries) | `runs/20261029-213607-t161-fast-NV1B` |
+| V2 | `d835db8b…f928d6` (`ps3recomp-t161` 2115697 + C1 SPU args) | H: F plus `PS3_HLE_WAIT_MS=1000`, PT `hle=*` ≥ 2 ms, critical-path window 40–140 s | `runs/20261029-215320-t161-fast-HV2` |
+
+### 11.1 V1: fast menu pacing, PASS (VERIFIED)
+
+| Host s | V1A fast | V1B original | V2 (fast + instrumentation) |
+|---|---|---|---|
+| Main menu | 38.28 | 37.81 | 26.97 |
+| Navigation (first Cross → load screen) | **7.93** | **27.82** | 6.58 |
+| Race load (load screen → race_loaded) | 87.15 | 90.10 | 85.28 |
+| Race entry (race frame 0) | **137.28** | **159.82** | **123.84** |
+| Race frames captured | 0–652 | 0–559 | 0–711 |
+
+- **Saving:** 22.5 s to race entry (pass threshold 15 s); navigation alone 19.9 s.
+- **Route:** identical in every run. Four Cross presses (festival → ticket-s → motorsto → loadscre), 0 `nav_retry`, 0 `nav_manual`, no press after the load screen appeared.
+- **Correctness:**
+  - draw mismatches 6/560 frames (vertex 65, upload 1), the T158 level;
+  - error counts identical in all three runs (fc-watchdog 26, stall 50, GCM_STALL 3, spu-smc 8, `[fs] open FAIL` 6 for the known missing files).
+- **Boot variance:** V1A/V1B boots were about 11 s slower than T158 and V2 (game logo 33 s vs 24 s). Pacing doesn't apply before the main menu, so this is host variance.
+
+| FPS (race frames) | V1A | V1B | V2 |
+|---|---|---|---|
+| Light 40–499 | 21.72 (p50 45.4 / p95 51.3 / p99 57.1 ms) | 20.20 (45.7 / 57.7 / 140.9) | 21.85 (45.0 / 49.8 / 63.1) |
+| Heavy 600–699 | 3.76, 53 frames, **incomplete** | not reached | **3.83, 112 frames (600–711), p50 259.7 / p95 274.2 / p99 281.1 ms** |
+
+- **Heavy coverage:** V1 missed the heavy window because of the slow boot. Only V2 (fast pacing plus a normal boot) covered frames 600–699.
+- **Instrumentation overhead:** V2's load (85.3 s) and light FPS match V1A, so no overhead was measurable.
+
+### 11.2 V2: race-load attribution (load screen 35.4 s → race_loaded 120.7 s)
+
+**Off by default (VERIFIED).** `scwa_hle_window_ms()` returns 0 unless `PS3_HLE_WAIT_MS` is set, and the guard then stores `t0 = 0` and does nothing.
+
+**Process and per-thread CPU** (kind 32 cycle counts and `performance.json`; this is CPU time, not elapsed):
+
+| Phase (s) | Process | Main thread | Async SPU tasks | `0x536A30` |
+|---|---|---|---|---|
+| Track 35.9–55.4 | 0.20 cores | 0.06 | 0.00 | one call 19.45 s (site `0x3944FC`) |
+| Environment 55.4–65.3 | 0.19 | 0.05 | 0.00 | 0.3 s |
+| Vehicles 65.3–81.4 | 0.25 | 0.11 | 0.00 | 16 calls, 0.3–1.6 s each |
+| Gap 81.4–108.2 (26.8 s) | **0.15** | **0.01** | 0.00 | none |
+| Characters 108.2–116.7 | 0.27 | 0.12 | 0.00 | 5 × 0.1 s |
+| Whole load | 0.27 (21.9 CPU s / 82 s) | | | 27 calls ≥ 0.1 s, 37.3 s |
+| Race, for comparison | 2.45 | 0.47 | 1.88 | |
+
+**Elapsed waits** (per-thread sums; many threads wait at once, so they overlap and must not be added together):
+
+| Category | Measured | Verdict |
+|---|---|---|
+| 1. File I/O / FIOS | `cellFsRead` 84 ms over 2,967 calls; FIOS threads idle in `sc141` / `sc130` | not the limit |
+| 2. lwcond polling | worker threads 3–9: `sys_lwcond_wait` ~87 s each (all ≥ 2 ms calls are 2.0–2.5 ms `Sleep(1)` polls from lr `0x66BB70`) | idle workers; main thread see below |
+| 3. Mutex | `sys_lwmutex_lock` ≥ 2 ms: 4 calls, 39 ms in total | not the limit |
+| 4. SPURS sync | `cellSpursEventFlagWait` 3.9 s (tid 6); no SPU tasks ran (0.00 cores) | not the limit |
+| 5. Guest computation | main thread 0.01–0.12 cores, process 0.15–0.27 cores | not the limit |
+
+**Main thread during the track load** (19.45 s inside `0x536A30`):
+- CPU about 6 %;
+- `sys_timer_usleep` about 10 % (240 calls per s, 0.42 ms each);
+- imports ≥ 2 ms 0.6 % (457 of the main thread's PT HLE events are `sys_lwcond_wait`, at lr `0x66BB70`);
+- **about 83 % not directly measured.**
+
+**Missing measurement (VERIFIED gap).** `[hle-wait]` keeps 12 NID slots per thread, and slots are never released. The main thread filled all 12 with boot imports by 1 s. Every later main-thread import, including `sys_lwcond_wait`, went to `dropped` (700–850 per s during the load, against 80 per s in the race). The PT tracer saw only calls ≥ 2 ms. The main thread's sub-2 ms waits are therefore not measured.
+
+**Bottleneck classification:**
+- **(6) wait latency with no busy producer: VERIFIED.** No CPU, I/O, mutex or SPURS work explains the 85 s. The process stays at 0.15–0.27 cores throughout, and the 26.8 s gap has no load call and 0.01 main-thread cores.
+- **The main thread blocked in sub-2 ms `sys_lwcond_wait` polls (lr `0x66BB70`): HYPOTHESIS, strong.** The dropped rate matches 1–1.3 ms polls. The long-call distribution is cut off at the 2 ms threshold. In ps3recomp's HLE, `lwcond_signal` is a no-op, so each wake costs a poll.
+- **Still unknown:** which event the main thread waits for, and who produces it.
+
+**Next measurements** (each needs authorisation):
+1. Free or reset `[hle-wait]` slots per window, or raise `SCWA_SLOTS`; alternatively, PT `hle_min_us=200` for the main thread only.
+2. Log the lwcond id and the signaller's tid and time in `sys_lwcond_signal`, to identify the producer the main thread waits on.
+
+### 11.3 Recommended next startup optimisation
+
+1. **Adopt fast pacing** (`NavPolicy` 1.5 s / 2 retries) for all race benchmarks. Saving: 22.5 s, VERIFIED.
+2. **Find the race-load producer.** Use the two measurements in §11.2, then make a real `sys_lwcond_signal` / wait wake in place of `Sleep(1)` polling, but only once it is shown to be on the critical path. A wake can't fix the 26.8 s gap if no producer is running then. Expected saving 0 to tens of seconds (HYPOTHESIS).
+3. **Warm the shader cache** (§3), about 3 s to the heavy window.
+
+## 12. HLE wait attribution (V3: 1 build + 1 launch)
+
+### 12.1 Instrumentation (ps3recomp `8ab589f`, off by default)
+
+- **`[hle-wait]` is now window-local.** Each thread has two rows (16 NID slots each), stamped with the window index and recycled at the first call of each window. Boot imports no longer use up a thread's capacity. Drops are reported per row (`dropped=N`), per table (tid out of range) and as `late=` (a call that straddles the window switch). There are no allocations.
+- **`PS3_LWCOND_TRACE=<ms>[:tids=..][:lrs=..][:min_ms=2][:max=N][:gap_us=300]`** groups consecutive `sys_lwcond_wait` polls into episodes per (tid, cv, lr).
+  - Each episode records the cv and mutex, the LR, its start and end times, the poll count, the timeout argument and an `over_timeout` count.
+  - `sys_lwcond_signal`, `_all` and `_to` are linked to every open episode on their cv. Each episode records the signaller's tid, LR, first and last signal time, and a stack-scan backtrace.
+  - Aggregates cover all threads. Detailed `[lwc-ep]` lines are limited to the selected tids or LRs, within a budget. All tables are fixed-size.
+  - It only observes: the wait still releases the lwmutex, calls `Sleep(1)` and re-acquires it, and the signals still return `CELL_OK` without waking anyone.
+- **Tests.** `test_sc_wait_acct` covers boot overflow, repeated windows, slot reuse, counter resets, per-window overflow and late stragglers. `test_lwcond_trace` covers the C fixture (including 4 waiters and 2 signallers) and pins the hooks.
+  - Both report 0 failures. `test_lwcond_layout` now stubs the hooks.
+  - Full suite: 140 pass, 43 skip, 2 fail. The failures are the inherited `test_rt_pool_srv_layout` and `test_vpc_watch`.
+  - `test_d3d12_shader_cache` failed once under `--jobs 3`, then passed alone with 0 failures (timing).
+  - Audit: the inherited 25 BLOCKs, none in T161 files.
+
+**Run V3.**
+- Build `build/motorstorm-t161-l`, exe SHA-256 `5e55d4c0d5d16370c1d92e9e5fa43acd0011f4912db272bd2c2a96eac4e9ffd9`.
+- Run `generated/runs/20261029-223347-t161-fast-LV3`, arm L: fast pacing, fresh HDD, original route, 195 s cap, `PS3_LWCOND_TRACE=1000:tids=1:min_ms=2:max=60000`.
+- 0 `[hle-wait]` drops of any kind. 0 error lines (V2: 0).
+- Timeline: track 35.85 s, env 55.26, vehicles 65.20, last vehicle 81.37, characters 108.98, race entry 124.78 (V2: 123.84).
+- Tools: `tools/lwc_t161.py`, `tools/lwc_tids_t161.py`.
+
+### 12.2 Main-thread wait breakdown (VERIFIED, elapsed time)
+
+| Phase | Length | Main thread in `sys_lwcond_wait` | Other main-thread imports | Episodes ≥ 2 ms (median) | FIOS mediathread tid 6 work |
+|---|---|---|---|---|---|
+| track | 19.41 s | 16.79 s (86.5 %) | < 1 ms | 4,433 (3.46 ms, 3 polls) | 1,069 `cellFsRead` 0.03 s, 1,312 `cellSpursEventFlagWait` 1.72 s |
+| env | 9.94 s | 8.38 s (84 %) | < 1 ms | 397, one 6.38 s | 137 reads, 189 waits 0.20 s |
+| vehicles | 16.17 s | 13.76 s (85 %) | < 1 ms | 3,340 (3.53 ms) | 541 reads, 950 waits 0.79 s |
+| **gap** | 27.61 s | 26.60 s (96 %) | < 1 ms | **one 27.58 s episode, 23,085 polls** | **0 reads, 0 waits** |
+| characters | 8.62 s | 6.78 s (79 %) | < 1 ms | 673 (3.61 ms) | 1,001 reads, 1,366 waits 1.50 s |
+
+- Every main-thread wait is on one lwcond: cv `0x105432C0` (mutex `0x105432F0`), LR `0x66BB70`.
+- `0x66BB38` is FIOS's condition-wait-with-deadline wrapper. At `0x66BB70` it takes the infinite path.
+- The caller loop `0x65B578–0x65B5A0` re-checks an op-done flag after each wake. In other words, the main thread is waiting for FIOS ops to complete.
+- Every wait in the run, on every thread, has `timeout_us=0`, so the HLE's ignored timeout never matters (`over_timeout=0`).
+- The rest of the main thread's time is `sys_timer_usleep` and CPU (main thread 0.01–0.08 cores).
+
+### 12.3 Producer/consumer chain (VERIFIED)
+
+All threads are FIOS threads. Each one sits in its own `sys_lwcond_wait` poll whenever it is not working.
+
+1. The main thread (tid 1) and mediathread tid 6 kick the scheduler with `sys_lwcond_signal` on cv `0x10486310` (LR `0x66BAB8`).
+2. The FIOS scheduler (tid 9) waits on that cv. When it sees work, it broadcasts (`signal_all`, LR `0x66BA08`):
+   - to cv `0x104863C8`, the mediathreads tids 6–8;
+   - to cv `0x105432C0`, the main thread.
+3. Mediathread tid 6 does the actual work:
+   - `cellFsRead`: about 30 µs per call;
+   - SPU decompression: `cellSpursEventFlagWait`, about 1.3 ms per call.
+4. Completion is broadcast back by tid 9, and the main thread sees it at its next poll (wake lag p50 0.5–0.6 ms, p90 1.0 ms).
+
+HLE signals are no-ops (§11.2), so every hop costs up to one `Sleep(1)` (about 1.1 ms). One op is about 3 hops: 3.46 ms and 3 polls.
+
+### 12.4 Root cause
+
+**The 19.45 s track load is classified as 1 + 3: repeated cv polling, because the HLE never delivers wakeups (VERIFIED).**
+- 4,433+ FIOS ops are processed one after another, each costing about 3.5 ms of hand-off latency between pollers.
+- The producer's actual work is about 1.75 s: 0.03 s of reads plus 1.72 s of SPU decompression waits.
+- The process is idle at about 0.25 cores. The producer is not slow, and timeouts play no part.
+- The vehicle and character loads show the same pattern.
+
+**The 26.8–27.6 s gap is classified as 5: a synchronisation dependency, not identified (PARTIAL).**
+- The main thread waits for one FIOS op (call chain via `0x3BC4B4`, `0x6FE558`, `0x759460`, `0x741138`). The scheduler goes round about 8,170 times (one round per 3.4 ms, driven by the main thread's own kicks) without dispatching any I/O.
+- Across the whole process: no `cellFsRead`, no SPU work, 0.16 cores; all other threads are in `sys_timer_usleep`, mutex or queue waits.
+- The gap is 26.8–27.6 s in all four runs (V1A 26.93, V1B 27.41, V2 26.80, V3 27.61), whatever the instrumentation.
+- No timed waits occur, and `sys_time_get_current_time` (tid 6, about 260/s in every phase) is monotonic QPC. So a FIOS deadline is excluded, but not a time or count condition in game code.
+- The env phase's single 6.38 s episode (137 reads) looks like the same kind of wait.
+- **Remaining gap:** which op this is, and what its completion depends on. Finding out would take a dump of the FIOS op descriptor (file, offset, state) at the `0x65B59C` wait, for the episode that starts after the last vehicle. That needs another authorised launch.
+
+### 12.5 Overhead and recommendation
+
+**Overhead** against V2: race entry +0.94 s (+0.8 %), track load 19.41 s vs 19.45 s, light-scene FPS 21.28 vs 21.85 (−2.6 %). Window lines amount to 15,062 `[lwc*]` lines in 195 s.
+
+**Recommended optimisation (not implemented; needs an authorised A/B):**
+- Make the HLE lwcond deliver wakeups. One way: a per-lwcond generation counter plus a host wait primitive (`WaitOnAddress` or a condition variable), so that `signal`, `signal_all` and `signal_to` wake the waiter instead of leaving it to time out of `Sleep(1)`.
+- The guest-visible semantics stay the same: release the lwmutex, wait, re-acquire, return 0. Spurious wakeups remain allowed. Optionally, honour the r4 timeout.
+- Expected saving (HYPOTHESIS): the track, vehicle and character loads are hand-off bound, about 37 s of main-thread waits for about 5 s of producer work. Removing most of the hop latency could save about 20–30 s.
+- It would not shorten the 27 s gap, which has no producer activity; that needs the measurement in §12.4 first.
+
+## 13. Correct HLE lwcond wakeups (V4: offline only; runtime needs authorisation)
+
+### 13.1 Semantics audit (VERIFIED from `ppu_sysprx.cpp`)
+
+- **Old wait:** save the lwmutex owner/recursion → clear → release the binary semaphore → `Sleep(1)` → retake (`INFINITE`) → restore → return 0. The signals are no-ops returning 0, so every hop costs one host `Sleep(1)` (about 1 ms with `timeBeginPeriod(1)`).
+- Guest code re-checks its predicate after every return (FIOS loop `0x65B578–0x65B5A0`), so spurious returns are already part of the contract.
+- The r4 timeout is ignored. V3 saw only `timeout_us=0` waits.
+- `signal_to`'s r4 is a `sys_ppu_thread_get_id` value, which equals the waiter's `ctx->thread_id`.
+- The lwmutex can be released from any thread; recursion depth is restored after the wait.
+- No thread-cancellation path exists in the HLE: guest threads exit only from guest code, and the process ends with `ExitProcess`.
+
+### 13.2 Implementation (`include/ps3emu/lwcond_wake.h`, header-only; ps3recomp `4e0b190`)
+
+- `PS3_LWCOND_WAKE=1[:poll_ms=100][:stats_ms=0]`. Off by default: the old path is unchanged and pinned by tests.
+- Each lwcond has a host record (an SRW lock plus a FIFO of stack waiter nodes, each with its own condition variable).
+- **Wait:** register while the guest lwmutex is still held → release the lwmutex → sleep until signalled, timed out or fallback → retake the lwmutex → restore owner/recursion.
+  - Registering before the release closes the lost-wakeup window. A signal issued after registration but before the sleep sets the node state, and the sleep returns at once.
+  - A signal issued before registration finds no waiter (`sig_empty`). This matches PS3 semantics, where the lwcond has no memory. The guest predicate covers it, because the signaller held the lwmutex.
+- **Signals:** `signal` wakes the oldest waiter, `signal_all` every registered waiter, and `signal_to(tid)` the matching tid, or the oldest if none matches (`to_miss`). All three still return CELL_OK.
+- **Fallbacks:**
+  - after `poll_ms`, the wait returns CELL_OK (`fallback`), so a missed path degrades to slow polling, never a hang;
+  - a full table (4,096 lwconds) uses the old poll path (`nofit`);
+  - `lwcw_shutdown` wakes everyone.
+- **Timeout:** an expired nonzero guest timeout returns ETIMEDOUT `0x8001000B` after the lwmutex is retaken. This is a behaviour change only with WAKE=1, and V3 saw no timed waits.
+- With `stats_ms`, a `[lwc-wake]` counter line is printed periodically.
+
+### 13.3 Tests (`tests/test_lwcond_wake.c`, `tools/test_lwcond_wake.py`)
+
+- **Semantics: 24 checks, 0 failures.** They cover:
+  - signal before registration; signal between prepare and sleep;
+  - single waiter (7 µs lag); FIFO order with 4 waiters; broadcast to 8 plus a late waiter;
+  - `signal_to`, including an unknown tid; 50 host spurious wakeups;
+  - 15 ms timeout and unlinking; fallback at 10 ms; table full (4,096 entries fit, the next is `nofit`);
+  - shutdown with 6 waiters, then the poll path.
+- **Differential (poll vs wake vs wake with `poll_ms=0`, the no-fallback mode):**
+  - producer/consumer through a mirror of `sys_lwcond_wait`, with a recursive lwmutex (depth 2) held across the wait;
+  - configurations 1×1, 2×2, 4×4, 8×8, 4×12 and 12×4, under a 120 s watchdog;
+  - every item was consumed exactly once in all three modes, with owner and recursion intact after each wait, no deadlocks, and 0 fallbacks in wake mode. The 12×4 configuration moved 240,000 items in 2.37 s.
+- **4-hop hand-off chain** (the FIOS shape, tids 1→9→6→19): poll 4,601.5 µs per op vs wake 18.4 µs per op (×250), 0 fallbacks.
+- **Pins:** the hook order in `sys_lwcond_wait` and the three signal lines. The fixture's `g_wait` mirrors the same sequence. The `test_lwcond_layout` and `test_lwcond_trace` stubs are updated.
+- **Full suite** (`suite_t161c`): 141 pass, 43 skip, 2 fail. The 2 failures are the inherited `test_rt_pool_srv_layout` and `test_vpc_watch`.
+- **ps3recomp audit:** 25 inherited BLOCKs, none in T161 files.
+- Not done: no TSan (Windows host). Concurrency was checked by stress testing only.
+
+### 13.4 Expected effect (HYPOTHESIS)
+
+- V3: the main thread spends 16.79 s of the 19.41 s track load waiting, for about 1.75 s of producer work, at about 3 polls (3.46 ms) per op. Vehicles (16.2 s) and characters (8.6 s) have the same shape.
+- If the hop latency drops to tens of µs, as offline, the race load could shrink by about 20–35 s.
+- The 27 s gap (§12.4) and env's idle 6.38 s episode should not change: no producer is active during them.
+
+### 13.5 Phase 6: the gap's pending FIOS op (offline: BLOCKED)
+
+- The logs can't reconstruct it. `[lwc-ep]` records only cv, mutex, LR and the stack-scan code pointers, and the gap window has no op pointer, file, offset or open record.
+- **Code path** (lifted return sites):
+  - `0x65B59C` in `func_0065B45C` (wait wrapper `0x66BB38`) ← `0x65B790` in `func_0065B748`;
+  - ← `0x741138` in `func_007410D4` ← `0x3C1D50` in `func_003C1C38`;
+  - ← `0x759460` in `func_007593F4` ← `0x6FE558` in `func_006FE51C` ← `0x3BC4B4` in `func_003BC470`.
+- The first five frames match the menu-phase waits, so this is the generic synchronous-read path. The deeper frames come from a heuristic stack scan and may be stale.
+- Identifying the op needs a runtime dump of `func_0065B748`'s op descriptor (`r31+0x88/0x90`), its path and its offset at the `0x65B59C` wait for the episode after the last vehicle. This would be one optional diagnostic launch; its cause is not guessed here.
+
+### 13.6 A/B runtime plan (needs authorisation)
+
+- **Build once:** `generated\analysis\t161\tools\build_t161.cmd w` → `build\motorstorm-t161-w` (ps3recomp `4e0b190`, the same SPU lifter args and port as V3). Then `run_t161.py prepare w`, and pin the exe SHA.
+- **Launches:** `run_t161.py launch A v4`, then `launch B v4`, one after the other on the same exe.
+  - Both use fresh HDD copies, fast pacing (1.5 s settle, 2 retries), the 195 s cap and the same windows.
+  - **A** = the V3 arm L environment (wake off). **B** = A + `PS3_LWCOND_WAKE=1:poll_ms=100:stats_ms=1000`.
+- **Analysis:** `startup_timeline_t161.py`, `lwc_t161.py`, `lwc_tids_t161.py`, `bench_t161.py`, plus the `[lwc-wake]` counters.
+- **Pass criteria:**
+  - no new errors; the same route and the race reached;
+  - in B, `fallback`, `to_miss` and `nofit` are about 0;
+  - the track, vehicle and character phases are shorter than in A;
+  - light-scene FPS is not worse than A, within run-to-run noise.
+- If B passes, a second B run checks repeatability.
+
+## 14. Authorised lwcond wakeup A/B (V4: 1 build + 2 launches)
+
+### 14.1 Preflight review and fix (before the build)
+
+- **Defect fixed:** a `signal_to` aimed at a thread that is not waiting on the lwcond woke the oldest waiter instead. That substitution is not verified against lv2, so it is removed (ps3recomp `28a3e64`).
+  - A miss now wakes nobody and is counted as `to_miss`.
+  - The signal still returns CELL_OK, the same as on the disabled path.
+- **New tests:**
+  - the waiter list is empty after a timeout, a fallback and a shutdown;
+  - a waiter that registers before shutdown but sleeps after it returns SHUTDOWN and is unlinked.
+- **100 ms fallback:** it returns CELL_OK without a signal. The disabled path does the same after every 1 ms `Sleep`, and the guest re-checks its predicate, so this is a spurious wakeup, not a false completion.
+- **Mutex state:** the lwmutex owner and recursion are saved before the wait and restored after it, unchanged from the disabled path.
+- **Disabled path:** with `PS3_LWCOND_WAKE` unset, `lwcw_get()` returns NULL, the signals stay no-ops and the wait keeps `Sleep(1)`. This is pinned by `tools/test_lwcond_wake.py`.
+- **Scope:** the commits touch only the lwcond header, `ppu_sysprx.cpp` and the tests.
+- **Rerun after the fix:**
+  - suite `suite_t161d`: 141 pass, 43 skip, 2 fail (the inherited `test_rt_pool_srv_layout` and `test_vpc_watch`);
+  - ps3recomp audit: 25 inherited BLOCKs, none in lwcond files.
+
+### 14.2 Build and configuration (VERIFIED)
+
+- **Build:** `build_t161.cmd w`.
+  - Sources: ps3recomp-t161 `28a3e64` plus port-t161.
+  - Configuration: Release, clang-cl (LLVM 23.1.3), `-DMSPR_WWS_AOT=ON`, `--chain-chunks` for the four Havok SPU images (the same as V3 arm l).
+  - Result: 312/312 steps, 0 errors.
+- **Exe:** `build/motorstorm-t161-w/MotorStormPacificRiftRecomp.exe`, copied to `ab/exe_w/`.
+  - **SHA-256 `bccdc439da3b6b51e29858a6924537fafb892a63250ab409bc78b9e9ffdd0dd8`**, checked before each launch.
+  - Runtime default: `PS3_LWCOND_WAKE` off.
+- **Launch conditions** (`ab/seq_v4.sh`):
+  - sequential, with no relaunch;
+  - fresh private HDD copies;
+  - fast pacing: 1.5 s settle; both arms needed 0 nav-press retries;
+  - 195 s game cap plus 15 s grace.
+- **Arm A** (`launch A V4A`): the V3 arm L environment, with `PS3_LWCOND_WAKE` not set.
+  - Run `generated/runs/20261029-232248-t161-fast-AV4A`; it ended at the 195 s cap.
+- **Arm B** (`launch B V4B`): A plus `PS3_LWCOND_WAKE=1:poll_ms=100:stats_ms=1000`.
+  - All three options are parsed: the exe printed `[lwc-wake] on poll_ms=100 stats_ms=1000`.
+  - Run `generated/runs/20261029-232606-t161-fast-BV4B`. The controller stopped it at race entry + 90 s (host 134.25 s). Its exit code is 1, as in every controller stop, because the controller ends the game with `taskkill /F`.
+
+### 14.3 Loading times (VERIFIED; host seconds, one run per arm)
+
+| Phase | A | B | Δ |
+|---|---|---|---|
+| exe init → first GUI | 9.0 | 2.5 | −6.5 |
+| first GUI → main menu | 18.3 | 12.8 | −5.5 |
+| menu navigation (4 presses) | 6.6 | 5.2 | −1.4 |
+| track world load | 19.4 | 5.1 | −14.3 |
+| environment load | 10.4 | 1.4 | −9.0 |
+| vehicle loads (first batch) | 16.5 | 4.3 | −12.2 |
+| gap after vehicles → characters | 27.1 | 1.1 | −26.0 |
+| characters + remaining vehicles → PostLevelLoad | 9.3 | 3.7 | −5.6 |
+| PostLevelLoad → loader return | 4.4 | 2.8 | −1.6 |
+| loader return → race entry | 3.3 | 3.6 | +0.3 |
+| **race load (load screen → race entry)** | **90.8** | **22.1** | **−68.7 (−76 %)** |
+| **race entry** | **126.49** | **44.18** | **−82.3 (−65 %)** |
+
+- **Main-thread `sys_lwcond_wait` time** (A → B):
+
+  | Phase | A | B |
+  |---|---|---|
+  | track | 15.97 s | 2.49 s |
+  | env | 10.17 s | 0.84 s |
+  | vehicles | 12.97 s | 1.61 s |
+  | gap | 26.42 s | 0.57 s |
+  | characters | 7.03 s | 1.78 s |
+
+- **Wake lag** (signal until the waiter runs), main-thread episodes: p50 0.54 ms and p90 1.01 ms in A; 0.01 ms and 0.01 ms in B.
+- **The 27 s gap did not stay: it fell to 1.1 s.**
+  - In A, the main thread made 22,685 wait calls during the gap, so it was also bound by poll latency, even without `cellFsRead` or SPU work.
+  - §12.4 and §13.4 predicted the gap would not change; that prediction was wrong.
+  - The chain behind the gap is still not identified. HYPOTHESIS: hops with no I/O, such as cached or already-complete ops.
+- **CPU during the race load:** A 0.33 cores (29.0 CPU-s over 87.7 s), B 1.13 cores (23.4 CPU-s over 20.7 s). B uses less total CPU for the same load.
+
+### 14.4 Wakeup statistics (B, 132 one-second `[lwc-wake]` windows)
+
+| Counter | Value |
+|---|---|
+| waits | 837,266 |
+| signalled | 835,526 |
+| **timeouts** | **0** |
+| fallback | 1,736 |
+| shutdown | 0 |
+| **nofit** | **0** |
+| signal calls | 641,828 |
+| waiters woken | 835,526 |
+| signals with no waiter | 11,884 |
+| **`to_miss`** | **0** |
+
+- **Fallbacks:** at least 1,420 of the 1,736 (82 %) are idle FIOS/media worker threads that waited at least 0.9 s in each 1 s window. That is one return per 100 ms with no work pending.
+  - The threads are tids 3–9 on cvs `0x104856D8`, `0x10485620`, `0x10486310` and `0x104863C8`.
+  - The rest are not attributed.
+  - The main thread had 0 unsignalled episodes in every phase.
+- **Timeouts:** every wait had `timeout_us=0` in both arms, so no guest-visible timeout behaviour changed.
+
+### 14.5 Correctness assessment
+
+1. **Same route (VERIFIED):**
+   - 127 page loads in identical order in both arms: the same menus, track `Track1a`, the same vehicles, characters and animations;
+   - an identical race-loader enter/exit sequence;
+   - 4 presses and 4 `nav_ok`, with no `nav_retry` and no manual step.
+2. **Both reach the race (VERIFIED):** A rendered 673 race frames before the cap, B 732 before the stop.
+3. **No new error or stall categories (VERIFIED):**
+   - the only new log tag is `[lwc-wake]`, the counters themselves;
+   - these categories have equal counts in both arms: `stall` (50), `fc-watchdog` (26), `spu-int` (16), `mfc-list` (16), `fs` (6), `rtrb` (4).
+4. **No guest-visible timeout changes (VERIFIED):** there were no timed waits, and the timeout count is 0.
+5. **No targeted-signal misses (VERIFIED):** `to_miss` and `nofit` are both 0. The fallbacks are explained in §14.4 (PARTIAL: 82 % attributed).
+6. **Draw counts and frame progression (VERIFIED, within run-to-run noise):**
+   - race frames 0–39 have identical draw totals (73,439);
+   - A vs B per frame: 296 identical and 652 of 673 within 2 %; the heavy scene starts at frame 539 vs 542;
+   - earlier wake-off pairs give 294–421 identical, 652–675 within 2 %, and heavy starts at 539–542.
+7. **Physics and game state (PARTIAL):** there was no manual driving, and the frame and draw progression of A vs B is as close as two wake-off runs are to each other. Physics state was not compared directly.
+
+**Verdict: PASS** (one run per arm).
+
+### 14.6 FPS (by race-frame index)
+
+| Window | A FPS | B FPS | A p50/p95/p99 ms | B p50/p95/p99 ms |
+|---|---|---|---|---|
+| light (frames 40–499) | 20.95 | 20.85 | 46.2 / 56.8 / 83.9 | 47.2 / 52.1 / 72.2 |
+| heavy (frames 600–672, both arms) | 3.44 | 3.25 | 277.1 / 359.7 / 389.8 | 293.8 / 379.1 / 466.3 |
+
+- **Light scene:** unchanged (−0.5 % FPS; p95 and p99 are better).
+- **Heavy scene:** B is 5.5 % lower in FPS on 72 matched frames. With one run per arm this cannot yet be separated from noise (PARTIAL).
+  - In B the heavy frames run at about 75–95 s host, with more CPU in use: 5.5 vs 4.5 cores over comparable 21 s race windows.
+  - The cause is not measured.
+
+### 14.7 Remaining bottlenecks and issues
+
+- **The race load is now 22 s:**
+  - track 5.1 s, with the main thread still 2.49 s in waits;
+  - vehicles 4.3 s;
+  - characters 3.7 s;
+  - PostLevelLoad → race entry 6.4 s.
+- **Startup share:** boot → main menu (15.3 s) and menu navigation (5.2 s) are now a larger share of the time to race entry.
+- **Heavy-scene rendering** (about 3.3 FPS, about 290 ms per frame) is unchanged by this work.
+- **Minor defect found in the B log:** `[lwc-wake] on` is printed twice, so two threads ran the lazy `lwcw_get()` initialisation at the same time.
+  - Both write identical values and no counter is affected.
+  - It is still a data race, and should become a once-only initialisation before any default change.
+
+### 14.8 Recommendation
+
+- **Keep `PS3_LWCOND_WAKE` opt-in for now.** Enable it by default after:
+  1. the `lwcw_get()` once-only initialisation fix, with offline tests;
+  2. one or more repeat B runs, ideally with a longer race session, to confirm stability and settle the heavy-scene FPS question;
+  3. attribution of the remaining 18 % of fallbacks.
+- **The measured benefit is large and verified on this route:** race entry is 82 s earlier and the race load 76 % shorter, with the same route, frames and logs.
+
+## 15. V5: initialisation race fix, fallback attribution, benchmark preparation (offline + 1 build; no launch)
+
+### 15.1 Initialisation race fix (ps3recomp `afdcabd`, VERIFIED offline)
+
+- **Cause:** `lwcw_get()` in `runtime/ppu/ppu_sysprx.cpp` used an unguarded `static int on = -1` lazy initialisation. Two threads making their first lwcond call at the same moment both ran `lwcw_configure` (V4 B printed `[lwc-wake] on` twice).
+- **Fix:** `lwcw_get_once()` in `include/ps3emu/lwcond_wake.h`.
+  - Uses a `once` word (0 = not yet, 1 = configuring, 2 = done).
+  - The first caller wins a CAS and configures, then publishes with a full-barrier exchange.
+  - Concurrent first callers spin (64 pauses), then yield until they see 2 through an acquire load. The fast path is one acquire load.
+  - **Lifecycle:** the state lives for the whole process.
+    - It is never reconfigured, even if the variable changes.
+    - Reinitialisation is not supported by design.
+    - After `lwcw_shutdown`, every later wait takes the poll path.
+- **Also fixed:** the Windows `lwcw_now_us` no longer caches the QPC frequency in a lazily written static, which was a second benign first-write race.
+- **Default unchanged:** with the variable unset, `lwcw_get_once` returns NULL and the wait keeps `Sleep(1)`. The source pins in `tools/test_lwcond_wake.py` check this, and that no unguarded `lwcw_configure` call remains in `lwcw_get`.
+
+### 15.2 Fallback attribution (V4 B, 1,736 fallbacks; `tools/fb_attr_t161.py`, `logs/fb_attr_V4B.json`)
+
+- **Method:** the V4 exe records no per-fallback event, so attribution uses bounds from the `PS3_LWCOND_TRACE` open-episode snapshots, which are cumulative per 1 s window.
+  - In wake mode every wait return is either a signal wake or a 100 ms fallback, and each signal on an lwcond wakes a given waiter at most once.
+  - **Lower bound:** fallbacks ≥ Δpolls − Δsig.
+  - **Exact count:** a window with Δsig = 0 means every return in it was a fallback.
+  - Closed detailed episodes (`[lwc-ep]`, main thread) add polls − sig.
+- **Result:** at least **1,708 of the 1,736 (98.4 %)** are attributed. In every case the waiting thread re-entered the same wait within 300 µs (same episode), so the guest treated the return as a spurious wakeup and rechecked its predicate (VERIFIED).
+
+| Category | Fallbacks | Threads (lwcond) | Assessment |
+|---|---|---|---|
+| Idle: no signal on that lwcond during the window | **1,425 (82.1 %)**, exact | FIOS threads tids 3/4 (`0x104856D8`), 5 (`0x10485620`), mediathreads 6/7/8 (`0x104863C8`), scheduler 9 (`0x10486310`) | Benign: no work pending; one 100 ms return, then the thread re-waits |
+| Signals reached the lwcond in that window, but not during the 100 ms wait, or woke another waiter | ≥ 279 | tids 3–9. On the shared cvs (3+4; 6+7+8) a `sys_lwcond_signal` wakes only the oldest waiter; tids 5 and 9 are the only waiters on their cvs, so for them the signal came at another point in the window | Benign: an idle stretch inside an otherwise active second; the fallback is a spurious wakeup |
+| Main thread (tid 1, cv `0x105432C0`, FIOS completion) | ≥ 4 | 3 closed episodes of 110, 158 and 166 ms, each with 1 fallback; call sites `bt` `704CC8`, `702B48`, `664068+702B48` | Benign: the op took > 100 ms; the real completion signal from tid 9 (lr `0x66BA08`) still woke it about 6 µs after it was sent, so the fallback added no latency |
+| Not individually bounded | ≤ 28 (1.6 %) | inside the upper bounds of the same worker keys | PARTIAL |
+
+- **Call sites:** every fallback has `lr = 0x0066BB70`, the shared `sys_lwcond_wait` wrapper.
+  - Deeper sites for the worker threads were not recorded in V4 (the trace selected tid 1 only).
+  - The V5 exe records them with `fb=1` (§15.3).
+- **Correction to §14.4:** "the main thread had 0 unsignalled episodes" is right (every episode saw a signal), but the main thread did have at least 4 fallbacks inside signalled episodes, as described above.
+- **Conclusion:** at least 98.4 % of the remaining fallbacks are benign: idle threads, or waiters passed over by a signal-one. No fallback replaced a lost signal, and none was guest-visible apart from a spurious wakeup the guest already tolerates. Fallbacks are not removed: `poll_ms` stays as a safety net for wake paths outside the HLE.
+
+### 15.3 Fallback attribution instrumentation (`fb=1`, off by default)
+
+- **What it records:** `PS3_LWCOND_WAKE=1:...:stats_ms=1000:fb=1` records each fallback under (tid, lwcond, lr, 3 guest call-site words from a read-only stack scan done only on a fallback), with a reason:
+  - `nosig`: no signal on the lwcond during the wait;
+  - `sig_other`: signals arrived but woke other waiters.
+- **Output:** `[lwc-wake-fb]` rows per stats window, bounded at 256 rows; overflow is counted as `dropped=`.
+- **Cost:** none on the signalled path apart from one counter increment per signal under the lwcond lock, which is already held.
+
+### 15.4 Offline validation (VERIFIED, except as noted)
+
+- **lwcond tests:** `test_lwcond_wake` (full run), `test_lwcond_layout` and `test_lwcond_trace` PASS. New checks:
+  - 300 rounds × 16 threads making their first call at once (every 4th round widens the winner's window by 2 ms): configured exactly once per state, every caller saw the same fully configured state, every first-use waiter was signalled (none lost), and no waiter was left queued afterwards;
+  - **control:** the V4 lazy initialisation configured more than once under the same race, so the test detects the defect;
+  - variable unset: every concurrent first caller gets "off", and configuration runs once;
+  - shutdown wakes a waiter of the once-state; afterwards the state is not reinitialised and later waits take the poll path;
+  - `fb=1`: idle → `nosig`, passed over → `sig_other`, aggregation per key, bounded rows with overflow counted;
+  - the existing semantics checks still pass: signal, signal_all, `signal_to` (including a miss that wakes nobody), timeout, fallback, shutdown, no stale waiters, poll-vs-wake differential at 2–16 threads, and the 4-hop chain.
+- **Full suite** (`logs/suite_t161e.txt`): 140 PASS / 43 SKIP / 3 FAIL.
+  - Two failures are inherited: `test_rt_pool_srv_layout` and `test_vpc_watch`.
+  - The third is `test_spurs_kick_wake`, which asserts that a SPURS kick latency median halves. It also failed when rerun alone. The host was at 87 % CPU from an unrelated process, and the test covers only SPURS/coherency files this change does not touch.
+  - It is timing-sensitive under load (HYPOTHESIS); rerun it on an idle host before the runtime comparison.
+- **Public-source audit** of a clean `git archive afdcabd` export (`logs/audit_ps3recomp_t161f.txt`): the same **25 inherited BLOCKs**, identical list, none in lwcond files.
+
+### 15.5 Isolated release build (`build_t161.cmd x`)
+
+- **Source:** ps3recomp-t161 `afdcabd` + port-t161 (unchanged), staging PPU lift unchanged.
+- **Configuration:** Release, clang-cl LLVM 23.1.3, `MSPR_WWS_AOT=ON` (`wws_reloc_t81c`), Havok `--chain-chunks` for the same four SPU images as V3/V4.
+- **Result:** `build/motorstorm-t161-x`, rc 0, 0 errors (`logs/build_x.txt`).
+- **Pinned copy:** `ab/exe_x` (`run_t161.py prepare x`). SHA-256 `b1fdb0bd6253d11cd837bbc1a37db22a2dd2e9c5ad66d670e4aac24d3d8c01fc`.
+- **Runtime defaults:** `PS3_LWCOND_WAKE` unset = off (`Sleep(1)` poll path, signals no-ops). When set, the defaults are `poll_ms=100`, `stats_ms=0`, `fb=0`.
+- **Not launched.**
+
+### 15.6 Proposed runtime comparison (needs authorisation; not launched)
+
+- **Exe:** the pinned V5 exe (`ab/exe_x` after `run_t161.py prepare x`), regenerated by `tools/make_runner_t161.py`.
+- **Arms:**
+  - **C:** wake off, lean environment (the T158 arm B settings without the cpath window, lwcond trace or HLE-wait accounting, which perturb frame timing differently when race entry differs);
+  - **D:** C plus `PS3_LWCOND_WAKE=1:poll_ms=100:stats_ms=1000:fb=1`.
+  - Both use fast pacing, a fresh HDD, and the same route, vehicle, renderer and SPU configuration.
+- **Session:** race stop at entry + 150 s, with the 195 s game / 210 s host caps. C (race entry about 126 s) is cut by the cap. D (about 44 s) runs to about 194 s and covers about 150 s of race.
+- **Order:** C, D, C, D: 4 sequential launches, no retries, no concurrent load. Precondition: an idle host, since 87 % CPU from another process was observed during this task.
+- **Measures:**
+  - startup timeline;
+  - heavy-scene frame timing matched by race-frame index over the frames both arms reach (about 540–670), plus D's steady heavy scene beyond that;
+  - CPU per phase (`performance.json`);
+  - `[lwc-wake]` and `[lwc-wake-fb]` counters;
+  - per-frame draw counts and error/stall categories.
+- **Pass criteria:**
+  - route identical and race reached in all 4 runs;
+  - no new error categories; timeouts, `to_miss` and nofit all 0;
+  - draw counts within the noise between the two C runs;
+  - D's heavy FPS within the C–C run-to-run spread;
+  - every fallback in D attributed by `fb=1` to an idle or passed-over waiter.
+
+### 15.7 Default-enable assessment
+
+- **Not yet safe to enable by default.**
+  - The initialisation race is fixed and offline correctness is VERIFIED.
+  - The one runtime A/B passed on correctness, and at least 98.4 % of its fallbacks are benign.
+  - Two items remain open:
+    1. the heavy-scene −5.5 % FPS from a single run per arm;
+    2. call sites for the worker fallbacks and the ≤ 28 unbounded ones.
+- **Recommendation:** run §15.6. If D passes its criteria, make `PS3_LWCOND_WAKE` default-on with `poll_ms=100`, and keep `PS3_LWCOND_WAKE=0` as the off switch.
+
+### 15.8 Commits
+
+- **ps3recomp `agent/t161-fast-race-benchmark`:** `afdcabd`, once-only init, `fb=1` attribution and tests (on top of `28a3e64`).
+- **root `agent/t161-fast-race-benchmark`:** this section, `tools/fb_attr_t161.py` and `tools/make_runner_t161.py` (arms C/D). `tools/run_lwc_tests_t161.cmd` and `build_t161.cmd` (arm `x`) are gitignored and stay local.
+- Not merged or pushed.
+
+## 16. Authorised C1 → D1 → C2 → D2 comparison (V5 exe, 4 launches, 2026-10-30)
+
+- **Setup:**
+  - exe `b1fdb0bd…c01fc` (hash checked before each launch by `ab/seq_cd.sh`); sequential, no retries; all 4 rc 0.
+  - Host load before each launch: 15 / 18 / 17 / 8 %. SSX Tricky (another project) ran throughout at about 0.5 cores, so the host was not idle. Both arms saw the same load.
+  - Summary: `tools/cd_t161.py` → `ab/cd_summary.json` (private).
+  - Runs: `generated/runs/20261030-{065154-…-CC1, 065514-…-DD1, 065832-…-CC2, 070151-…-DD2}`.
+- **Termination:** C runs hit the 195 s cap (race frames 691 / 697). D runs stopped at race entry + 150 s (1,185 / 1,143 frames). The heavy scene is matched over race frames 600–690, which all four runs reached.
+
+| | C1 | C2 | D1 | D2 | D vs C (means) |
+|---|---|---|---|---|---|
+| race entry (s) | 124.0 | 121.4 | 42.1 | 41.7 | **−80.8 s (−66 %, 2.9× faster)** |
+| exe init → first GUI page (s) | 9.1 | 8.6 | 2.5 | 2.4 | −6.4 s |
+| track + env + vehicle + character loads (s) | 80.4 | 78.9 | 13.6 | 13.7 | −66.0 s |
+| light FPS (frames 40–499) | 20.70 | 20.95 | 20.14 | 20.34 | **−0.59 (−2.8 %)**; C–C spread 0.25 |
+| light p50 / p95 / p99 ms | 47.4 / 53.1 / 62.9 | 46.9 / 53.8 / 66.2 | 49.2 / 55.4 / 70.3 | 48.3 / 54.3 / 67.9 | p50 +1.6 ms |
+| heavy FPS (frames 600–690) | 3.65 | 3.35 | 3.70 | 3.29 | 0.0 (C–C spread 0.30) |
+| heavy p95 / p99 ms | 304 / 342 | 317 / 353 | 308 / 368 | 338 / 386 | within C–C spread for p95, p99 +30 ms |
+| CPU boot → race (cores) | 0.56 | 0.64 | 1.78 | 1.77 | load is CPU-bound now |
+| CPU race +10..+55 s, light (cores) | 2.87 | 2.96 | 3.78 | 3.80 | **+0.88 cores (+30 %)** |
+| median draws light / heavy | 2,004 / 6,956 | 2,004 / 6,973 | 2,004 / 6,957 | 2,004 / 6,958 | identical |
+| peak working set / private (MB) | 645 / 1,090 | 642 / 1,110 | 654 / 1,108 | 643 / 1,104 | ±1 % |
+| FIFO resyncs, fatal/TDR/AV lines | 0 | 0 | 0 | 0 | none |
+
+**Wake counters (D1 / D2):**
+- waits 841,167 / 840,580; signalled 834,789 / 834,082;
+- timeouts 0, shutdown 0, nofit 0, to_miss 0;
+- fallbacks 6,372 / 6,492, `[lwc-wake-fb]` dropped 0.
+
+**Fallback attribution (`fb=1`, VERIFIED):**
+- **100 % `nosig`** (6,372 / 6,372 and 6,492 / 6,492): no signal reached the lwcond during the wait, so no wakeup was lost or delayed.
+- 99.9 % come from 7 worker threads (tids 3–9) on 4 lwconds (`0x104856D8`, `0x10485620`, `0x104863C8`, `0x10486310`), all with lr `0x66BB70`. Sites are `661BDC/660214 → 65E5C0/3CE1F0 → 66B848`, about 4.7 polls/s per thread: an idle worker pool waking every `poll_ms`.
+- The main thread: 1 fallback per run.
+- The two runs give the same rows.
+
+**Pass criteria (§15.6):**
+- Route identical and race reached in all 4 runs: pass.
+- No new error categories; timeouts, `to_miss` and nofit all 0: pass.
+- Draw counts within the C–C noise: pass (identical).
+- D's heavy FPS within the C–C spread: pass.
+- Every fallback attributed to an idle waiter: pass.
+
+**Not covered by the criteria, and against default-enable:** in the light race scene, D is 2.8 % slower (outside the C–C spread, 2 runs per arm, PARTIAL) and uses 0.9 more cores. HYPOTHESIS: each of about 4,400 signalled wakeups per second is now an immediate host context switch, where the poll path batched them into 1 ms sleeps.
+
+**Decision:** `PS3_LWCOND_WAKE` stays **opt-in, off by default**.
+- The load-time gain is VERIFIED and large: race entry 2.9× faster in both runs.
+- The steady-state race cost (−2.8 % FPS, +30 % CPU) is evidence against a default change. This benchmark could not measure it on a fully idle host.
+- Next step: enable wakeups only for waits outside the race loop, or batch signal_all wakes, then compare light FPS and CPU again.
+- The performance baseline for later work is **arm C** (wake off): the T161 V5 exe with the lean environment.
+- `test_spurs_kick_wake` (the T161 suite's one load-dependent failure) was not rerun on an idle host: still HYPOTHESIS (host load).
