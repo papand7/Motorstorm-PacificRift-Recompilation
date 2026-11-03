@@ -5,8 +5,9 @@ import collections, glob, json, os, re, statistics as S, sys
 ROOT = os.environ.get('MS_GENERATED', 'generated')
 WIN = float(sys.argv[1]) if len(sys.argv) > 1 else 55.0
 TAG = os.environ.get('T183_TAG', 'Ss1')   # T184: Pp1 = arm P (task pool)
-RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', f'*t183-{TAG}')))[-1]
-RTD = sorted(glob.glob(os.path.join(ROOT, 'analysis', 't183', 'ab', f'runtime-{TAG[1:]}-*')))[-1]
+SER = os.environ.get('T183_SERIES', 't183')   # T185: t185 runs (run dir *t185-<tag>, runtime in t185/ab)
+RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', f'*{SER}-{TAG}')))[-1]
+RTD = sorted(glob.glob(os.path.join(ROOT, 'analysis', SER, 'ab', f'runtime-{TAG[1:]}-*')))[-1]
 PT = re.compile(r'\[PT\] t=(\d+) tid=(\d+) ev=(\w+) .*?fn=([0-9A-F]+).*?(?:dur_us=(\d+))?.*? n=(\d+)')
 KV = re.compile(r'(\w+)=([\d./]+)')
 HAVOK = {'341580667': 'w1 solver', '491898574': 'w2 collide', '308733018': 'w3 raycast', '406081863': 'w4 animation'}

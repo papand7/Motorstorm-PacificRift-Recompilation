@@ -3,7 +3,8 @@ by stderr order between [PT] markers. Steady race window (last 55 s). No game la
 import collections, glob, os, re, statistics as S
 ROOT = os.environ.get('MS_GENERATED', 'generated')
 TAG = os.environ.get('T183_TAG', 'Ss1')   # T184: Pp1 = arm P (task pool)
-RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', f'*t183-{TAG}')))[-1]
+SER = os.environ.get('T183_SERIES', 't183')   # T185: t185 runs (run dir *t185-<tag>, runtime in t185/ab)
+RUN = sorted(glob.glob(os.path.join(ROOT, 'runs', f'*{SER}-{TAG}')))[-1]
 PT = re.compile(r'\[PT\] t=(\d+) tid=1 ev=(\w+) .*?fn=([0-9A-F]+)')
 IMG = re.compile(r'image=(\d+)')
 frames, cur, ph = [], None, None
