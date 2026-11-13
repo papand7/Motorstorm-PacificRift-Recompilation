@@ -17,6 +17,11 @@
 !/docs/
 !/tools/
 !/port/
+# The PC launcher (source only; its node_modules, builds and the player's files are ignored below).
+!/launcher/
+node_modules/
+/launcher/electron/dist/
+/launcher/electron/out/
 
 # generated/ is private by default (decrypted ELF, lifted PPU/SPU source,
 # overlays, frames, HDD images, logs, runs). Only per-task Markdown reports and

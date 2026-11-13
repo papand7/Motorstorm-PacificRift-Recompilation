@@ -1,0 +1,38 @@
+{
+  "appId": "io.github.papand7.motorstorm.launcher",
+  "productName": "MotorStorm Pacific Rift",
+  "directories": {
+    "output": "../../build/release-0.1.0",
+    "buildResources": "build"
+  },
+  "files": [
+    "main.js",
+    "settings.js",
+    "preload.js",
+    "service/**/*",
+    "ui/**/*",
+    "package.json"
+  ],
+  "asarUnpack": [
+    "service/*.py"
+  ],
+  "extraResources": [
+    {
+      "from": "../game.json",
+      "to": "game.json"
+    },
+    {
+      "from": "../toolchain.json",
+      "to": "toolchain.json"
+    }
+  ],
+  "win": {
+    "target": [
+      "portable"
+    ]
+  },
+  "portable": {
+    "artifactName": "MotorStormPacificRift.exe",
+    "unpackDirName": "MotorStormPacificRift"
+  }
+}
