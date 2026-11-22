@@ -29,25 +29,23 @@ async function renderPlay() {
       <div class="card">
         <h3>${st.installed ? 'Ready' : busy ? 'Installing...' : 'Not installed yet'}</h3>
         <p class="stat">${st.installed ? esc(st.dir) : 'Install it from your disc on the Install page.'}</p>
-        ${st.builds && st.builds.unstable ? `<div class="row"><label>Build<small>The 1.00 build is the supported one. The 1.03 build is unstable: it may crash and is still being fixed.</small></label>
-          <select id="which"><option value="stable" selected>1.00 (stable)</option><option value="unstable">1.03 (Unstable: may crash, still being fixed)</option></select></div>` : ''}
         <div class="btns">
           <button class="act" id="play" ${st.installed && !st.playing && !busy ? '' : 'disabled'}>Play</button>
-          <button class="ghost" id="stop" ${st.playing ? '' : 'disabled'}>Stop the game</button>
+          ${st.playing ? '<button class="ghost" id="stop">Stop the game</button>' : ''}
           <button class="ghost" id="folder">Open the game folder</button>
           ${st.installed ? '' : '<button class="ghost" id="goinstall">Install...</button>'}
         </div>
         <div class="msg" id="msg"></div>
       </div>`;
-    $('#play').onclick = async () => { const r = await L.call('game:play', $('#which') ? $('#which').value : 'stable'); if (!r.ok) msg(r.message, 'bad'); };
-    $('#stop').onclick = () => L.call('game:stop');
+    $('#play').onclick = async () => { const r = await L.call('game:play', 'stable'); if (!r.ok) msg(r.message, 'bad'); };
+    if ($('#stop')) $('#stop').onclick = () => L.call('game:stop');
     $('#folder').onclick = () => L.call('open', 'folder');
     if ($('#goinstall')) $('#goinstall').onclick = () => show('install');
     game = { running: st.playing };
 }
 L.on('game', g => { game = g; if (current === 'play') renderPlay(); });
 
-// ---- Install: the player's disc, the 1.03 update folder, their decrypted EBOOT.elf files, then the build
+// ---- Install: the player's disc, their decrypted EBOOT.elf files, then the build
 function statusOf(item, okText, emptyText) {
     if (!item || !item.path) return `<span class="status wait">${esc(emptyText)}</span>`;
     if (item.checking) return '<span class="status wait">Checking...</span>';
@@ -59,9 +57,7 @@ async function renderInstall() {
     const st = await L.call('state');
     const s = svc || {};
     const busy = !!s.busy;
-    const unstable = !!s.unstable;
-    // 1.00 is required; the unstable 1.03 build needs its folder and its EBOOT.elf too, only when it is ticked
-    const ready = s.disc && s.disc.ok && s.elf100 && s.elf100.ok && (!unstable || (s.update && s.update.ok && s.elf103 && s.elf103.ok));
+    const ready = s.disc && s.disc.ok && s.elf100 && s.elf100.ok;
     const steps = (s.steps || []).map(x => `<li class="${x.done ? 'done' : x.id === s.stepId ? 'now' : ''}">${esc(x.title)}</li>`).join('');
     const elfRow = (which, label, item) => `
           <div class="fine">${label}</div>
@@ -73,8 +69,7 @@ async function renderInstall() {
       <p class="lead">The game is built on this PC from your own disc and your own console's files: nothing of the game is
       downloaded or carried by this launcher. The launcher does not decrypt anything: you supply the decrypted program files
       (EBOOT.elf) of the disc, made from your own console. It checks them by their hashes, translates them to PC code,
-      downloads the build tools (each checked by its SHA-256) and builds. The first install takes 30 to 90 minutes.
-      The 1.00 build is the supported one. The 1.03 update build is optional and unstable: it may crash, and it is still being fixed.</p>
+      downloads the build tools (each checked by its SHA-256) and builds. The first install takes 30 to 90 minutes.</p>
       <div class="grid">
         <div class="card">
           <h3><span class="num">01</span>Your game disc</h3>
@@ -86,23 +81,13 @@ async function renderInstall() {
           </div>
         </div>
         <div class="card">
-          <h3><span class="num">02</span>Unstable: MotorStorm 1.03 update</h3>
-          <label class="check"><input type="checkbox" id="unstable" ${unstable ? 'checked' : ''} ${busy ? 'disabled' : ''}>
-            <span>Also build the 1.03 update. Unstable: it may crash, and it is still being fixed. Optional.</span></label>
-          ${unstable ? `
-          <div>${statusOf(s.update, u => `Update ${u.version || '1.03'} data found`, 'Choose the update folder (the one with USRDIR\\ms2patch.psarc)')}</div>
-          <div class="path">${esc(s.update && s.update.path)}</div>
-          <div class="btns"><button class="ghost small" id="pick-update" ${busy ? 'disabled' : ''}>Update folder...</button></div>` : '<p class="fine">Not built. Tick the box to add it (its folder and its EBOOT.elf are then needed).</p>'}
-        </div>
-        <div class="card">
-          <h3><span class="num">03</span>Your decrypted EBOOT.elf files</h3>
+          <h3><span class="num">02</span>Your decrypted EBOOT.elf files</h3>
           <p class="fine">Each is the program of one release, decrypted from your own console (the launcher does not do it).
           The file stays where it is: it is read at the build and by the game, never copied elsewhere or sent anywhere.</p>
-          ${elfRow(100, '1.00 (Stable): the disc\'s program; also holds the job module the build needs. Required.', s.elf100)}
-          ${unstable ? elfRow(103, '1.03 (Unstable): the update\'s program', s.elf103) : ''}
+          ${elfRow(100, 'The disc\'s program (1.00); also holds the job module the build needs. Required.', s.elf100)}
         </div>
         <div class="card">
-          <h3><span class="num">04</span>${s.built ? 'Installed' : 'Build'}</h3>
+          <h3><span class="num">03</span>${s.built ? 'Installed' : 'Build'}</h3>
           <div class="fine">${esc(s.plan || '')}</div>
           <label class="check"><input type="checkbox" id="agree" ${s.agreed ? 'checked' : ''} ${busy ? 'disabled' : ''}>
             <span>I accept the license terms of Microsoft's C++ libraries and Windows SDK, which the build downloads from Microsoft
@@ -133,10 +118,7 @@ async function renderInstall() {
     };
     $('#pick-iso').onclick = () => pick('iso', 'disc');
     $('#pick-folder').onclick = () => pick('folder', 'disc');
-    $('#unstable').onchange = e => L.command({ cmd: 'set', unstable: e.target.checked });
-    if ($('#pick-update')) $('#pick-update').onclick = () => pick('update', 'update');
     $('#pick-elf100').onclick = () => pick('elf', 'elf100');
-    if ($('#pick-elf103')) $('#pick-elf103').onclick = () => pick('elf', 'elf103');
     $('#lic').onclick = e => { e.preventDefault(); window.open('https://visualstudio.microsoft.com/license-terms/'); };
     $('#agree').onchange = e => L.command({ cmd: 'set', agreed: e.target.checked });
     $('#install').onclick = () => {
@@ -285,10 +267,12 @@ async function renderTextures() {
         <div class="row"><label>Physically based maps<small>Adds normal and roughness maps (slower)</small></label>
           <select id="pbr"><option value="0">Off</option><option value="1">On</option></select></div>
         <div class="btns">
-          <button class="act" id="pack" ${t.making ? 'disabled' : ''}>Make the HD pack</button>
+          <button class="act" id="pack" ${t.making ? 'disabled' : ''}>${t.making ? 'Making the pack...' : 'Make the HD pack'}</button>
           <button class="ghost" id="stop">Stop</button>
           <button class="ghost" id="tfolder">Open the folder</button>
         </div>
+        <div class="stat" id="tprog">${t.making ? esc(tprog || 'Starting: reading the dumped textures...') : ''}</div>
+        <progress id="tbar" max="100" value="${tpct}" style="width:100%;${t.making ? '' : 'display:none'}"></progress>
         <pre class="log" id="tlog">${esc(tlogLines.join('\n'))}</pre>
       </div>
       <p class="fine">The pack is made from your copy of the game: keep it to yourself, do not share it.</p>`;
@@ -305,13 +289,23 @@ async function renderTextures() {
         tlogLines.length = 0;
         $('#tlog').textContent = '';
         const r = await L.call('textures:pack', { scale: Number($('#scale').value), pbr: $('#pbr').value === '1' });
-        if (!r.ok) msg(r.message, 'bad');
+        if (!r.ok) msg(r.message, 'bad'); else renderTextures();
     };
     $('#stop').onclick = () => L.call('textures:stop');
     $('#tfolder').onclick = () => L.call('open', 'textures');
 }
 const tlogLines = [];   // the texture jobs' output, kept so the totals stay on screen after the page redraws
+let tprog = '', tpct = 0;   // the HD pack's progress line and percent (texpack.py prints "PROGRESS n/total ...")
 L.on('pack', p => {
+    const m = p.line && /^PROGRESS (\d+)\/(\d+)\s*(.*)$/.exec(p.line);
+    if (m) {
+        tpct = m[2] > 0 ? Math.round(100 * m[1] / m[2]) : 0;
+        tprog = `${m[1]} of ${m[2]} textures (${tpct}%) ${m[3]}`;
+        if ($('#tprog')) $('#tprog').textContent = tprog;
+        if ($('#tbar')) { $('#tbar').value = tpct; $('#tbar').style.display = ''; }
+        return;
+    }
+    if (p.done) { tprog = ''; tpct = 0; }
     if (p.line) { tlogLines.push(p.line); if (tlogLines.length > 400) tlogLines.splice(0, 100); }
     const log = $('#tlog');
     if (p.line && log) { log.textContent += p.line + '\n'; log.scrollTop = log.scrollHeight; }

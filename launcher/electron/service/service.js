@@ -1,7 +1,7 @@
-// The install service: JSON lines in (commands), JSON lines out (events), as the NightFire launcher's service.
+﻿// The install service: JSON lines in (commands), JSON lines out (events), as the NightFire launcher's service.
 // Run by the launcher's own exe as Node (ELECTRON_RUN_AS_NODE=1), or by node for tests:
 //   node service.js --root <work folder> --meta <folder with game.json, toolchain.json> --source <source snapshot folder>
-// Commands: {cmd:'state'} {cmd:'set', disc?, update?, elf100?, elf103?} {cmd:'scan'} {cmd:'install', agreed}
+// Commands: {cmd:'state'} {cmd:'set', disc?, elf100?} {cmd:'scan'} {cmd:'install', agreed}
 //           {cmd:'cancel'} {cmd:'clean', what:'build'|'all'} {cmd:'quit'}
 // Events:   {ev:'state', ...} {ev:'step', step, detail, fraction} {ev:'log', line} {ev:'done', ok, message} {ev:'error', message}
 'use strict';

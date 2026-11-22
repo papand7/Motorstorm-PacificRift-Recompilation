@@ -1,8 +1,7 @@
 // The install, step by step, each one kept when done (a stamp file) so Install can run again after a stop or a
 // failure and only redo what is missing:
-//   game      the player's disc (image or folder: its title, the helper for the files); for the unstable build also
-//             the 1.03 update folder (its ms2patch.psarc, checked by SHA-256)
-//   elf       the player's own decrypted EBOOT.elf of 1.00 (required) and, for the unstable build, of 1.03: chosen by
+//   game      the player's disc (image or folder: its title, the helper for the files)
+//   elf       the player's own decrypted EBOOT.elf of 1.00 (required): chosen by
 //             the player, checked by SHA-256 (game.json). Nothing is decrypted here; the files stay where they are.
 //   files     the game's files copied out of a disc image (a folder is read where it is)
 //   tools     clang, CMake, Ninja, Python, the Microsoft C++ libraries and Windows SDK, the Vulkan headers and
@@ -10,7 +9,7 @@
 //   source    the launcher's source snapshot (the port, the ps3recomp runtime and the lifting recipe) unpacked
 //   glslang   glslang + SPIRV-Tools built into tools\vulkan-sdk (the shader compiler the Vulkan renderer links)
 //   lift      the PPU and SPU code translated from the player's ELFs (pipeline\lift_motorstorm.py)
-//   build     CMake + Ninja: the stable build (1.00) into work\build-stable, and the unstable one (1.03) when chosen
+//   build     CMake + Ninja: the 1.00 build into work\build-stable
 //   install   the exes into play\, play.json (the builds and how each starts), motorstorm.cfg (paths)
 //   pcmenu    the in-game PC Settings pages, from the 1.00 disc's MS2.PSARC
 'use strict';
@@ -22,7 +21,6 @@ const disc = require('./disc');
 const { run, killAll } = require('./proc');
 
 const STABLE_EXE = 'MotorStormPacificRiftRecomp.exe';
-const UNSTABLE_EXE = 'MotorStormPacificRiftRecomp-103.exe';
 // How both builds start (play.json): the Vulkan renderer with guest programs and async shader compile, as raced.
 // The exe picks its renderer during static initialisation, before its own defaults (k_defaults) apply, so these
 // have to be in the process environment.
@@ -39,8 +37,7 @@ class Builder {
         // an earlier launcher stored the player's rpcs3.exe path here: this launcher does not use it, so it goes
         if ('rpcs3' in this.cfg) { delete this.cfg.rpcs3; try { fs.writeFileSync(this.cfgFile, JSON.stringify(this.cfg, null, 2)); } catch { /* best effort */ } }
         this.discInfo = null;
-        this.updateInfo = null;
-        this.elfInfo = { 100: null, 103: null };
+        this.elfInfo = { 100: null };
         this.busy = false;
         this.abort = null;
         this.stepId = null;
@@ -59,9 +56,6 @@ class Builder {
     mark(id, text = '') { fs.mkdirSync(path.dirname(this.stamp(id)), { recursive: true }); fs.writeFileSync(this.stamp(id), text || new Date().toISOString()); }
     unmark(...ids) { for (const id of ids) fs.rmSync(this.stamp(id), { force: true }); }
 
-    // the unstable build is wanted (the player ticked it): its files are then required
-    unstable() { return !!this.cfg.unstable; }
-
     steps() {
         return [
             ['game', 'Check your game'], ['elf', 'Check your decrypted EBOOT.elf files'], ['files', 'Copy the game files'],
@@ -71,7 +65,7 @@ class Builder {
         ].map(([id, title]) => ({ id, title, done: this.done(id) }));
     }
 
-    // the stable build is installed (its exe and play.json); the unstable one too when it was built
+    // the stable build is installed (its exe and play.json)
     installedBuilds() {
         const p = this.playInfo();
         if (!p || !p.builds) return {};
@@ -93,10 +87,9 @@ class Builder {
     sendState(extra = {}) {
         this.emit({
             ev: 'state', busy: this.busy, stepId: this.stepId, steps: this.steps(), built: this.built(), agreed: !!this.cfg.agreed,
-            builds: this.installedBuilds(), unstable: this.unstable(),
+            builds: this.installedBuilds(),
             disc: this.cfg.disc ? { path: this.cfg.disc, ...(this.discInfo || { checking: true }) } : null,
-            update: this.updateInfo ? this.updateInfo : this.cfg.update ? { path: this.cfg.update, checking: true } : null,
-            elf100: this.elfState(100), elf103: this.elfState(103),
+            elf100: this.elfState(100),
             plan: this.planText(), message: this.message, ok: this.ok, ...extra,
         });
     }
@@ -111,34 +104,19 @@ class Builder {
     async set(cmd) {
         if (this.busy) return this.sendState();
         if (cmd.disc !== undefined) { this.cfg.disc = cmd.disc; this.discInfo = null; this.unmark('game', 'files'); }
-        if (cmd.update !== undefined) { this.cfg.update = cmd.update; this.updateInfo = null; this.unmark('game'); }
         if (cmd.elf100 !== undefined) { this.cfg.elf100 = cmd.elf100; this.elfInfo[100] = null; this.unmark('elf', 'lift', 'build', 'install'); }
-        if (cmd.elf103 !== undefined) { this.cfg.elf103 = cmd.elf103; this.elfInfo[103] = null; this.unmark('elf', 'lift', 'build', 'install'); }
-        if (cmd.unstable !== undefined) { this.cfg.unstable = !!cmd.unstable; this.unmark('game', 'elf', 'files', 'lift', 'build', 'install'); }
         if (cmd.agreed !== undefined) this.cfg.agreed = !!cmd.agreed;
         this.save();
         this.message = null;
         return this.scan('set');
     }
 
-    // the 1.03 update folder the player chose (USRDIR\ms2patch.psarc is its data, checked by SHA-256)
-    async checkUpdate() {
-        const dir = this.cfg.update;
-        if (!dir) return null;
-        const u = this.game.update;
-        const data = path.join(dir, 'USRDIR', u.data_file);
-        if (!fs.existsSync(data)) return { path: dir, ok: false, error: `No USRDIR\\${u.data_file} in that folder (the 1.03 update's data).` };
-        if (fs.statSync(data).size !== u.data.size) return { path: dir, ok: false, error: `That ${u.data_file} is not the ${u.version} update this launcher builds.` };
-        if (await tools.sha256File(data) !== u.data.sha256) return { path: dir, ok: false, error: `That ${u.data_file} is not the ${u.version} update this launcher builds.` };
-        return { path: dir, ok: true, version: u.version, data };
-    }
-
     // a player's decrypted EBOOT.elf: its SHA-256 against game.json (the only check; nothing is read but the file)
     async checkElf(which) {
         const p = this.cfg['elf' + which];
         if (!p) return null;
-        const want = which === 100 ? this.game.discs[0].eboot_elf : this.game.update.eboot_elf;
-        const label = which === 100 ? '1.00 (the disc)' : `${this.game.update.version} (${this.game.update.label})`;
+        const want = this.game.discs[0].eboot_elf;
+        const label = '1.00 (the disc)';
         if (!fs.existsSync(p)) return { ok: false, error: 'Not found (moved?).' };
         if (fs.statSync(p).size !== want.size)
             return { ok: false, error: `Not the ${label} EBOOT.elf: its size is ${fs.statSync(p).size}, not ${want.size}. Choose the decrypted EBOOT.elf of ${label} from your own console.` };
@@ -159,8 +137,7 @@ class Builder {
                 }
             } catch (e) { this.discInfo = { ok: false, error: e.message }; }
         }
-        try { this.updateInfo = await this.checkUpdate(); } catch (e) { this.updateInfo = { ok: false, error: e.message }; }
-        for (const w of [100, 103]) {
+        for (const w of [100]) {
             try { if (this.cfg['elf' + w]) this.elfInfo[w] = await this.checkElf(w); }
             catch (e) { this.elfInfo[w] = { ok: false, error: e.message }; }
         }
@@ -214,27 +191,23 @@ class Builder {
         }
     }
 
-    // ---- game: the disc (title, the files) is known; the 1.03 update folder only for the unstable build
+    // ---- game: the disc (title, the files) is known
     async step_game() {
         await this.scan();
         if (!this.discInfo || !this.discInfo.ok) throw new Error(this.discInfo ? this.discInfo.error : 'Choose your game disc first.');
-        if (this.unstable() && (!this.updateInfo || !this.updateInfo.ok))
-            throw new Error(this.updateInfo ? this.updateInfo.error : 'Choose the 1.03 update folder (the one with USRDIR\\ms2patch.psarc), or untick the unstable build.');
-        this.mark('game', `${this.discInfo.release}${this.unstable() ? '\n' + this.game.update.version : ''}`);
+        this.mark('game', this.discInfo.release);
     }
 
     // the player's own decrypted EBOOT.elf files: used where they are, never copied, decrypted or stored by the launcher
-    elfPath(which) { return this.cfg['elf' + (which === 'disc' || which === 100 ? 100 : 103)]; }
+    elfPath() { return this.cfg.elf100; }
 
-    // ---- elf: the 1.00 file (required), the 1.03 file when the unstable build is wanted; each checked by SHA-256
+    // ---- elf: the 1.00 file (required), checked by SHA-256
     async step_elf() {
         // copies an earlier launcher made with RPCS3 (its work\decrypted and work\self) are removed: nothing decrypted is kept
         for (const d of ['decrypted', 'self']) fs.rmSync(path.join(this.dirs.work, d), { recursive: true, force: true });
-        const want = this.unstable() ? [100, 103] : [100];
+        const want = [100];
         for (const w of want) {
-            if (!this.cfg['elf' + w]) throw new Error(w === 100
-                ? 'Choose your decrypted EBOOT.elf of 1.00 (the disc\'s): the stable build needs it.'
-                : `Choose your decrypted EBOOT.elf of ${this.game.update.version} (the update's), or untick the unstable build.`);
+            if (!this.cfg['elf' + w]) throw new Error("Choose your decrypted EBOOT.elf of 1.00 (the disc's): the stable build needs it.");
             const r = await this.checkElf(w);
             this.elfInfo[w] = r;
             if (!r.ok) throw new Error(r.error);
@@ -255,30 +228,7 @@ class Builder {
             await disc.copyGame(src, this.dirs.files, { skip, signal: this.abort.signal,
                 say: (p, f, d, t) => this.say('Copying the game files', `${p}  (${tools.mb(d, t)})`, f) });
         }
-        // the update's data (the patch archive) for the unstable build only: the 1.03 build reads it through an overlay
-        if (this.unstable()) await this.placeUpdateData();
         this.mark('files');
-    }
-
-    // the update as the PS3 keeps it, /dev_hdd0/game/<title id>: its PARAM.SFO and its data (ms2patch.psarc). The
-    // game reads the patch archive through PS3_VFS_OVERLAY (the unstable build only). The update's EBOOT.BIN is not copied.
-    updateDir() { return path.join(this.root, 'hdd0', 'game', this.discInfo.titleId); }
-    async placeUpdateData() {
-        const from = this.cfg.update;
-        const to = this.updateDir();
-        const files = [];
-        for (const n of fs.readdirSync(from)) if (fs.statSync(path.join(from, n)).isFile()) files.push(n);
-        for (const n of fs.readdirSync(path.join(from, 'USRDIR'))) if (!/^EBOOT\.BIN$/i.test(n)) files.push(path.join('USRDIR', n));
-        for (const rel of files) {
-            const a = path.join(from, rel), b = path.join(to, rel);
-            if (!fs.statSync(a).isFile()) continue;
-            fs.mkdirSync(path.dirname(b), { recursive: true });
-            if (fs.existsSync(b) && fs.statSync(b).size === fs.statSync(a).size) continue;
-            this.say('Copying the update\'s data', rel, -1);
-            // a hard link when on the same drive (no second copy of 600 MB), else a copy
-            try { fs.rmSync(b, { force: true }); fs.linkSync(a, b); }
-            catch { await fs.promises.copyFile(a, b); }
-        }
     }
 
     // ---- tools
@@ -391,15 +341,14 @@ class Builder {
 
     // ---- lift: pipeline\lift_motorstorm.py (in the source snapshot) from the player's ELFs into work\src\generated
     async step_lift() {
-        const key = this.unstable() ? '100+103' : '100';   // what was lifted: a change of the choice lifts again
+        const key = '100';
         try { if (this.done('lift') && fs.readFileSync(this.stamp('lift'), 'utf8') === key) return; } catch { /* not there */ }
         const { env, python } = this.env();
         if (!this.elfPath(100)) throw new Error('Choose your decrypted EBOOT.elf (1.00) first.');
         const script = path.join(this.srcDir(), 'pipeline', 'lift_motorstorm.py');
         const args = [script, '--root', this.srcDir(), '--elf-disc', this.elfPath(100),
                       '--jobs', String(Math.max(1, Math.min(os.cpus().length - 1, Math.floor(os.totalmem() / (3 * 1024 ** 3)))))];
-        if (this.unstable()) args.push('--elf-103', this.elfPath(103));
-        this.say('Translating the game code', this.unstable() ? 'both builds, about 15 minutes' : 'about 10 minutes', -1);
+        this.say('Translating the game code', 'about 10 minutes', -1);
         const code = await run(python, args, { env, cwd: this.srcDir(), log: l => this.log('lift: ' + l),
             onLine: l => { const m = /^\[step\] (.*)$/.exec(l); if (m) this.say('Translating the game code', m[1], -1);
                            const p = /lifted (\d+)\/(\d+) functions/.exec(l); if (p) this.say('Translating the game code', `PPU: ${p[1]} of ${p[2]} functions`, p[1] / p[2]); } });
@@ -410,7 +359,7 @@ class Builder {
 
     // ---- build: each wanted build with CMake and Ninja, its own folder (the options in game.json "builds")
     buildDir(variant) { return path.join(this.dirs.work, `build-${variant}`); }
-    variants() { return this.unstable() ? ['stable', 'unstable'] : ['stable']; }
+    variants() { return ['stable']; }
     async step_build() {
         const { env, llvmBin, cmake, ninja, python } = this.env();
         const src = this.srcDir(), gen = path.join(src, 'generated');
@@ -420,19 +369,18 @@ class Builder {
         for (const variant of this.variants()) {
             const b = this.game.builds[variant];
             const bld = this.buildDir(variant);
-            const is103 = variant === 'unstable';
             // configured every time (cheap; incremental): the cache must hold the current paths (the player's ELFs, the tools)
             this.say(`Preparing the ${b.label} build`, `${b.version} with CMake`, -1);
             const defs = [
                 `-DCMAKE_MAKE_PROGRAM=${ninja}`, '-DCMAKE_BUILD_TYPE=Release', `-DCMAKE_C_COMPILER=${cc}`, `-DCMAKE_CXX_COMPILER=${cc}`,
                 '-DCMAKE_LINKER_TYPE=LLD', `-DPython3_EXECUTABLE=${python}`,
-                `-DPS3RECOMP_DIR=${path.join(src, 'ps3recomp')}`, `-DRECOMP_DIR=${path.join(gen, is103 ? 'ppu-v103' : 'ppu-100')}`,
-                `-DSPU_DIR=${path.join(gen, 'spu')}`, `-DPORT_SPU_INPUTS=${this.elfPath(is103 ? 103 : 100)}`,
+                `-DPS3RECOMP_DIR=${path.join(src, 'ps3recomp')}`, `-DRECOMP_DIR=${path.join(gen, 'ppu-100')}`,
+                `-DSPU_DIR=${path.join(gen, 'spu')}`, `-DPORT_SPU_INPUTS=${this.elfPath()}`,
                 `-DPS3RECOMP_VULKAN_INCLUDE_DIR=${path.join(this.dirs.tools, 'vulkan-sdk', 'include')}`,
                 `-DPS3RECOMP_VULKAN_SDK=${fwd(path.join(this.dirs.tools, 'vulkan-sdk'))}`,
                 `-DPS3RECOMP_SPU_LIFTER_IMAGE_ARGS=${b.spu_lifter_image_args.join(';')}`,
                 ...(b.options.includes('MSPR_WWS_AOT=ON')
-                    ? [`-DMSPR_WWS_AOT_DIR=${path.join(gen, 'spu_raw', is103 ? 'wws_reloc_v103' : 'wws_reloc_v100')}`] : []),
+                    ? [`-DMSPR_WWS_AOT_DIR=${path.join(gen, 'spu_raw', 'wws_reloc_v100')}`] : []),
                 // ThinLTO (PORT_PPU_LTO) links with lld-link's LTO jobs and a cache beside the build
                 ...(b.options.includes('PORT_PPU_LTO=ON')
                     ? [`-DCMAKE_EXE_LINKER_FLAGS=/opt:lldltojobs=${this.jobs()} /lldltocache:${fwd(path.join(bld, 'lto-cache'))}`] : []),
@@ -466,8 +414,8 @@ class Builder {
             try { fs.copyFileSync(path.join(bld, STABLE_EXE), path.join(play, b.exe)); }
             catch (e) { throw new Error(`Cannot copy ${b.exe} (is the game still running?)`); }
         }
-        // the unstable build's exe is removed when it is not wanted (an old install may have left it)
-        if (!this.unstable()) fs.rmSync(path.join(play, this.game.builds.unstable.exe), { force: true });
+        // an earlier launcher's 1.03 exe is removed
+        fs.rmSync(path.join(play, 'MotorStormPacificRiftRecomp-103.exe'), { force: true });
         // the run-time pieces from tools\ (toolchain.json "runtime": each tool's files into play\<to>)
         for (const t of this.toolchain.runtime || []) {
             const to = path.join(play, t.install.to);
@@ -485,18 +433,13 @@ class Builder {
             }
         }
         const vfs = this.vfsRoot();
-        const hdd0 = path.join(this.root, 'hdd0');
-        const overlay = this.unstable() ? path.join(this.updateDir(), 'USRDIR') : null;
-        // each build's start: the 1.00 build reads the disc files only; the 1.03 build also reads its data (hdd0, overlay)
         const builds = {
             stable: { label: this.game.builds.stable.label, version: this.game.builds.stable.version, exe: this.game.builds.stable.exe,
                       elf: this.elfPath(100), env: { ...PLAY_ENV } },
         };
-        if (this.unstable()) builds.unstable = { label: this.game.builds.unstable.label, version: this.game.builds.unstable.version,
-            exe: this.game.builds.unstable.exe, elf: this.elfPath(103), env: { ...PLAY_ENV, PS3_HDD0_ROOT: hdd0, PS3_VFS_OVERLAY: overlay } };
         const info = { default: 'stable', builds, vfs_root: vfs, release: this.discInfo.release, built: new Date().toISOString() };
         fs.writeFileSync(path.join(play, 'play.json'), JSON.stringify(info, null, 2));
-        // motorstorm.cfg: the paths shared by both builds (the 1.03 build's hdd0 and overlay are its own, in play.json)
+        // motorstorm.cfg: the paths the game reads
         const cfg = path.join(play, 'motorstorm.cfg');
         let lines = [];
         try { lines = fs.readFileSync(cfg, 'utf8').split(/\r?\n/).filter(l => l && !/^(PS3_HDD0_ROOT|PS3_VFS_OVERLAY|PS3_VFS_ROOT)=/.test(l)); } catch { /* new */ }

@@ -4,11 +4,10 @@
 the player's own decrypted program file (EBOOT.elf), in the manner of the NightFire launcher: a service
 (`launcher/electron/service/`, Node, JSON lines on stdin/stdout) does the work and the window draws its progress.
 
-**Supported build: MotorStorm 1.00 (Stable).** It is required and it is the default. **Optional: the 1.03 update build
-(Unstable)**, which may crash and is still being fixed. The install succeeds with 1.00 alone.
+**Supported build: MotorStorm 1.00 (Stable).**
 
 **The launcher does not decrypt anything, contains no decryption code and no keys.** The player supplies the decrypted
-`EBOOT.elf` of the disc (1.00, required) and, for the unstable build only, of the 1.03 update, made from their own console. The launcher checks each file by
+`EBOOT.elf` of the disc (1.00), made from their own console. The launcher checks the file by
 its SHA-256 (`launcher/game.json`), refuses a file that does not match, and uses it where it is. The file is never
 copied out of the player's folder, stored in the launcher's source, committed, uploaded or sent anywhere. Nothing
 decrypted, lifted or keyed is part of the launcher's source snapshot.
@@ -19,15 +18,15 @@ Everything the install makes goes under `MotorStorm\` beside the launcher exe:
 
 | Step | What | Checked by |
 |---|---|---|
-| game | the disc (an `.iso` or a folder with `PS3_GAME`): its title, and the files the game reads. For the unstable build also the 1.03 update folder (its `USRDIR\ms2patch.psarc`, chosen by the player) | title id; for the unstable build, size and SHA-256 of `ms2patch.psarc` (`game.json` `update.data`) |
-| elf | the player's decrypted `EBOOT.elf` of 1.00 (required), and of 1.03 only for the unstable build. Each is chosen by the player, read where it is, and never copied, decrypted or stored | size and SHA-256 of each (`game.json` `discs[].eboot_elf`, `update.eboot_elf`) |
-| files | a disc image's files copied out to `game\` (a folder is read in place); for the unstable build also the update's `PARAM.SFO` and `ms2patch.psarc` into `hdd0\game\BCUS98155\` (hard link when possible) | sizes |
+| game | the disc (an `.iso` or a folder with `PS3_GAME`): its title, and the files the game reads | title id |
+| elf | the player's decrypted `EBOOT.elf` of 1.00, chosen by the player, read where it is, and never copied, decrypted or stored | size and SHA-256 (`game.json` `discs[].eboot_elf`) |
+| files | a disc image's files copied out to `game\` (a folder is read in place) | sizes |
 | tools | Python 3.14.0 (embeddable; it also unpacks LLVM's `.tar.zst`, whose zstd window Windows' `tar.exe` refuses), Clang 23.1.3, CMake 4.3.1, Ninja 1.13.2, glslang/SPIRV-Tools/SPIRV-Headers/Vulkan-Headers sources (Vulkan SDK 1.4.341.0 tags), Microsoft C++ libraries 14.44 and Windows SDK 10.0.26100 (from the Visual Studio channel, after the player accepts Microsoft's terms) into `tools\`; and the run-time pieces (`toolchain.json` `runtime`): DXC 1.9.2609 (`dxc.exe`, `dxcompiler.dll`, `dxil.dll` and its licence files) and AMD's FSR 3.1 DLLs (FidelityFX SDK v2.4.0 `signedbin`) with AMD's licence | SHA-256 of every download (`launcher/toolchain.json`; Microsoft's from its manifest, whose listed sizes are not always the served ones, so only the hash is enforced there) |
 | source | the launcher's source snapshot (`resources\source\motorstorm-source.tar`) into `work\src\` | `SOURCE.json` |
 | glslang | glslang 16.2.0 with SPIRV-Tools built into `tools\vulkan-sdk` (Include\, Lib\ as the runtime's CMake expects of a LunarG SDK) | build result |
-| lift | `pipeline/lift_motorstorm.py`: the 1.00 PPU lift (`find_functions.py`, `gen_imports.py`, `ppu_lifter.py --trace-hooks`, `mspr_patch_lifted.py`) and the Wws_Job policy module (`spu_lifter.py`, cut from the 1.00 ELF at 0x00FFCC80). For the unstable build also the 1.03 PPU lift and the 31 Wws job modules of the 1.03 ELF (`lift_wws_reloc.py --ctor`). The 1.03 ELF has no segment at 0x00FFCC80, so both builds take that module from 1.00 | SHA-256 of every output against `pipeline/manifest.json` (1.00 required; 1.03 entries for the unstable build) |
-| build | CMake + Ninja per build, each in its own folder (`work\build-stable`, `work\build-unstable`): the stable build with the options of `game.json` `builds.stable` (includes `PORT_EXPECT_ENTRY_OPD=0x107B8D8`, the 1.00 entry check, so a wrong ELF is refused before guest code runs); the unstable build with `builds.unstable` (no entry check) | each exe exists |
-| install | the stable exe as `play\MotorStormPacificRiftRecomp.exe`; the unstable exe as `play\MotorStormPacificRiftRecomp-103.exe` (only when built; an old one is removed otherwise); DXC into `play\dxc\`, the FSR 3.1 DLLs beside the exes, licences into `play\licenses\`; `play\play.json` (each build's exe, the player's ELF it runs, and its start environment); `motorstorm.cfg` with `PS3_VFS_ROOT` only | |
+| lift | `pipeline/lift_motorstorm.py`: the 1.00 PPU lift (`find_functions.py`, `gen_imports.py`, `ppu_lifter.py --trace-hooks`, `mspr_patch_lifted.py`), the Wws_Job policy module (`spu_lifter.py`, cut from the 1.00 ELF at 0x00FFCC80), and the relocatable Wws job modules (`lift_wws_reloc.py --ctor`) | SHA-256 of every output against `pipeline/manifest.json` |
+| build | CMake + Ninja in `work\build-stable` with the options of `game.json` `builds.stable` (includes `PORT_EXPECT_ENTRY_OPD=0x107B8D8`, the 1.00 entry check, so a wrong ELF is refused before guest code runs) | exe exists |
+| install | the exe as `play\MotorStormPacificRiftRecomp.exe`; DXC into `play\dxc\`, the FSR 3.1 DLLs beside the exe, licences into `play\licenses\`; `play\play.json` (the exe, the player's ELF it runs, and its start environment); `motorstorm.cfg` with `PS3_VFS_ROOT` only | |
 | pcmenu | the in-game PC Settings pages: `make_pcmenu.py --psarc <game>\PS3_GAME\USRDIR\MS2.PSARC --out play\pcmenu --port <src>\port-vkgame`, after every install (the pages must match the exe). Made from the player's own data, never shipped. The tool is found at `MS_PCMENU_DIR`, `launcher.json` `pcmenuDir`, or `pcmenu-tool\` in the source snapshot (`source_bundles.js --with-pcmenu`). Missing or failing: a warning only; the game keeps its retail Options page and `settings.ini` still applies | `make_pcmenu.py` exit 0 (every page re-walked) |
 
 Every step leaves a stamp in `work\`, so Install continues after a stop or a failure. `launcher.log` has every command
@@ -79,21 +78,11 @@ public CI artifact (`tools/audit_public.py` must keep refusing `shader_cache\` a
 Not verified: that a warm run removes the pre-race compile. That needs a game run (compare `[vk-compile]
 translations=` and `disk_hits=` on a second run).
 
-## Builds: stable (1.00) and unstable (1.03)
+## Build
 
-- **Stable (1.00)**: required, the default. Play starts `play\MotorStormPacificRiftRecomp.exe` with the player's 1.00
-  EBOOT.elf and the disc's files only. The 1.00 build has the fail-fast entry check (`PORT_EXPECT_ENTRY_OPD`): it refuses
-  any ELF whose entry OPD is not 0x107B8D8 before guest code runs.
-- **Unstable (1.03)**: optional. Ticked on the Install page with its update folder and its EBOOT.elf. It has no entry
-  check (its entry is 0xE74920), and it starts with its own environment from `play\play.json` (its hdd0 copy of the
-  update's data, and the overlay that serves `ms2patch.psarc`). It is shown as "Unstable: MotorStorm 1.03 update (may
-  crash, still being fixed)".
-- Play offers the choice of build only when the unstable build is installed. The texture collection always runs stable.
-- The PC Settings pages (`pcmenu`) are made from the 1.00 disc's `MS2.PSARC`, so the unstable build uses the same pages.
-
-Why the 1.03 build needs the 1.00 ELF as well: the 1.03 ELF has no code at the address of the Wws_Job policy module
-(checked: no PT_LOAD segment holds 0x00FFCC80+0x2D00 in `EBOOT_103.elf`), so both builds take that module from the 1.00
-ELF. Both are the player's own files.
+Play starts `play\MotorStormPacificRiftRecomp.exe` with the player's 1.00 EBOOT.elf and the disc's files. The build has
+the fail-fast entry check (`PORT_EXPECT_ENTRY_OPD`): it refuses any ELF whose entry OPD is not 0x107B8D8 before guest
+code runs. The PC Settings pages (`pcmenu`) are made from the disc's `MS2.PSARC`.
 
 ## Settings
 
@@ -134,7 +123,7 @@ tests: `node launcher/electron/test_settings.js`). No RPCS3 path is stored in an
 
 `source_bundles.js` stages `port-vkgame/` (copied: it is not in git), `git archive HEAD` of `ps3recomp-vkgame` (only
 committed changes; it warns when the working tree has others), and `launcher/pipeline/`. The service can be driven
-from a terminal: `node launcher/electron/service/cli.js --root <dir> --disc <iso|folder> --elf100 <EBOOT.elf> --agree --install [--until <step>]` for the stable build, and add `--unstable --update <1.03 folder> --elf103 <EBOOT.elf>` for the unstable build too.
+from a terminal: `node launcher/electron/service/cli.js --root <dir> --disc <iso|folder> --elf100 <EBOOT.elf> --agree --install [--until <step>]`.
 
 The install's source step compares the tar's own SHA-256 with `SOURCE.json`'s `tar_sha256` and refuses a snapshot that does
 not match (or a stage-only one); it unpacks again, after removing `work\src`, whenever the tar differs from the one unpacked

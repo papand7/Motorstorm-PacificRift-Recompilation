@@ -3,18 +3,14 @@
 
 Run by the launcher's install service (the launcher's own Python), from the unpacked source snapshot:
 
-    python pipeline/lift_motorstorm.py --root <src> --elf-disc <1.00 EBOOT.elf> [--elf-103 <1.03 EBOOT.elf>] [--jobs N]
-
-1.00 is the primary build and is always translated. 1.03 (unstable) is translated only when its ELF is given.
+    python pipeline/lift_motorstorm.py --root <src> --elf-disc <1.00 EBOOT.elf> [--jobs N]
 
 <src> holds ps3recomp/ (the runtime and its tools), port-vkgame/ and pipeline/. Outputs go under <src>/generated/:
 
-  generated/meta/                      EBOOT_100.* and EBOOT_103.* (find_functions.py, gen_imports.py)
+  generated/meta/                      EBOOT_100.* (find_functions.py, gen_imports.py)
   generated/ppu-100/                   the 1.00 PPU lift (ppu_lifter.py --trace-hooks), then mspr_patch_lifted.py
-  generated/ppu-v103/                  the 1.03 PPU lift, likewise (its own MSPR patch sites)
   generated/spu_raw/wws_job_pm/        the Wws_Job policy module, cut from the 1.00 ELF at 0x00FFCC80 and lifted
-                                       (the 1.03 ELF has no segment there, so both builds take it from 1.00)
-  generated/spu_raw/wws_reloc_v103/    the 31 relocatable Wws job modules of the 1.03 ELF (lift_wws_reloc.py --ctor)
+  generated/spu_raw/wws_reloc_v100/    the relocatable Wws job modules of the 1.00 ELF (lift_wws_reloc.py --ctor)
 
 pipeline/manifest.json carries the SHA-256 of every input and of every verified output (hashes, offsets and sizes only,
 no game bytes), so a player's result is checked against the verified translation. --no-verify skips the output checks
@@ -93,8 +89,7 @@ def lift_ppu(tools, py, elf, tag, out, meta, jobs):
     """functions and imports from the ELF, the PPU lift, the MSPR patch sites (the output's name picks the patch set).
 
     1.00 uses ppu_loader.py's lists: they reproduce the list the verified 1.00 translation (generated/ppu-hooked-staging)
-    was lifted from, byte for byte, and the patch anchors need its function boundaries. 1.03 keeps find_functions.py's
-    list, which its verified translation was made from."""
+    was lifted from, byte for byte, and the patch anchors need its function boundaries."""
     if tag == '100':
         ld = meta / 'loader100'
         ld.mkdir(parents=True, exist_ok=True)
@@ -119,8 +114,7 @@ def lift_ppu(tools, py, elf, tag, out, meta, jobs):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--root', required=True, type=Path)
-    ap.add_argument('--elf-disc', required=True, type=Path, help='the decrypted 1.00 EBOOT.elf (the primary build)')
-    ap.add_argument('--elf-103', type=Path, help='the decrypted 1.03 EBOOT.elf (the unstable build; optional)')
+    ap.add_argument('--elf-disc', required=True, type=Path, help='the decrypted 1.00 EBOOT.elf')
     ap.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument('--no-verify', action='store_true')
     ap.add_argument('--write-manifest', action='store_true', help="developer: record this run's outputs in manifest.json")
@@ -133,14 +127,10 @@ def main():
     verify = not args.no_verify and not args.write_manifest
     t0 = time.time()
 
-    step('checking the decrypted ELFs')
-    checks = [(args.elf_disc, m['elf_disc_sha256'], 'the 1.00 EBOOT.elf')]
-    if args.elf_103:
-        checks.append((args.elf_103, m['elf_103_sha256'], 'the 1.03 EBOOT.elf'))
-    for p, want, what in checks:
-        got = sha256(p)
-        if got != want:
-            raise SystemExit(f'{what}: SHA-256 {got}, expected {want}')
+    step('checking the decrypted ELF')
+    got = sha256(args.elf_disc)
+    if got != m['elf_disc_sha256']:
+        raise SystemExit(f'the 1.00 EBOOT.elf: SHA-256 {got}, expected {m["elf_disc_sha256"]}')
 
     meta = gen / 'meta'
     meta.mkdir(parents=True, exist_ok=True)
@@ -195,35 +185,12 @@ def main():
          '--codebase-word', r['codebase_word'], '--job-return', r['job_return'], '--names', mods100 / 'modules.json', '--ctor'])
     built['wws_reloc_v100'] = reloc100
 
-    # ---- 1.03 (unstable), only when its ELF is given: its PPU lift and its relocatable job modules
-    if args.elf_103:
-        p103 = gen / 'ppu-v103'   # (the name picks the 1.03 MSPR patch set in mspr_patch_lifted.py)
-        lift_ppu(tools, py, args.elf_103, '103', p103, meta, args.jobs)
-        built['ppu-v103'] = p103
-        step('translating the SPU job modules of 1.03')
-        mods = gen / 'wws_modules_v103'
-        mods.mkdir(parents=True, exist_ok=True)
-        elf = args.elf_103.read_bytes()
-        for j in m['wws_modules']:
-            b = elf[j['file_off']:j['file_off'] + j['size']]
-            if hashlib.sha256(b).hexdigest() != j['sha256']:
-                raise SystemExit(f'job module {j["file"]} is not where the verified 1.03 ELF has it')
-            (mods / j['file']).write_bytes(b)
-        reloc = raw_dir / 'wws_reloc_v103'
-        r = m['wws_reloc']
-        run([py, tools / 'lift_wws_reloc.py', '--modules', mods, '--out', reloc, '--pm-image', str(r['pm_image']),
-             '--codebase-word', r['codebase_word'], '--job-return', r['job_return'], '--ctor'])
-        built['wws_reloc_v103'] = reloc
-
     # ---- the outputs against the verified translation
     step('checking the translation')
     if args.write_manifest:
         ld = meta / 'loader100'
         m['functions_100_sha256'] = sha256(ld / f'{args.elf_disc.stem}.functions.json')
         m['imports_100_sha256'] = sha256(ld / f'{args.elf_disc.stem}.imports.json')
-        if args.elf_103:
-            m['functions_103_sha256'] = sha256(meta / 'EBOOT_103.functions.json')
-            m['imports_103_sha256'] = sha256(meta / 'EBOOT_103.imports.json')
         for key, d in built.items():
             m['outputs'][key] = {str(p.relative_to(d)).replace('\\', '/'): sha256(p)
                                  for p in sorted(d.rglob('*')) if p.is_file() and not p.name.endswith('.json')}

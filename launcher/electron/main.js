@@ -66,7 +66,7 @@ const readCfg = () => settings.readCfg(CFG);
 const writeCfg = patch => settings.writeCfg(CFG, patch);
 function settingsState() { return { ...settings.load(PLAY), texturePack: PACK, installed: installed() }; }
 
-// the installed game: play\play.json names each build (stable 1.00, and unstable 1.03 when installed): its exe, the
+// the installed game: play\play.json names each build (stable 1.00): its exe, the
 // player's decrypted EBOOT.elf it runs, and the environment it starts with
 function playInfo() {
     try { return JSON.parse(fs.readFileSync(path.join(PLAY, 'play.json'), 'utf8')); } catch { return null; }
@@ -76,9 +76,9 @@ function buildOf(name) {
     const b = p && p.builds && p.builds[name];
     return b && fs.existsSync(path.join(PLAY, b.exe)) && b.elf && fs.existsSync(b.elf) ? b : null;
 }
-// the builds that can be played: stable (1.00) is required; unstable (1.03) only when it is installed
+// the builds that can be played: stable (1.00) is required
 function builds() {
-    return { stable: !!buildOf('stable'), unstable: !!buildOf('unstable') };
+    return { stable: !!buildOf('stable') };
 }
 function installed() { return !!buildOf('stable'); }
 
@@ -98,20 +98,18 @@ function copyBuild(from) {
 }
 
 // ---- playing: the chosen build in its folder, its decrypted EBOOT.elf as the argument, its own start environment
-// (the 1.03 build's hdd0 and overlay, from play.json), its settings from settings.ini (paths from motorstorm.cfg)
+// (from play.json), its settings from settings.ini (paths from motorstorm.cfg)
 function startGame(which, extraEnv) {
     const b = buildOf(which);
     const env = { ...process.env, ...(b.env || {}), ...extraEnv };
     if (!env.PS3_VFS_ROOT && !readCfg().PS3_VFS_ROOT) { const p = playInfo(); if (p && p.vfs_root) env.PS3_VFS_ROOT = p.vfs_root; }
-    // saves per build: a 1.03 autosave stalls the 1.00 build at its boot emblem (they would share PLAY/gamedata)
-    if (!env.PS3_GAMEDATA_ROOT) env.PS3_GAMEDATA_ROOT = path.join(PLAY, 'saves', which === 'stable' ? 'v100' : String(which));
+    if (!env.PS3_GAMEDATA_ROOT) env.PS3_GAMEDATA_ROOT = path.join(PLAY, 'saves', 'v100');
     return spawn(path.join(PLAY, b.exe), [b.elf], { cwd: PLAY, env, windowsHide: false, stdio: 'ignore' });
 }
 function play(which = 'stable') {
     if (game || dumper) return { ok: false, message: 'The game is already running.' };
     if (svcState && svcState.busy) return { ok: false, message: 'The install is running: wait for it to finish.' };
-    if (!buildOf(which)) return { ok: false, message: which === 'stable' ? 'Install the game first (Install page).'
-                                                                         : 'The unstable 1.03 build is not installed (Install page, the unstable option).' };
+    if (!buildOf(which)) return { ok: false, message: 'Install the game first (Install page).' };
     game = startGame(which, {});
     game.on('exit', code => { game = null; send('game', { running: false, code }); });
     game.on('error', e => { game = null; send('game', { running: false, code: -1, message: e.message }); });
@@ -129,7 +127,7 @@ function pythonCommand() {
 function runPacker(args) {
     if (packer) return { ok: false, message: 'The HD pack is already being made.' };
     const py = pythonCommand();
-    packer = spawn(py.cmd, [...py.pre, TEXPACK, ...args], { cwd: PLAY, windowsHide: true });
+    packer = spawn(py.cmd, [...py.pre, TEXPACK, ...args], { cwd: PLAY, windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONUNBUFFERED: '1' } });
     const out = line => send('pack', { line });
     readline.createInterface({ input: packer.stdout }).on('line', out);
     readline.createInterface({ input: packer.stderr }).on('line', out);
@@ -218,7 +216,6 @@ ipcMain.handle('pick', async (_, kind) => {
     const opts = {
         iso: { title: 'Choose your MotorStorm: Pacific Rift disc image', properties: ['openFile'], filters: [{ name: 'PS3 disc image', extensions: ['iso'] }] },
         folder: { title: 'Choose the folder with PS3_GAME in it (your copied disc)', properties: ['openDirectory'] },
-        update: { title: 'Choose the 1.03 update folder (BCUS98155, with USRDIR\\ms2patch.psarc in it)', properties: ['openDirectory'] },
         elf: { title: 'Choose your decrypted EBOOT.elf', properties: ['openFile'], filters: [{ name: 'ELF', extensions: ['elf'] }] },
         files: { title: "Choose the game's disc files folder", properties: ['openDirectory'] },
     }[kind] || { title: 'Choose a folder', properties: ['openDirectory'] };
@@ -238,7 +235,7 @@ ipcMain.handle('settings:save', (_, patch) => {
     if (Object.keys(cfg).length) writeCfg(cfg);
     return { ok: true, ...settingsState() };
 });
-ipcMain.handle('game:play', (_, which) => play(which === 'unstable' ? 'unstable' : 'stable'));
+ipcMain.handle('game:play', (_, which) => play('stable'));
 ipcMain.handle('game:stop', () => { if (game) game.kill(); return { ok: true }; });
 ipcMain.handle('textures:info', () => texturesInfo());
 ipcMain.handle('textures:collect', () => {

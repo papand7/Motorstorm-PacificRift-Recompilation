@@ -1,5 +1,5 @@
 {
-  "about": "What the launcher builds and the releases it accepts. Only SHA-256 hashes and sizes of the player's files are recorded here, never their content. The launcher does not decrypt: the player supplies the decrypted EBOOT.elf of the disc (1.00, required: the stable build) and, optionally, of the 1.03 update (unstable: it may crash and is still being fixed). eboot_elf is what those files must hash to.",
+  "about": "What the launcher builds and the releases it accepts. Only SHA-256 hashes and sizes of the player's files are recorded here, never their content. The launcher does not decrypt: the player supplies the decrypted EBOOT.elf of the disc (1.00). eboot_elf is what that file must hash to.",
   "title": "MotorStorm: Pacific Rift",
   "exe": "MotorStormPacificRiftRecomp",
   "discs": [
@@ -16,26 +16,6 @@
       }
     }
   ],
-  "update": {
-    "version": "1.03",
-    "label": "Unstable",
-    "note": "MotorStorm 1.03 update (may crash, still being fixed)",
-    "title_id": "BCUS98155",
-    "pkg": {
-      "name": "UP9000-BCUS98155_00-00000MSUSPATCH32-A0103-V0100-PE.pkg",
-      "size": 636703856,
-      "sha256": "a16b408509b4d2e11eff5fbcfcba271fa4e6142b4773ab156105a314209efc28"
-    },
-    "eboot_elf": {
-      "size": 15853848,
-      "sha256": "507d22294eb282bed1ec5c705cbbe06410fcb9fb70a5524637d5ee8d2c076c38"
-    },
-    "data_file": "ms2patch.psarc",
-    "data": {
-      "size": 617672041,
-      "sha256": "0d6313457c70682876bcdf673f9be83a45f03cfd32a02c31cfc0905f94ab57ca"
-    }
-  },
   "skip_files": [
     "/PS3_UPDATE/PS3UPDAT.PUP"
   ],
@@ -66,32 +46,6 @@
         "spu_d51c6cebd3c35dfadd1c9fddaaa61c6721bd7913112fc1cb24933c8705c2683f=--chain-chunks",
         "spu_266e45a8fd8d59f18fba05552cbaf9074e346188660a29f9fe5f62d9e15fef98=--chain-chunks",
         "spu_83451471f1c85a7dea41d41c2d7936a04eb693d7269e25a24d405ad1a569a7cc=--chain-chunks"
-      ]
-    },
-    "unstable": {
-      "version": "1.03",
-      "label": "Unstable",
-      "exe": "MotorStormPacificRiftRecomp-103.exe",
-      "expect_entry_opd": null,
-      "options": [
-        "PORT_V103=ON",
-        "PORT_ENABLE_SPU=ON",
-        "PORT_SPU_AVX2=ON",
-        "MSPR_PPU_INLINE_STORES=ON",
-        "PORT_PPU_VMX_INLINE=ON",
-        "PORT_HLE_NIDS_GENERATE=ON",
-        "MSPR_WWS_AOT=ON",
-        "PS3RECOMP_RSX_VULKAN=ON"
-      ],
-      "spu_lifter_image_args": [
-        "spu_002b74c2ee41a2f910410b2ee4949856705407ae4cce7e2610fdd0ea485e7d1f=--chain-chunks",
-        "spu_af25f45f3b8e94854ad1511dc0b10fad070e4e44d86a28d36144fe58588ad2cd=--chain-chunks",
-        "spu_411940b84b51b12cc5a4cf0d3cec231d0f19f234ffdc7d86b49d6ff18eb3aa82=--chain-chunks",
-        "spu_11dd049565003d96447de1fe75a21db0605d162d155c956d3ce9dc1318331ef0=--chain-chunks",
-        "spu_cbf1b1a19a3f3eb95183a55e5b65c2de6eef9e025fed16eed2a0a8f1c563dd6f=--chain-chunks",
-        "spu_0e193327f9cedb5cf569b211535978c6145d5f0d2d2e845d0f1e116f668d2dcd=--chain-chunks",
-        "spu_cbf1b1a19a3f3eb95183a55e5b65c2de6eef9e025fed16eed2a0a8f1c563dd6f=--chain-indirect",
-        "spu_0e193327f9cedb5cf569b211535978c6145d5f0d2d2e845d0f1e116f668d2dcd=--chain-indirect"
       ]
     }
   }
