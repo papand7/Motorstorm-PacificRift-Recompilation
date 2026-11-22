@@ -37,6 +37,9 @@ let svcState = null;   // its last state event
 let game = null;       // the running game process
 let dumper = null;     // the game running to save its textures
 let packer = null;     // texpack.py making the pack
+let collector = null;  // texcollect.py saving every texture from the player's archive (no game running)
+const TEXCOLLECT = RES ? path.join(RES, 'tools', 'texcollect', 'texcollect.py')
+                       : path.resolve(__dirname, '..', '..', 'tools', 'texcollect', 'texcollect.py');
 
 const send = (channel, data) => { if (win && !win.isDestroyed()) win.webContents.send(channel, data); };
 
@@ -63,17 +66,24 @@ const readCfg = () => settings.readCfg(CFG);
 const writeCfg = patch => settings.writeCfg(CFG, patch);
 function settingsState() { return { ...settings.load(PLAY), texturePack: PACK, installed: installed() }; }
 
-// the installed game: the exe, and the decrypted EBOOT it loads (play\game.json names it, written by the install)
+// the installed game: play\play.json names each build (stable 1.00, and unstable 1.03 when installed): its exe, the
+// player's decrypted EBOOT.elf it runs, and the environment it starts with
 function playInfo() {
     try { return JSON.parse(fs.readFileSync(path.join(PLAY, 'play.json'), 'utf8')); } catch { return null; }
 }
-function installed() {
+function buildOf(name) {
     const p = playInfo();
-    return !!(p && fs.existsSync(path.join(PLAY, EXE)) && p.elf && fs.existsSync(p.elf));
+    const b = p && p.builds && p.builds[name];
+    return b && fs.existsSync(path.join(PLAY, b.exe)) && b.elf && fs.existsSync(b.elf) ? b : null;
 }
+// the builds that can be played: stable (1.00) is required; unstable (1.03) only when it is installed
+function builds() {
+    return { stable: !!buildOf('stable'), unstable: !!buildOf('unstable') };
+}
+function installed() { return !!buildOf('stable'); }
 
-// ---- developer-only install: copy a folder built elsewhere (the exe and its DLLs). The game files and the decrypted
-// ELF are chosen beside it.
+// ---- developer-only install: copy a folder built elsewhere (the exe and its DLLs) as the stable build. The decrypted
+// ELF is chosen beside it.
 function copyBuild(from) {
     fs.mkdirSync(PLAY, { recursive: true });
     if (!fs.existsSync(path.join(from, EXE))) throw new Error(`${EXE} is not in that folder`);
@@ -87,18 +97,22 @@ function copyBuild(from) {
     return copied;
 }
 
-// ---- playing: the game in its folder, the decrypted EBOOT as its argument, its settings from settings.ini (paths from motorstorm.cfg)
-function startGame(extraEnv) {
-    const p = playInfo();
-    const env = { ...process.env, ...extraEnv };
-    if (p && p.vfs_root && !readCfg().PS3_VFS_ROOT) env.PS3_VFS_ROOT = p.vfs_root;
-    return spawn(path.join(PLAY, EXE), [p.elf], { cwd: PLAY, env, windowsHide: false, stdio: 'ignore' });
+// ---- playing: the chosen build in its folder, its decrypted EBOOT.elf as the argument, its own start environment
+// (the 1.03 build's hdd0 and overlay, from play.json), its settings from settings.ini (paths from motorstorm.cfg)
+function startGame(which, extraEnv) {
+    const b = buildOf(which);
+    const env = { ...process.env, ...(b.env || {}), ...extraEnv };
+    if (!env.PS3_VFS_ROOT && !readCfg().PS3_VFS_ROOT) { const p = playInfo(); if (p && p.vfs_root) env.PS3_VFS_ROOT = p.vfs_root; }
+    // saves per build: a 1.03 autosave stalls the 1.00 build at its boot emblem (they would share PLAY/gamedata)
+    if (!env.PS3_GAMEDATA_ROOT) env.PS3_GAMEDATA_ROOT = path.join(PLAY, 'saves', which === 'stable' ? 'v100' : String(which));
+    return spawn(path.join(PLAY, b.exe), [b.elf], { cwd: PLAY, env, windowsHide: false, stdio: 'ignore' });
 }
-function play() {
+function play(which = 'stable') {
     if (game || dumper) return { ok: false, message: 'The game is already running.' };
     if (svcState && svcState.busy) return { ok: false, message: 'The install is running: wait for it to finish.' };
-    if (!installed()) return { ok: false, message: 'Install the game first (Install page).' };
-    game = startGame({});
+    if (!buildOf(which)) return { ok: false, message: which === 'stable' ? 'Install the game first (Install page).'
+                                                                         : 'The unstable 1.03 build is not installed (Install page, the unstable option).' };
+    game = startGame(which, {});
     game.on('exit', code => { game = null; send('game', { running: false, code }); });
     game.on('error', e => { game = null; send('game', { running: false, code: -1, message: e.message }); });
     send('game', { running: true });
@@ -125,13 +139,37 @@ function runPacker(args) {
 }
 function texturesInfo() {
     const count = dir => { try { return fs.readdirSync(dir).filter(n => /\.dds$/i.test(n)).length; } catch { return 0; } };
-    return { dumped: count(DUMP), pack: count(PACK), folder: PACK, playing: !!game, making: !!packer, collecting: !!dumper };
+    return { dumped: count(DUMP), pack: count(PACK), folder: PACK, playing: !!game, making: !!packer, collecting: !!dumper, collectingAll: !!collector };
+}
+// the game's files (the folder holding MS2.PSARC): the install's file root, or the one the player set
+function gameFiles() {
+    const p = playInfo();
+    return readCfg().PS3_VFS_ROOT || (p && p.vfs_root) || '';
+}
+// "Collect all textures": texcollect.py on the player's own MS2.PSARC (the game does not start); the launcher's
+// Python runs it (it uses the standard library only). It prints its totals when it ends.
+function runCollectAll() {
+    if (collector) return { ok: false, message: 'Already collecting.' };
+    if (game || dumper) return { ok: false, message: 'Close the game first.' };
+    const files = gameFiles();
+    if (!files || !fs.existsSync(files)) return { ok: false, message: 'The game files are not set: install the game first (or set the disc files folder on the Settings page).' };
+    const py = pythonCommand();
+    fs.mkdirSync(DUMP, { recursive: true });
+    collector = spawn(py.cmd, [...py.pre, TEXCOLLECT, '--play', PLAY, '--game', files], { cwd: PLAY, windowsHide: true, env: { ...process.env, PYTHONUTF8: '1' } });
+    const out = line => send('pack', { line });
+    readline.createInterface({ input: collector.stdout }).on('line', out);
+    readline.createInterface({ input: collector.stderr }).on('line', out);
+    collector.on('exit', code => { collector = null; send('pack', { done: true, code, line: code === 0 ? 'Done: the textures are in the dump folder.' : `The collection stopped (exit ${code}).` }); });
+    collector.on('error', e => { collector = null; send('pack', { done: true, code: -1, line: `${e.message}` }); });
+    send('pack', { line: 'Reading your game archive: this takes about a minute (the game is not started).' });
+    return { ok: true };
 }
 
 function createWindow() {
     win = new BrowserWindow({
-        width: 1120, height: 760, minWidth: 920, minHeight: 620, backgroundColor: '#07080b', show: false,
+        width: 1120, height: 760, minWidth: 920, minHeight: 620, backgroundColor: '#f7ecd7', show: false,
         title: 'MotorStorm: Pacific Rift',
+        icon: path.join(__dirname, 'assets', 'icon.png'),
         webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     win.removeMenu();
@@ -154,7 +192,7 @@ function createWindow() {
     }
 }
 
-ipcMain.handle('state', () => ({ dir: PLAY, root: ROOT, installed: installed(), playing: !!game, dev: DEV, svc: svcState, play: playInfo() }));
+ipcMain.handle('state', () => ({ dir: PLAY, root: ROOT, installed: installed(), builds: builds(), playing: !!game, dev: DEV, svc: svcState, play: playInfo() }));
 ipcMain.on('svc', (_, cmd) => {
     // a build would replace the exe the game runs from
     if (cmd && cmd.cmd === 'install' && (game || dumper)) { send('svc', { ev: 'error', message: 'Close the game first.' }); return; }
@@ -171,7 +209,8 @@ ipcMain.handle('dev:install', async () => {
     try {
         const copied = copyBuild(r.filePaths[0]);
         const prev = playInfo() || {};
-        fs.writeFileSync(path.join(PLAY, 'play.json'), JSON.stringify({ ...prev, elf: e.filePaths[0], dev: true }, null, 2));
+        const stable = { label: 'Stable', version: '1.00', exe: EXE, elf: e.filePaths[0], env: {} };
+        fs.writeFileSync(path.join(PLAY, 'play.json'), JSON.stringify({ ...prev, default: 'stable', builds: { ...(prev.builds || {}), stable }, dev: true }, null, 2));
         return { ok: true, copied };
     } catch (err) { return { ok: false, message: err.message }; }
 });
@@ -199,27 +238,29 @@ ipcMain.handle('settings:save', (_, patch) => {
     if (Object.keys(cfg).length) writeCfg(cfg);
     return { ok: true, ...settingsState() };
 });
-ipcMain.handle('game:play', () => play());
+ipcMain.handle('game:play', (_, which) => play(which === 'unstable' ? 'unstable' : 'stable'));
 ipcMain.handle('game:stop', () => { if (game) game.kill(); return { ok: true }; });
 ipcMain.handle('textures:info', () => texturesInfo());
 ipcMain.handle('textures:collect', () => {
     if (game || dumper) return { ok: false, message: 'Close the game first.' };
     if (!installed()) return { ok: false, message: 'Install the game first.' };
     fs.mkdirSync(DUMP, { recursive: true });
-    dumper = startGame({ RSX_TEX_DUMP: DUMP });
+    dumper = startGame('stable', { RSX_TEX_DUMP: DUMP });   // the texture collection runs the stable build
     dumper.on('exit', () => { dumper = null; send('pack', { done: true, code: 0, line: 'Stopped collecting: play a few races, then make the pack.' }); });
     dumper.on('error', e => { dumper = null; send('pack', { done: true, code: -1, line: e.message }); });
     send('pack', { line: 'Collecting textures: play a few races. Each texture is saved the first time the game draws it.' });
     return { ok: true };
 });
 ipcMain.handle('textures:pack', (_, o) => {
-    if (dumper) return { ok: false, message: 'Stop collecting first.' };
+    if (dumper || collector) return { ok: false, message: 'Stop collecting first.' };
     fs.mkdirSync(PACK, { recursive: true });
     const args = ['upscale', '--dump', DUMP, '--pack', PACK, '--scale', String(o.scale === 2 ? 2 : 4)];
     if (o.pbr) args.push('--pbr');
     return runPacker(args);
 });
+ipcMain.handle('textures:collectall', () => runCollectAll());
 ipcMain.handle('textures:stop', () => {
+    if (collector) collector.kill();
     if (dumper) dumper.kill();
     if (packer) packer.kill();
     return { ok: true };

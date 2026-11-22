@@ -39,6 +39,7 @@ svc.on('exit', code => process.exit(code || 0));
 const set = { cmd: 'set' };
 for (const k of ['disc', 'update', 'elf100', 'elf103']) if (a(k)) set[k] = path.resolve(a(k));
 if (has('agree')) set.agreed = true;
+if (has('unstable')) set.unstable = true;   // also build the 1.03 (unstable) build: needs --update and --elf103
 send(set);
 phase = 'scanned';
 process.on('SIGINT', () => { send({ cmd: 'cancel' }); setTimeout(() => process.exit(1), 2000); });

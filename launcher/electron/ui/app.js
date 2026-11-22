@@ -29,6 +29,8 @@ async function renderPlay() {
       <div class="card">
         <h3>${st.installed ? 'Ready' : busy ? 'Installing...' : 'Not installed yet'}</h3>
         <p class="stat">${st.installed ? esc(st.dir) : 'Install it from your disc on the Install page.'}</p>
+        ${st.builds && st.builds.unstable ? `<div class="row"><label>Build<small>The 1.00 build is the supported one. The 1.03 build is unstable: it may crash and is still being fixed.</small></label>
+          <select id="which"><option value="stable" selected>1.00 (stable)</option><option value="unstable">1.03 (Unstable: may crash, still being fixed)</option></select></div>` : ''}
         <div class="btns">
           <button class="act" id="play" ${st.installed && !st.playing && !busy ? '' : 'disabled'}>Play</button>
           <button class="ghost" id="stop" ${st.playing ? '' : 'disabled'}>Stop the game</button>
@@ -37,7 +39,7 @@ async function renderPlay() {
         </div>
         <div class="msg" id="msg"></div>
       </div>`;
-    $('#play').onclick = async () => { const r = await L.call('game:play'); if (!r.ok) msg(r.message, 'bad'); };
+    $('#play').onclick = async () => { const r = await L.call('game:play', $('#which') ? $('#which').value : 'stable'); if (!r.ok) msg(r.message, 'bad'); };
     $('#stop').onclick = () => L.call('game:stop');
     $('#folder').onclick = () => L.call('open', 'folder');
     if ($('#goinstall')) $('#goinstall').onclick = () => show('install');
@@ -57,7 +59,9 @@ async function renderInstall() {
     const st = await L.call('state');
     const s = svc || {};
     const busy = !!s.busy;
-    const ready = s.disc && s.disc.ok && s.update && s.update.ok && s.elf100 && s.elf100.ok && s.elf103 && s.elf103.ok;
+    const unstable = !!s.unstable;
+    // 1.00 is required; the unstable 1.03 build needs its folder and its EBOOT.elf too, only when it is ticked
+    const ready = s.disc && s.disc.ok && s.elf100 && s.elf100.ok && (!unstable || (s.update && s.update.ok && s.elf103 && s.elf103.ok));
     const steps = (s.steps || []).map(x => `<li class="${x.done ? 'done' : x.id === s.stepId ? 'now' : ''}">${esc(x.title)}</li>`).join('');
     const elfRow = (which, label, item) => `
           <div class="fine">${label}</div>
@@ -68,8 +72,9 @@ async function renderInstall() {
       <h2>Install</h2>
       <p class="lead">The game is built on this PC from your own disc and your own console's files: nothing of the game is
       downloaded or carried by this launcher. The launcher does not decrypt anything: you supply the decrypted program files
-      (EBOOT.elf) of the disc and of the 1.03 update, made from your own console. It checks them by their hashes, translates
-      them to PC code, downloads the build tools (each checked by its SHA-256) and builds. The first install takes 30 to 90 minutes.</p>
+      (EBOOT.elf) of the disc, made from your own console. It checks them by their hashes, translates them to PC code,
+      downloads the build tools (each checked by its SHA-256) and builds. The first install takes 30 to 90 minutes.
+      The 1.00 build is the supported one. The 1.03 update build is optional and unstable: it may crash, and it is still being fixed.</p>
       <div class="grid">
         <div class="card">
           <h3><span class="num">01</span>Your game disc</h3>
@@ -81,17 +86,20 @@ async function renderInstall() {
           </div>
         </div>
         <div class="card">
-          <h3><span class="num">02</span>The 1.03 update</h3>
+          <h3><span class="num">02</span>Unstable: MotorStorm 1.03 update</h3>
+          <label class="check"><input type="checkbox" id="unstable" ${unstable ? 'checked' : ''} ${busy ? 'disabled' : ''}>
+            <span>Also build the 1.03 update. Unstable: it may crash, and it is still being fixed. Optional.</span></label>
+          ${unstable ? `
           <div>${statusOf(s.update, u => `Update ${u.version || '1.03'} data found`, 'Choose the update folder (the one with USRDIR\\ms2patch.psarc)')}</div>
           <div class="path">${esc(s.update && s.update.path)}</div>
-          <div class="btns"><button class="ghost small" id="pick-update" ${busy ? 'disabled' : ''}>Update folder...</button></div>
+          <div class="btns"><button class="ghost small" id="pick-update" ${busy ? 'disabled' : ''}>Update folder...</button></div>` : '<p class="fine">Not built. Tick the box to add it (its folder and its EBOOT.elf are then needed).</p>'}
         </div>
         <div class="card">
           <h3><span class="num">03</span>Your decrypted EBOOT.elf files</h3>
           <p class="fine">Each is the program of one release, decrypted from your own console (the launcher does not do it).
           The file stays where it is: it is read at the build and by the game, never copied elsewhere or sent anywhere.</p>
-          ${elfRow(100, 'The disc (1.00): also holds the job module the build needs', s.elf100)}
-          ${elfRow(103, 'The 1.03 update: the program the game runs', s.elf103)}
+          ${elfRow(100, '1.00 (Stable): the disc\'s program; also holds the job module the build needs. Required.', s.elf100)}
+          ${unstable ? elfRow(103, '1.03 (Unstable): the update\'s program', s.elf103) : ''}
         </div>
         <div class="card">
           <h3><span class="num">04</span>${s.built ? 'Installed' : 'Build'}</h3>
@@ -125,9 +133,10 @@ async function renderInstall() {
     };
     $('#pick-iso').onclick = () => pick('iso', 'disc');
     $('#pick-folder').onclick = () => pick('folder', 'disc');
-    $('#pick-update').onclick = () => pick('update', 'update');
+    $('#unstable').onchange = e => L.command({ cmd: 'set', unstable: e.target.checked });
+    if ($('#pick-update')) $('#pick-update').onclick = () => pick('update', 'update');
     $('#pick-elf100').onclick = () => pick('elf', 'elf100');
-    $('#pick-elf103').onclick = () => pick('elf', 'elf103');
+    if ($('#pick-elf103')) $('#pick-elf103').onclick = () => pick('elf', 'elf103');
     $('#lic').onclick = e => { e.preventDefault(); window.open('https://visualstudio.microsoft.com/license-terms/'); };
     $('#agree').onchange = e => L.command({ cmd: 'set', agreed: e.target.checked });
     $('#install').onclick = () => {
@@ -185,8 +194,11 @@ function foot() {
 // ---- Settings
 const NOTES = {
     resolution: 'The internal resolution the game is drawn at', dynres: 'Off keeps the resolution steady (the game\'s own drops are suppressed)',
-    framerate: 'Variable: the game runs as fast as your PC allows', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
+    framerate: '60 FPS is the default; 30 FPS is the original speed', vsync: 'Off is tear-free and keeps 60 FPS steady', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
     hdr: 'Needs an HDR display', aniso: 'Sharper textures at an angle', rtshadow: 'Needs a GPU with ray tracing (Vulkan ray queries)',
+    wheelmode: 'Auto uses Thrustmaster and Logitech wheels; a gamepad keeps working', wheelrange: 'Wheel rotation, lock to lock, that gives full steering',
+    wheelpedals: 'Combined: throttle and brake share one axis', wheelpedaldir: 'Auto reads the released pedals at start',
+    wheelffb: 'Off by default. Centering spring and the game\'s rumble only; takes the wheel exclusively',
 };
 async function renderSettings() {
     const s = await L.call('settings:load');
@@ -208,6 +220,9 @@ async function renderSettings() {
         <div class="card"><h3>Upscaling</h3>${group('Upscaling')}</div>
       </div>
       <div class="card" style="margin-top:16px"><h3>Graphics</h3>${group('Graphics')}</div>
+      <div class="card"><h3>Racing wheel</h3>${group('Wheel')}
+        <p class="fine">Thrustmaster T300RS and Logitech G25/G27/G29/DFGT are read through DirectInput, beside a gamepad. Axes, pedal calibration and
+        button mapping are wheel.* lines in settings.ini: run wheel_probe (--calibrate) to get them. Not tested on real hardware yet.</p></div>
       <div class="card">
         <h3>Keyboard controls</h3>
         <p class="fine">Used when no controller is plugged in. One or two keys each, e.g. "W, 2": letters, digits, F1-F24, Num0-Num9,
@@ -248,16 +263,25 @@ async function renderTextures() {
       <p class="lead">The game saves each texture it draws, then an upscaler makes sharper versions (Real-ESRGAN) with
       optional physically based maps. Needs Python with numpy and Pillow, once.</p>
       <div class="card">
-        <h3>Collect</h3>
+        <h3>Collect all textures</h3>
         <p class="stat" id="dumped">${t.dumped} textures saved so far</p>
-        <button class="act" id="collect" ${t.playing || t.collecting ? 'disabled' : ''}>${t.collecting ? 'Collecting... (stop it below)' : 'Start collecting'}</button>
+        <p class="fine">Saves every texture of the game from your own game archive, without playing a race (about a minute;
+        the game is not started). The files stay on this PC, in ${esc(t.folder.replace(/pack$/, 'dump'))}.</p>
+        <button class="act" id="collectall" ${t.playing || t.collecting || t.collectingAll ? 'disabled' : ''}>${t.collectingAll ? 'Collecting...' : 'Collect all textures'}</button>
         <div class="msg" id="msg"></div>
+      </div>
+      <div class="card">
+        <h3>Collect while playing</h3>
+        <p class="fine">The fallback for the few textures the game builds while it runs: play with this on and each one is saved the first time it is drawn.</p>
+        <button class="ghost" id="collect" ${t.playing || t.collecting ? 'disabled' : ''}>${t.collecting ? 'Collecting... (stop it below)' : 'Start collecting'}</button>
       </div>
       <div class="card">
         <h3>Make the pack</h3>
         <p class="stat">${t.pack} HD textures in the pack now (${esc(t.folder)})</p>
-        <div class="row"><label>Size<small>4x is sharper; 2x is faster and uses less memory</small></label>
-          <select id="scale"><option value="4">4x</option><option value="2">2x</option></select></div>
+        <p class="fine">The full set (about ${t.dumped || 6000} textures) takes many hours to upscale: about 9 seconds per texture at 2x on the test PC.
+        You can stop and run it again; finished textures are kept.</p>
+        <div class="row"><label>Size<small>2x is the default: faster and uses less memory. 4x is sharper but slower: use it only for a smaller set</small></label>
+          <select id="scale"><option value="2" selected>2x</option><option value="4">4x (a smaller set)</option></select></div>
         <div class="row"><label>Physically based maps<small>Adds normal and roughness maps (slower)</small></label>
           <select id="pbr"><option value="0">Off</option><option value="1">On</option></select></div>
         <div class="btns">
@@ -265,14 +289,20 @@ async function renderTextures() {
           <button class="ghost" id="stop">Stop</button>
           <button class="ghost" id="tfolder">Open the folder</button>
         </div>
-        <pre class="log" id="tlog"></pre>
+        <pre class="log" id="tlog">${esc(tlogLines.join('\n'))}</pre>
       </div>
       <p class="fine">The pack is made from your copy of the game: keep it to yourself, do not share it.</p>`;
+    $('#collectall').onclick = async () => {
+        tlogLines.length = 0;
+        const r = await L.call('textures:collectall');
+        if (!r.ok) msg(r.message, 'bad'); else renderTextures();
+    };
     $('#collect').onclick = async () => {
         const r = await L.call('textures:collect');
         if (!r.ok) msg(r.message, 'bad'); else renderTextures();
     };
     $('#pack').onclick = async () => {
+        tlogLines.length = 0;
         $('#tlog').textContent = '';
         const r = await L.call('textures:pack', { scale: Number($('#scale').value), pbr: $('#pbr').value === '1' });
         if (!r.ok) msg(r.message, 'bad');
@@ -280,7 +310,9 @@ async function renderTextures() {
     $('#stop').onclick = () => L.call('textures:stop');
     $('#tfolder').onclick = () => L.call('open', 'textures');
 }
+const tlogLines = [];   // the texture jobs' output, kept so the totals stay on screen after the page redraws
 L.on('pack', p => {
+    if (p.line) { tlogLines.push(p.line); if (tlogLines.length > 400) tlogLines.splice(0, 100); }
     const log = $('#tlog');
     if (p.line && log) { log.textContent += p.line + '\n'; log.scrollTop = log.scrollHeight; }
     if (p.done && current === 'textures') renderTextures();

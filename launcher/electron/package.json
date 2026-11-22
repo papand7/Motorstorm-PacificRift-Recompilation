@@ -29,6 +29,7 @@
       "preload.js",
       "service/**/*",
       "ui/**/*",
+      "assets/**/*",
       "package.json"
     ],
     "asarUnpack": [
@@ -38,6 +39,13 @@
       {
         "from": "../../generated/analysis/vksync/tools/texpack.py",
         "to": "tools/texpack.py"
+      },
+      {
+        "from": "../../tools/texcollect",
+        "to": "tools/texcollect",
+        "filter": [
+          "*.py"
+        ]
       },
       {
         "from": "../game.json",
@@ -57,6 +65,7 @@
       }
     ],
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
         "portable"
       ]

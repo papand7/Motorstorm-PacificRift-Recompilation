@@ -2,7 +2,7 @@
 // back. Nothing else of Node is exposed.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const CHANNELS = ['state', 'dev:install', 'settings:load', 'settings:save', 'textures:info', 'textures:collect',
+const CHANNELS = ['state', 'dev:install', 'settings:load', 'settings:save', 'textures:info', 'textures:collect', 'textures:collectall',
                   'textures:pack', 'textures:stop', 'game:play', 'game:stop', 'pick', 'open'];
 const EVENTS = ['game', 'pack', 'svc'];
 

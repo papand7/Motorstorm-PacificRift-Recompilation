@@ -10,9 +10,9 @@ const path = require('path');
 const SCHEMA = [
     { key: 'display', group: 'Display', label: 'Display mode', choices: ['Windowed', 'Fullscreen'], def: 'Windowed', values: ['0', '1'] },
     { key: 'resolution', group: 'Display', label: 'Resolution', choices: ['720p', '1080p', '1440p', '2160p'], def: '720p', values: ['1', '1.5', '2', '3'] },
-    { key: 'vsync', group: 'Display', label: 'Vertical sync', choices: ['On', 'Off'], def: 'On', values: ['1', '0'] },
+    { key: 'vsync', group: 'Display', label: 'Vertical sync', choices: ['On', 'Off'], def: 'Off', values: ['1', '0'] },
     { key: 'dynres', group: 'Display', label: 'Dynamic resolution (the game\'s own)', choices: ['On', 'Off'], def: 'Off' },
-    { key: 'framerate', group: 'Display', label: 'Frame rate', choices: ['30 FPS', '60 FPS', 'Variable'], def: 'Variable' },
+    { key: 'framerate', group: 'Display', label: 'Frame rate', choices: ['30 FPS', '45 FPS', '60 FPS', '80 FPS', '120 FPS', '144 FPS', '180 FPS'], def: '60 FPS', values: ['30', '45', '60', '80', '120', '144', '180'], alias: { variable: '60 FPS', '60fps': '60 FPS' } },
     { key: 'fsrmode', group: 'Upscaling', label: 'Upscaler', choices: ['FSR 1', 'FSR 3.1'], def: 'FSR 1', values: ['1', '3'] },
     { key: 'fsr', group: 'Upscaling', label: 'Upscaling (FSR)', choices: ['Off', 'Ultra Quality', 'Quality', 'Balanced', 'Performance'],
       def: 'Off', values: ['off', 'ultra', 'quality', 'balanced', 'performance'] },
@@ -22,6 +22,16 @@ const SCHEMA = [
     { key: 'textures', group: 'Graphics', label: 'HD texture pack', choices: ['Off', 'On'], def: 'Off' },
     { key: 'pbr', group: 'Graphics', label: 'Physically based materials', choices: ['Off', 'On'], def: 'Off' },
     { key: 'rtshadow', group: 'Graphics', label: 'Ray-traced shadows', choices: ['Off', 'On'], def: 'Off' },
+    { key: 'lod', group: 'Graphics', label: 'Level of detail', choices: ['Original', 'High', 'Ultra'], def: 'Original' },
+    // Racing wheel (libs/input pad_wheel.h; the finer wheel.* keys are in docs/SETTINGS.md, not choices)
+    { key: 'wheelmode', group: 'Wheel', label: 'Racing wheel', choices: ['Auto', 'Any Device', 'Off'], def: 'Auto', values: ['auto', 'any', 'off'] },
+    { key: 'wheelrange', group: 'Wheel', label: 'Steering range', choices: ['Device', '180 deg', '270 deg', '360 deg', '540 deg', '720 deg', '900 deg'], def: '270 deg', values: ['device', '180', '270', '360', '540', '720', '900'] },
+    { key: 'wheeldeadzone', group: 'Wheel', label: 'Steering deadzone', choices: ['0%', '1%', '2%', '3%', '5%', '8%'], def: '1%', values: ['0', '1', '2', '3', '5', '8'] },
+    { key: 'wheelcurve', group: 'Wheel', label: 'Steering curve', choices: ['Linear', 'Soft', 'Softer', 'Sharp', 'Sharper'], def: 'Linear', values: ['0', '1', '2', '3', '4'] },
+    { key: 'wheelpedals', group: 'Wheel', label: 'Pedals', choices: ['Profile', 'Separate', 'Combined'], def: 'Profile', values: ['profile', 'separate', 'combined'] },
+    { key: 'wheelpedaldir', group: 'Wheel', label: 'Pedal direction', choices: ['Auto', 'Normal', 'Inverted'], def: 'Auto', values: ['auto', 'normal', 'inverted'] },
+    { key: 'wheelffb', group: 'Wheel', label: 'Force feedback', choices: ['Off', 'Centering', 'Rumble', 'Both'], def: 'Off', values: ['off', 'center', 'rumble', 'both'] },
+    { key: 'wheelffbstrength', group: 'Wheel', label: 'Force feedback strength', choices: ['20%', '40%', '60%', '80%', '100%'], def: '60%', values: ['20', '40', '60', '80', '100'] },
 ];
 const ACTIONS = [
     ['accelerate', 'W, 2'], ['brake', 'S, 1'], ['steerleft', 'A'], ['steerright', 'D'], ['handbrake', 'Space'],
@@ -52,6 +62,7 @@ function labelFor(item, raw) {
     const v = String(raw).trim().toLowerCase();
     let i = item.choices.findIndex(c => c.toLowerCase() === v);
     if (i < 0 && item.values) i = item.values.findIndex(c => c.toLowerCase() === v);
+    if (i < 0 && item.alias && item.alias[v]) return item.alias[v];   // old file values (framerate: Variable)
     return i < 0 ? null : item.choices[i];
 }
 

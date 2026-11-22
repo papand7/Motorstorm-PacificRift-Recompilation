@@ -11,6 +11,7 @@
     "preload.js",
     "service/**/*",
     "ui/**/*",
+    "assets/**/*",
     "package.json"
   ],
   "asarUnpack": [
@@ -27,6 +28,7 @@
     }
   ],
   "win": {
+    "icon": "assets/icon.ico",
     "target": [
       "portable"
     ]
