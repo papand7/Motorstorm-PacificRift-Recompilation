@@ -52,6 +52,21 @@ GUEST_DISASSEMBLY = re.compile(
 HEX_DUMP = re.compile(rb"(?:[0-9A-Fa-f]{2}[ ,]?){512}|(?:0x[0-9A-Fa-f]{2},\s*){256}")
 LOCAL_USER_PATH = re.compile(rb"(?i)[A-Z]:[\\/]+Users[\\/]+[^\\/\s\"']+")
 
+# The launcher's own window/exe icons (project artwork drawn from icon.svg, not game data). Only these exact paths,
+# only with the matching image header and under the size cap, skip the binary-file rules; the known-input hash,
+# executable/archive signature and private-path rules still apply.
+PROJECT_IMAGES = {
+    "launcher/electron/assets/icon.ico": b"\x00\x00\x01\x00",
+    "launcher/electron/assets/icon.png": b"\x89PNG\r\n\x1a\n",
+}
+MAX_PROJECT_IMAGE_BYTES = 512 * 1024
+BINARY_RULES = {"private or binary file type", "binary content", "non-UTF-8 content requires manual review"}
+
+
+def project_image(name: str, data: bytes) -> bool:
+    magic = PROJECT_IMAGES.get(name)
+    return magic is not None and data.startswith(magic) and len(data) <= MAX_PROJECT_IMAGE_BYTES
+
 
 def inspect_private_report(name: str, data: bytes) -> list[str]:
     """Extra content rules for a generated/analysis report under --private-reports."""
@@ -101,6 +116,8 @@ def inspect_blob(name: str, data: bytes, *, symlink: bool = False,
         data.decode("utf-8")
     except UnicodeDecodeError:
         reasons.append("non-UTF-8 content requires manual review")
+    if project_image(normalized, data):
+        reasons = [r for r in reasons if r not in BINARY_RULES]
     return reasons
 
 

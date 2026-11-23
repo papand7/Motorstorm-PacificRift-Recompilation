@@ -17,11 +17,19 @@
 !/docs/
 !/tools/
 !/port/
+# The Vulkan port the launcher's source snapshot packs (source_bundles.js); source and unit tests only.
+!/port-vkgame/
 # The PC launcher (source only; its node_modules, builds and the player's files are ignored below).
 !/launcher/
 node_modules/
 /launcher/electron/dist/
 /launcher/electron/out/
+# The developer's install root (MotorStorm\: downloaded toolchains, the unpacked source snapshot with lifted
+# code, the player's game files, exes, captures). Never tracked.
+/launcher/dev/
+# Scratch folders a test run can leave beside the service (e.g. a mangled temp-root name).
+/launcher/electron/service/Users*/
+/launcher/pipeline/__pycache__/
 
 # generated/ is private by default (decrypted ELF, lifted PPU/SPU source,
 # overlays, frames, HDD images, logs, runs). Only per-task Markdown reports and
@@ -170,3 +178,93 @@ CMakeCache.txt
 .cache/
 .claude/
 .codecodedrift/
+
+# The launcher icons (project artwork from icon.svg); tools/audit_public.py exempts exactly these two.
+!/launcher/electron/assets/icon.png
+!/launcher/electron/assets/icon.ico
+
+# Analysis scripts and reports that fail the --private-reports audit (local user paths or guest
+# disassembly). Kept local; remove a line only after fixing the file so the audit passes.
+/generated/analysis/bindless/tools/build_test.py
+/generated/analysis/bright/tools/add_arms_br.py
+/generated/analysis/bright/tools/add_arms_ring.py
+/generated/analysis/bright/tools/br_report.py
+/generated/analysis/criticalpath60/CP60_RESULTS.md
+/generated/analysis/criticalpath60/SPU_JOB_ANALYSIS.md
+/generated/analysis/criticalpath60/tools/maincyc.py
+/generated/analysis/criticalpath60/tools/run_fps.py
+/generated/analysis/distance/DISTANCE.md
+/generated/analysis/fardist/tools/add_arms_fd.py
+/generated/analysis/fx/tools/bisect_boot.py
+/generated/analysis/gtao/tools/_patch_host.py
+/generated/analysis/gtao/tools/_patch_shader2.py
+/generated/analysis/gtao/tools/_patch_smear.py
+/generated/analysis/havok_gap/tools/series.py
+/generated/analysis/lighting/tools/_patch_ao.py
+/generated/analysis/lighting/tools/_patch_cont.py
+/generated/analysis/lighting/tools/_patch_fit.py
+/generated/analysis/lighting/tools/_patch_grade.py
+/generated/analysis/lighting/tools/_patch_miss.py
+/generated/analysis/lighting/tools/_patch_reader.py
+/generated/analysis/lighting/tools/_patch_sss.py
+/generated/analysis/lighting/tools/_restore.py
+/generated/analysis/lighting/tools/_wire_grid.py
+/generated/analysis/lighting/tools/_wire_world.py
+/generated/analysis/lighting/tools/_world_anchor.py
+/generated/analysis/lighting/tools/add_arms_sun.py
+/generated/analysis/lighting/tools/add_arms_zpass.py
+/generated/analysis/lighting/tools/add_arms_zt.py
+/generated/analysis/lighting/tools/box_continuity_sim.py
+/generated/analysis/lighting/tools/fit_model_check.py
+/generated/analysis/lighting/tools/sw_check.py
+/generated/analysis/lighting/tools/tile_presence.py
+/generated/analysis/lighting/tools/world_anchor_check.py
+/generated/analysis/mp3hle/tools/boot.py
+/generated/analysis/mp3hle/tools/patch_callguest.py
+/generated/analysis/otherport/tools/ot_link.py
+/generated/analysis/pcmenu/tools/common.py
+/generated/analysis/ppucc/tools/tu_compile.py
+/generated/analysis/ppucc/tools/wl3.py
+/generated/analysis/ppuopt/tools/make_nv_patchers.py
+/generated/analysis/ppuopt/tools/nv_wp.py
+/generated/analysis/ppuopt/tools/nvtext.py
+/generated/analysis/ppuopt/tools/patch_nvpar.py
+/generated/analysis/ppuopt/tools/patch_rnv.py
+/generated/analysis/ppuopt/tools/patch_rnv_lifter.py
+/generated/analysis/ppuopt/tools/prior_win.py
+/generated/analysis/ppuopt/tools/wl2.py
+/generated/analysis/roadto60_next/BUILD_AB_PLAN.md
+/generated/analysis/roadto60_next/OFFLINE_RESULTS.md
+/generated/analysis/roadto60_next/tools/cp77.py
+/generated/analysis/roadto60_next/tools/port_fast_lower.py
+/generated/analysis/shadowtiles/tools/depth_rows.py
+/generated/analysis/shadowtiles/tools/move_rle.py
+/generated/analysis/shadowtiles/tools/patch_core_p2.py
+/generated/analysis/shadowtiles/tools/patch_glue_p2.py
+/generated/analysis/shadowtiles/tools/patch_glue_p3.py
+/generated/analysis/shadowtiles/tools/patch_vk_p2.py
+/generated/analysis/shadowtiles/tools/wire_p1.py
+/generated/analysis/slowmode/tools/classify.py
+/generated/analysis/slowmode/tools/sc.py
+/generated/analysis/slowmode/tools/series.py
+/generated/analysis/slowmode/tools/table.py
+/generated/analysis/spunat2/tools/mk_e19_hand.py
+/generated/analysis/spunat2/tools/mk_gr_hand.py
+/generated/analysis/spunat3/tools/graph.py
+/generated/analysis/spunat3/tools/mk_e19_hand.py
+/generated/analysis/spunat3/tools/mk_gr_hand.py
+/generated/analysis/spunat3/tools/retoff.py
+/generated/analysis/t182/tools/runtime_ab_t182.py
+/generated/analysis/t182/tools/runtime_extra_t182.py
+/generated/analysis/vehfps/tools/rdis.py
+/generated/analysis/vehfps/tools/shadow_link.py
+/generated/analysis/vksync/tools/add_arm_n2.py
+/generated/analysis/vksync/tools/add_arm_q2.py
+/generated/analysis/vksync/tools/const_refs.py
+/generated/analysis/vksync/tools/fdis.py
+/generated/analysis/vksync/tools/fixed_step_sites.py
+/generated/analysis/vksync/tools/rdis.py
+/generated/analysis/vksync/tools/sample_chain.py
+/generated/analysis/vksync/tools/sample_race.py
+/generated/analysis/vksync/tools/vt_dump.py
+/generated/analysis/waits/tools/cg.py
