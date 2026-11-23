@@ -24,10 +24,12 @@ Everything the install makes goes under `MotorStorm\` beside the launcher exe:
 | tools | Python 3.14.0 (embeddable; it also unpacks LLVM's `.tar.zst`, whose zstd window Windows' `tar.exe` refuses), Clang 23.1.3, CMake 4.3.1, Ninja 1.13.2, glslang/SPIRV-Tools/SPIRV-Headers/Vulkan-Headers sources (Vulkan SDK 1.4.341.0 tags), Microsoft C++ libraries 14.44 and Windows SDK 10.0.26100 (from the Visual Studio channel, after the player accepts Microsoft's terms) into `tools\`; and the run-time pieces (`toolchain.json` `runtime`): DXC 1.9.2609 (`dxc.exe`, `dxcompiler.dll`, `dxil.dll` and its licence files) and AMD's FSR 3.1 DLLs (FidelityFX SDK v2.4.0 `signedbin`) with AMD's licence | SHA-256 of every download (`launcher/toolchain.json`; Microsoft's from its manifest, whose listed sizes are not always the served ones, so only the hash is enforced there) |
 | source | the launcher's source snapshot (`resources\source\motorstorm-source.tar`) into `work\src\` | `SOURCE.json` |
 | glslang | glslang 16.2.0 with SPIRV-Tools built into `tools\vulkan-sdk` (Include\, Lib\ as the runtime's CMake expects of a LunarG SDK) | build result |
-| lift | `pipeline/lift_motorstorm.py`: the 1.00 PPU lift (`find_functions.py`, `gen_imports.py`, `ppu_lifter.py --trace-hooks`, `mspr_patch_lifted.py`), the Wws_Job policy module (`spu_lifter.py`, cut from the 1.00 ELF at 0x00FFCC80), and the relocatable Wws job modules (`lift_wws_reloc.py --ctor`) | SHA-256 of every output against `pipeline/manifest.json` |
+| lift | `pipeline/lift_motorstorm.py`: the 1.00 PPU lift (`ppu_loader.py`, `ppu_lifter.py --trace-hooks`, `mspr_patch_lifted.py`, then the hook patches `PATCHES_100`: `slice_patch_lifted.py`, `cam_patch_lifted.py`, `dist_patch_lifted.py`, `unlockall_lifted.py`, `pcmenu_lifted.py`, `cockpit_tune_patch_ppucc.py`), the Wws_Job policy module (`spu_lifter.py`, cut from the 1.00 ELF at 0x00FFCC80), and the relocatable Wws job modules (`lift_wws_reloc.py --ctor`) | SHA-256 of every output against `pipeline/manifest.json` |
 | build | CMake + Ninja in `work\build-stable` with the options of `game.json` `builds.stable` (includes `PORT_EXPECT_ENTRY_OPD=0x107B8D8`, the 1.00 entry check, so a wrong ELF is refused before guest code runs) | exe exists |
 | install | the exe as `play\MotorStormPacificRiftRecomp.exe`; DXC into `play\dxc\`, the FSR 3.1 DLLs beside the exe, licences into `play\licenses\`; `play\play.json` (the exe, the player's ELF it runs, and its start environment); `motorstorm.cfg` with `PS3_VFS_ROOT` only | |
 | pcmenu | the in-game PC Settings pages: `make_pcmenu.py --psarc <game>\PS3_GAME\USRDIR\MS2.PSARC --out play\pcmenu --port <src>\port-vkgame`, after every install (the pages must match the exe). Made from the player's own data, never shipped. The tool is found at `MS_PCMENU_DIR`, `launcher.json` `pcmenuDir`, or `pcmenu-tool\` in the source snapshot (`source_bundles.js --with-pcmenu`). Missing or failing: a warning only; the game keeps its retail Options page and `settings.ini` still applies | `make_pcmenu.py` exit 0 (every page re-walked) |
+| overlays | runs the installed exe once (up to 2 minutes) with `SPU_DUMP_OVL` to capture the SPU overlay, lifts it with `<src>\tools\build_spu_overlay.py --lifter-arg=--chain-chunks` (its lifter: `<src>\ps3recomp\tools`) and rebuilds with `MSPR_OVL_CHAIN=ON`. Soft failure: the game runs without it | overlay SHA-256 |
+| cockpit | `cockpit-tool\make_cockpit_overlay.py --psarc <MS2.PSARC> --out play\pcmenu --positions work\cockpit_positions.json`: the cockpit camera lists, from the player's data, never shipped. The positions are the shipped `cockpit_positions.default.json` (camera offsets only) with the player's `play\cockpit_positions.json` (written by F2 in the game) on top; the player's file is only read | exit 0 |
 
 Every step leaves a stamp in `work\`, so Install continues after a stop or a failure. `launcher.log` has every command
 and its output.
@@ -88,9 +90,10 @@ code runs. The PC Settings pages (`pcmenu`) are made from the disc's `MS2.PSARC`
 
 The Settings page writes `play\settings.ini`, the file the port and its in-game PC Settings page share
 (`docs/SETTINGS.md`): every key of that page (display, resolution, vsync, dynres, framerate, fsrmode, fsr, hdr,
-motionblur, aniso, textures, pbr, rtshadow) and the thirteen keyboard bindings, as choice labels, by a whole-file
+motionblur, aniso, textures, pbr, lod, lighting, prompts, the wheel rows; the Cheats tab's unlockvehicles and
+unlocktracks) and the thirteen keyboard bindings, as choice labels, by a whole-file
 read-modify-write through `settings.ini.tmp` (lines it does not know are kept). A choice whose feature is missing is
-shown with the reason (no DXC, no FSR 3.1 DLLs, no HD pack). `motorstorm.cfg` keeps only paths and diagnostics. On first
+shown with the reason (no FSR 3.1 DLLs, no HD pack). `motorstorm.cfg` keeps only paths and diagnostics. On first
 load, an old launcher's `motorstorm.cfg` lines (`RSX_FSR`, `RSX_FSR_MODE`, `RSX_HDR`, `PS3RECOMP_VK_FULLSCREEN`,
 `RSX_PRESENT_INTERVAL`, `RSX_TEX_PACK`, `RSX_TEX_PBR`) move into `settings.ini` once (`launcher/electron/settings.js`,
 tests: `node launcher/electron/test_settings.js`). No RPCS3 path is stored in any settings file.
@@ -101,28 +104,32 @@ tests: `node launcher/electron/test_settings.js`). No RPCS3 path is stored in an
   offsets and URLs only. No decryption code, no keys, no decrypted or lifted game data.
 - The player's decrypted ELFs are their own files. The launcher reads them and never writes them into its source,
   its snapshot, its settings or any upload.
-- **Open: the ps3recomp runtime carries upstream key tables.** Two of its source files (in the runtime's file-system
+- **The ps3recomp runtime's upstream key tables.** Two of its source files (in the runtime's file-system
   library and its PPU runtime) and two of its developer tools hold upstream key material. `source_bundles.js` leaves
   the two tools (and their test) out of the snapshot. It still refuses to pack the runtime's two key files unless run
-  with `--allow-runtime-keys`, so **no launcher containing them is packed until the owner removes those tables from the
-  runtime or the launcher's build without them is tested.** Until then `source_bundles.js` does not produce a tar.
+  with `--allow-runtime-keys`, so no launcher containing them is packed by accident. On 2026-11-23 the key scan found none in the
+  runtime's working tree (`SOURCE.json` `runtime_key_files: []`), and the tar is packed.
   The file names are kept out of this public document on purpose.
 
 ## Making the launcher (developers)
 
     cd launcher/electron
-    node source_bundles.js [--allow-runtime-keys] [--with-pcmenu] [--runtime-worktree] [--dev] [--stage-only]
+    node source_bundles.js [--allow-runtime-keys] [--with-pcmenu] [--runtime-head] [--dev] [--stage-only]
                                                      # build/launcher-source: staged, audited (tools/audit_public.py --tree), packed
-                                                     # --runtime-worktree: ps3recomp-vkgame's tracked files as on disk (uncommitted changes)
+                                                     # default: ps3recomp-vkgame's working tree (git ls-files -co --exclude-standard)
+                                                     # --runtime-head: its committed tree only (git archive HEAD)
                                                      # --dev: for `npm start` (reads build/launcher-source); packs even with key tables, SOURCE.json says dev_only
                                                      # --stage-only: no tar; SOURCE.json says stage_only and an old tar is removed
     npm start                                        # the window; MotorStorm\ under launcher/dev
-    npm run dist                                     # portable exe (carries game.json, toolchain.json, texpack.py, the source tar)
+    npm run dist                                     # source_bundles.js --with-pcmenu, then the portable exe (game.json, toolchain.json, texpack.py, the source tar)
     npm run dist:public                              # portable exe for public release: game.json, toolchain.json only, no source tar,
-                                                     # no texpack.py (the installer then stops: "carries no game source"); to build\release-0.1.0
+                                                     # no texpack.py (the installer then stops: "carries no game source"); to build\release-0.2.0
 
-`source_bundles.js` stages `port-vkgame/` (copied: it is not in git), `git archive HEAD` of `ps3recomp-vkgame` (only
-committed changes; it warns when the working tree has others), and `launcher/pipeline/`. The service can be driven
+`source_bundles.js` stages `port-vkgame/` (copied: it is not in git), `ps3recomp-vkgame`'s working tree (tracked and
+untracked non-ignored files, as on disk; build and generated folders left out), `launcher/pipeline/`, `tools/`
+(`build_spu_overlay.py`), `cockpit-tool/` (`tools/cockpit`), `texcollect-tool/` and, with `--with-pcmenu`,
+`pcmenu-tool/`. It refuses to pack when `tools/audit_public.py --tree`, the include check (every quoted include of the
+port and runtime resolves in the bundle) or the key scan fails. The service can be driven
 from a terminal: `node launcher/electron/service/cli.js --root <dir> --disc <iso|folder> --elf100 <EBOOT.elf> --agree --install [--until <step>]`.
 
 The install's source step compares the tar's own SHA-256 with `SOURCE.json`'s `tar_sha256` and refuses a snapshot that does

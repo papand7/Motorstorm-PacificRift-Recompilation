@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-23 launcher 0.2.0 (alpha release)
+
+- Launcher version 0.2.0 (`launcher/electron/package.json`; the earlier README said 0.1.0). Portable `MotorStormPacificRift.exe`.
+- Install needs only the disc's decrypted 1.00 `EBOOT.elf`; the 1.03 build is gone.
+- Source snapshot (`source_bundles.js`): ps3recomp-vkgame's working tree (tracked plus untracked, non-ignored files) instead of `git archive HEAD`, so uncommitted runtime changes ship; `--runtime-head` keeps the old behaviour. New folders: `tools/` (`build_spu_overlay.py` for the overlays step) and `cockpit-tool/` (`tools/cockpit`: the cockpit camera tool and `cockpit_positions.default.json`, camera offsets only). `npm run dist` and `npm run bundles` pass `--with-pcmenu`, so the PC Settings page tool ships.
+- Lift (`launcher/pipeline/lift_motorstorm.py`): the 1.00 lift now also applies the hook patches the port's features call (`PATCHES_100`: task slice, camera rate and shake, distances/LOD, Cheats, the in-game PC Settings pages, cockpit tuning). Before, launcher builds had none of them.
+- Cockpit step: bakes the shipped positions, with the player's own `play\cockpit_positions.json` (F2) on top; that file is only read, never overwritten.
+- Defaults: frame rate 30 FPS (above 30 experimental); upscaler FSR 1 in the exe as in the launcher (`pc_settings.h` was FSR 3.1).
+- Settings: Lighting (Original/Enhanced), level of detail, PBR materials, button prompts, racing wheel rows, Cheats tab (unlock vehicles, unlock Free Play tracks). Ray-traced shadows are not offered.
+- Known issues: 60 FPS camera and shadow artefacts; the garage vehicle-edit screen may be blank; Festival and Time Trial lists are not unlocked by the cheat; exposure spikes.
+
 ## 2026-10-22 ps3recomp v0.17.0 integration and SPU helper speedups
 
 - ps3recomp: v0.17.0 (`a6d76c8`) merged into the local fork on branch `motorstorm/v0.17-integration` (worktree `ps3recomp-int/`); the v0.15 fork is preserved as `motorstorm/v0.15-local` / tag `ms-baseline-v0.15-local`. Record: `docs/UPSTREAM_INTEGRATION.md`.

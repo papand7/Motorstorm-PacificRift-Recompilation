@@ -14,16 +14,17 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | `resolution` | Display | 720p*, 1080p, 1440p, 2160p | `RSX_RES_SCALE` 1, 1.5, 2, 3 |
 | `vsync` | Display | On (1), Off* (0) | `RSX_PRESENT_INTERVAL`. The port's default is 0 (`k_defaults`): a non-blocking, tear-free present (Vulkan MAILBOX; FIFO on a surface without it). On sets 1, the blocking FIFO present |
 | `dynres` | Display | On, Off* | MSPR patch `drs` when Off (the game's own resolution drops are suppressed) |
-| `framerate` | Display | 30 FPS, 45 FPS, 60 FPS*, 80 FPS, 120 FPS, 144 FPS, 180 FPS | `PS3_SIM_PACE_HZ` 30 / 45 / 60 / 80 / 120 / 144 / 180 and `MSPR_CAM_MODE` 0 / 1 / 1 / 1 / 1 / 1 / 1 (camera fix on above 30). `vfps` is in the MSPR patch list for every choice. Old files: `Variable` and `60fps` read as 60 FPS; the old `60fps` patch is gone. Measured clean at 45 to 60 Hz with `RSX_PRESENT_INTERVAL=0` (the default) |
-| `fsrmode` | Upscaling | FSR 1, FSR 3.1* | `RSX_FSR_MODE` 1 / 3. **Always set**, also at the default (see below) |
+| `framerate` | Display | 30 FPS*, 45 FPS, 60 FPS, 80 FPS, 120 FPS, 144 FPS, 180 FPS (above 30: experimental) | `PS3_SIM_PACE_HZ` 30 / 45 / 60 / 80 / 120 / 144 / 180 and `MSPR_CAM_MODE` 0 / 1 / 1 / 1 / 1 / 1 / 1 (camera fix on above 30). `vfps` is in the MSPR patch list for every choice. Old files: `Variable` and `60fps` read as 60 FPS; the old `60fps` patch is gone. Measured clean at 45 to 60 Hz with `RSX_PRESENT_INTERVAL=0` (the default) |
+| `fsrmode` | Upscaling | FSR 1*, FSR 3.1 | `RSX_FSR_MODE` 1 / 3. **Always set**, also at the default (see below) |
 | `fsr` | Upscaling | Off*, Ultra Quality, Quality, Balanced, Performance | `RSX_FSR` off / ultra / quality / balanced / performance |
 | `hdr` | Upscaling | Off*, On | `RSX_HDR` 0 / 1 |
 | `motionblur` | Graphics | On*, Off | MSPR patch `mblur` when Off |
 | `aniso` | Graphics | Original*, 2x, 4x, 8x, 16x | `PS3_ANISO` |
 | `textures` | Graphics | Off*, On | `RSX_TEX_PACK` = `<exe folder>/textures/pack` (not applied when that folder is missing) |
 | `pbr` | Graphics | Off*, On | `RSX_TEX_PBR` = 1 (needs a pack with PBR maps) |
-| `rtshadow` | Graphics | Off*, On | `RSX_RT_SHADOW` = 1 (not applied without DXC; the backend turns it off itself on a GPU without ray queries) |
-| `lod` | Graphics | Original*, High, Ultra | `MSPR_LOD_BIAS` -1 / -2 and `MSPR_CULL_SCALE` 0.5 / 0.25 (1.00: `dist_patch_lifted.py` must be applied to the lifted tree) |
+| `lod` | Graphics | Original*, High, Ultra | `MSPR_LOD_BIAS` -1 / -2 and `MSPR_CULL_SCALE` 0.5 / 0.25 (1.00: needs `dist_patch_lifted.py` on the lifted tree; the launcher's lift applies it, with the other hook patches in `launcher/pipeline/lift_motorstorm.py` `PATCHES_100`) |
+| `lighting` | Graphics | Original*, Enhanced | `RSX_LIGHTING` = 1 for Enhanced (experimental): the lit-program rewrite, tone curve, ambient occlusion and world-fixed shadow tiles |
+| `prompts` | Graphics | Keyboard*, Controller, Auto | `MSPR_PROMPTS` keyboard / controller / auto: the game's button icons redrawn as key caps of the first key bound to each button (port `pc_prompts.h`); Auto shows keys unless a gamepad or wheel is connected. Applied at once, also after a rebind |
 | `wheelmode` | Racing Wheel | Auto*, Any Device, Off | `PAD_WHEEL` auto / any / off. Applied at once (no restart) |
 | `wheelrange` | Racing Wheel | Device, 180 deg, 270 deg*, 360 deg, 540 deg, 720 deg, 900 deg | `PAD_WHEEL_RANGE`: wheel rotation, lock to lock, that gives the full stick |
 | `wheeldeadzone` | Racing Wheel | 0%, 1%*, 2%, 3%, 5%, 8% | `PAD_WHEEL_DEADZONE` |
@@ -32,8 +33,10 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | `wheelpedaldir` | Racing Wheel | Auto*, Normal, Inverted | `PAD_WHEEL_PEDAL_DIR` |
 | `wheelffb` | Racing Wheel | Off*, Centering, Rumble, Both | `PAD_WHEEL_FFB` (off by default) |
 | `wheelffbstrength` | Racing Wheel | 20%, 40%, 60%*, 80%, 100% | `PAD_WHEEL_FFB_STRENGTH` (the device's overall gain) |
+| `unlockvehicles` | launcher Cheats tab | Off*, On | every vehicle class and ticket counts as unlocked (`mspr_unlock_vehicles_on`, read at start; the first version's key `unlockall` is read when this one is absent). Saves are not changed |
+| `unlocktracks` | launcher Cheats tab | Off*, On | every track passes the Free Play track-list filter (`mspr_unlock_tracks_on`, read at start). The Festival and Time Trial lists are not covered |
 
-**Upscaler mode (`fsrmode`)** is the one setting that sets its variable at its default too. The default is FSR 3.1, which the port's own default (FSR 1) does not give, so the exe sets `RSX_FSR_MODE=3` unless the choice is unavailable. FSR 3.1 needs AMD's two DLLs beside the exe; without them the choice is not applied and the port runs FSR 1 (the page shows "FSR 3.1 (No FSR3 DLL)"). The mode only matters when `fsr` is not Off.
+**Upscaler mode (`fsrmode`)** sets its variable at its default too. The default is FSR 1, as the launcher's (`launcher/electron/settings.js`), so the exe sets `RSX_FSR_MODE=1`. FSR 3.1 needs AMD's two DLLs beside the exe; without them that choice is not applied and the port runs FSR 1 (the page shows "FSR 3.1 (No FSR3 DLL)"). The mode only matters when `fsr` is not Off.
 
 ## Racing wheels (Thrustmaster, Logitech and other DirectInput wheels)
 
@@ -100,7 +103,7 @@ Actions with no default key: `circle`, `l1`, `r1`. The launcher and the page sho
 ## Precedence (strongest first)
 
 1. The process environment (the test runners, a shell). Any variable already set wins.
-2. `settings.ini`. For a key the file names, the variable it drives is set from the file (unless step 1 set it), **and a line for that variable in `motorstorm.cfg` is ignored**. A key at its default sets nothing, except `fsrmode` (see above), so the port's own default applies.
+2. `settings.ini`. For a key the file names, the variable it drives is set from the file (unless step 1 set it), **and a line for that variable in `motorstorm.cfg` is ignored**. A key at its default sets nothing, except `fsrmode` and `framerate` (always set), so the port's own default applies.
 3. `motorstorm.cfg` (`NAME=value`, written by the launcher): for variables **no settings.ini key covers** only: `PS3_VFS_ROOT`, `RSX_TEX_DUMP`, `RSX_RT_DXC`, `RSX_FSR3_DIR`, diagnostics. A cfg line for a variable the ini names (e.g. `RSX_FSR=quality`) is ignored once `settings.ini` has the matching key, which the in-game page writes in full on its first save.
 4. The port's built-in defaults (`main.cpp` `k_defaults`).
 
@@ -110,21 +113,16 @@ Migration: if `settings.ini` does not exist, the launcher creates it from the ol
 
 ## Availability
 
-A choice whose feature is missing is kept in the file but not applied, and the page shows the reason next to it ("On (No RT GPU)"):
+A choice whose feature is missing is kept in the file but not applied, and the page shows the reason next to it ("On (No pack)"):
 
 | choice | missing when | page text |
 |---|---|---|
 | `textures = On`, `pbr = On` | `<exe>/textures/pack` (or `RSX_TEX_PACK`) is not a folder | No pack |
-| `rtshadow = On` | no `dxc.exe` found (see below) | No DXC |
-| `rtshadow = On` | the GPU lacks VK_KHR_acceleration_structure / ray_query / deferred_host_operations or Vulkan 1.2 (`rsx_vk_rt_supported()`, known once the backend is up, so only the page can show it, not boot) | No RT GPU |
-| `fsrmode = FSR 3.1` (the default) | `amd_fidelityfx_loader_vk.dll` not beside the exe (or in `RSX_FSR3_DIR`); the port then runs FSR 1 | No FSR3 DLL |
-
-DXC lookup (`pcmenu_find_dxc`): `RSX_RT_DXC` if set, else `<exe>/dxc/dxc.exe`, else `<exe>/dxc.exe`, else `dxc.exe` on `PATH`. The port sets `RSX_RT_DXC` to what it found. The backend compiles shader variants with it in the background (cache in `%TEMP%\ps3recomp_rt` or `RSX_RT_DXC_CACHE`; the first session after enabling shows the non-RT shadows while they compile, the next session has RT).
+| `fsrmode = FSR 3.1` | `amd_fidelityfx_loader_vk.dll` not beside the exe (or in `RSX_FSR3_DIR`); the port then runs FSR 1 | No FSR3 DLL |
 
 ## What the launcher does
 
-The supported build is MotorStorm 1.00 (Stable). The 1.03 update build is optional and **unstable**: it may crash and is
-still being fixed. Both builds read the same `settings.ini`, and the settings below apply to both.
+The supported build is MotorStorm 1.00 (Stable); the install needs only the disc's decrypted 1.00 `EBOOT.elf`.
 
 The launcher (`launcher/electron`, see `docs/LAUNCHER.md`) does not decrypt anything and holds no keys. Its settings
 are the ones below, written as labels; the decrypted program files (EBOOT.elf) the install needs are the player's own,
@@ -132,9 +130,9 @@ chosen by them, checked by hash and never copied into `settings.ini` or anywhere
 
 Status of the items, as the launcher has them now:
 
-1. **Write `settings.ini`, not `motorstorm.cfg`, for every key in the table above** (read-modify-write, whole file, tmp + rename; the launcher's `SETTINGS` object maps: `RSX_FSR` -> `fsr`, `RSX_FSR_MODE` -> `fsrmode`, `RSX_HDR` -> `hdr`, `PS3RECOMP_VK_FULLSCREEN` -> `display`, `RSX_PRESENT_INTERVAL` -> `vsync`, `HD_TEXTURES` -> `textures`, `PBR` -> `pbr`). Labels in the file are the choice labels above, not the numbers. Keep writing `PS3_VFS_ROOT` etc. to `motorstorm.cfg`. The launcher's FSR default becomes `fsrmode = FSR 3.1` (it was 3.1 before too).
-2. Done: the launcher's Settings page has `resolution`, `dynres`, `framerate`, `motionblur`, `aniso`, `rtshadow` and the thirteen key bindings (`key.<action>`), written to `settings.ini` in the same format. The in-game page remains an equal editor of the same file.
-3. **Ship the pinned DXC** (Microsoft DirectXShaderCompiler release zip; the files from `bin/x64`: `dxc.exe`, `dxcompiler.dll`, `dxil.dll`) into `<MotorStorm folder>/dxc/`, like the other toolchain pieces, and show Ray-Traced Shadows as "needs DXC" until it is there. Pin the release and its sha256 in the launcher. DXC is LLVM-licensed (Apache-2.0 with LLVM exceptions): add it to `THIRD_PARTY_LICENSES.md`.
+1. **Write `settings.ini`, not `motorstorm.cfg`, for every key in the table above** (read-modify-write, whole file, tmp + rename; the launcher's `SETTINGS` object maps: `RSX_FSR` -> `fsr`, `RSX_FSR_MODE` -> `fsrmode`, `RSX_HDR` -> `hdr`, `PS3RECOMP_VK_FULLSCREEN` -> `display`, `RSX_PRESENT_INTERVAL` -> `vsync`, `HD_TEXTURES` -> `textures`, `PBR` -> `pbr`). Labels in the file are the choice labels above, not the numbers. Keep writing `PS3_VFS_ROOT` etc. to `motorstorm.cfg`. The launcher's FSR default is `fsrmode = FSR 1`, the exe's too.
+2. Done: the launcher's Settings page has `resolution`, `dynres`, `framerate`, `motionblur`, `aniso`, `lod`, `lighting`, `prompts`, the eight wheel rows, the two Cheats switches and the thirteen key bindings (`key.<action>`), written to `settings.ini` in the same format. The in-game page remains an equal editor of the same file.
+3. **Ship the pinned DXC** (Microsoft DirectXShaderCompiler release zip; the files from `bin/x64`: `dxc.exe`, `dxcompiler.dll`, `dxil.dll`) into `<MotorStorm folder>/dxc/`, like the other toolchain pieces. Pin the release and its sha256 in the launcher. DXC is LLVM-licensed (Apache-2.0 with LLVM exceptions): add it to `THIRD_PARTY_LICENSES.md`.
 4. Ship AMD's FSR 3.1 runtime (`amd_fidelityfx_loader_vk.dll`, `amd_fidelityfx_upscaler_vk.dll`) beside the exe (already planned for FSR 3.1).
 5. **Generate the PC Settings pages on the player's PC** (never ship them). Tool: **`tools/pcmenu/make_pcmenu.py`** (public source; its five reader modules `page.py actions.py widgets.py coverage.py pack.py` sit in the same folder, no other dependency). Run after install and after every game or exe update:
    `py -3 tools/pcmenu/make_pcmenu.py --psarc <game>/PS3_GAME/USRDIR/MS2.PSARC --out <MotorStorm folder>/pcmenu`
