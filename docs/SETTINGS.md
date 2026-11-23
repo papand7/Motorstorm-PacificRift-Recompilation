@@ -23,7 +23,7 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | `textures` | Graphics | Off*, On | `RSX_TEX_PACK` = `<exe folder>/textures/pack` (not applied when that folder is missing) |
 | `pbr` | Graphics | Off*, On | `RSX_TEX_PBR` = 1 (needs a pack with PBR maps) |
 | `lod` | Graphics | Original*, High, Ultra | `MSPR_LOD_BIAS` -1 / -2 and `MSPR_CULL_SCALE` 0.5 / 0.25 (1.00: needs `dist_patch_lifted.py` on the lifted tree; the launcher's lift applies it, with the other hook patches in `launcher/pipeline/lift_motorstorm.py` `PATCHES_100`) |
-| `lighting` | Graphics | Original*, Enhanced | `RSX_LIGHTING` = 1 for Enhanced (experimental): the lit-program rewrite, tone curve, ambient occlusion and world-fixed shadow tiles |
+| `lighting` | Graphics | Original, Enhanced* | `RSX_LIGHTING` 0 / 1, always set. Enhanced (experimental): new lighting, ambient occlusion, screen-space reflections and tone mapping, with the game's own shadows |
 | `prompts` | Graphics | Keyboard*, Controller, Auto | `MSPR_PROMPTS` keyboard / controller / auto: the game's button icons redrawn as key caps of the first key bound to each button (port `pc_prompts.h`); Auto shows keys unless a gamepad or wheel is connected. Applied at once, also after a rebind |
 | `wheelmode` | Racing Wheel | Auto*, Any Device, Off | `PAD_WHEEL` auto / any / off. Applied at once (no restart) |
 | `wheelrange` | Racing Wheel | Device, 180 deg, 270 deg*, 360 deg, 540 deg, 720 deg, 900 deg | `PAD_WHEEL_RANGE`: wheel rotation, lock to lock, that gives the full stick |
@@ -103,7 +103,7 @@ Actions with no default key: `circle`, `l1`, `r1`. The launcher and the page sho
 ## Precedence (strongest first)
 
 1. The process environment (the test runners, a shell). Any variable already set wins.
-2. `settings.ini`. For a key the file names, the variable it drives is set from the file (unless step 1 set it), **and a line for that variable in `motorstorm.cfg` is ignored**. A key at its default sets nothing, except `fsrmode` and `framerate` (always set), so the port's own default applies.
+2. `settings.ini`. For a key the file names, the variable it drives is set from the file (unless step 1 set it), **and a line for that variable in `motorstorm.cfg` is ignored**. A key at its default sets nothing, except `fsrmode`, `framerate` and `lighting` (always set), so the port's own default applies.
 3. `motorstorm.cfg` (`NAME=value`, written by the launcher): for variables **no settings.ini key covers** only: `PS3_VFS_ROOT`, `RSX_TEX_DUMP`, `RSX_RT_DXC`, `RSX_FSR3_DIR`, diagnostics. A cfg line for a variable the ini names (e.g. `RSX_FSR=quality`) is ignored once `settings.ini` has the matching key, which the in-game page writes in full on its first save.
 4. The port's built-in defaults (`main.cpp` `k_defaults`).
 

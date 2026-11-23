@@ -8,7 +8,7 @@
 - Lift (`launcher/pipeline/lift_motorstorm.py`): the 1.00 lift now also applies the hook patches the port's features call (`PATCHES_100`: task slice, camera rate and shake, distances/LOD, Cheats, the in-game PC Settings pages, cockpit tuning). Before, launcher builds had none of them.
 - Cockpit step: bakes the shipped positions, with the player's own `play\cockpit_positions.json` (F2) on top; that file is only read, never overwritten.
 - Defaults: frame rate 30 FPS (above 30 experimental); upscaler FSR 1 in the exe as in the launcher (`pc_settings.h` was FSR 3.1).
-- Settings: Lighting (Original/Enhanced), level of detail, PBR materials, button prompts, racing wheel rows, Cheats tab (unlock vehicles, unlock Free Play tracks). Ray-traced shadows are not offered.
+- Settings: Lighting (Enhanced by default, or Original), level of detail, PBR materials, button prompts, racing wheel rows, Cheats tab (unlock vehicles, unlock Free Play tracks). Ray-traced shadows are not offered.
 - Known issues: 60 FPS camera and shadow artefacts; the garage vehicle-edit screen may be blank; Festival and Time Trial lists are not unlocked by the cheat; exposure spikes.
 
 ## 2026-10-22 ps3recomp v0.17.0 integration and SPU helper speedups
