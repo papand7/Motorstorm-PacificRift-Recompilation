@@ -18,6 +18,7 @@ import argparse, re, struct, sys, zlib
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cockpit_positions import camera_values, load_positions
+from rider_eye import eye_camera, node_positions
 
 _here = Path(__file__).resolve()
 ROOT = _here.parents[2] if len(_here.parents) > 2 else _here.parent   # tools/cockpit -> the checkout (developers)
@@ -36,7 +37,13 @@ ap.add_argument('--bike', default='0.1,-1.0,4,6.5', help='STABLE_* (bike/ATV): d
 ap.add_argument('--x', type=float, default=0.0, help='seat x (+left)')
 ap.add_argument('--positions', help='JSON of per-vehicle overrides {"<veh>": {"x","dy","dz","pitch","yaw","focal"}} '
                 '(the in-game F2 file cockpit_positions.json); defaults unchanged')
+# The rider's eye (rider_eye.py): x, dy and dz from the vehicle's hand nodes, for every vehicle the positions file does
+# not place (its x/dy/dz win); vehicles without hand nodes keep --car / --bike.
+ap.add_argument('--eye', type=int, default=1, help='1: place the eye from the rider\'s hands (default), 0: --car/--bike only')
+ap.add_argument('--eye-car', default='0.45,0.45', help='FIXED_* eye: up, back from the middle of the hands')
+ap.add_argument('--eye-bike', default='0.5,0.4', help='STABLE_* eye: up, back from the middle of the hands')
 a = ap.parse_args()
+eye_off = {'FIXED': [float(v) for v in a.eye_car.split(',')], 'STABLE': [float(v) for v in a.eye_bike.split(',')]}
 car = [float(v) for v in a.car.split(',')]
 bike = [float(v) for v in a.bike.split(',')]
 defaults = {'FIXED': car, 'STABLE': bike}
@@ -49,11 +56,13 @@ with src.open('rb') as f:
     _, el, count, bs, _ = struct.unpack('>5I', h[12:32])
     toc = f.read(count * el)
 
-    def entry(i):
+    def entry(i, limit=None):
         e = toc[i * el:(i + 1) * el]
         z, size, off = int.from_bytes(e[16:20], 'big'), int.from_bytes(e[20:25], 'big'), int.from_bytes(e[25:30], 'big')
         f.seek(32 + el * count + 2 * z)
         lens = [int.from_bytes(f.read(2), 'big') for _ in range((size + bs - 1) // bs)]
+        if limit is not None:   # only the first blocks (a vehicle package's node table is near its start)
+            lens = lens[:(limit + bs - 1) // bs]
         f.seek(off)
         d = bytearray()
         for ln in lens:
@@ -66,6 +75,16 @@ with src.open('rb') as f:
         return bytes(d[:size])
 
     names = entry(0).decode('latin1').split('\n')
+    packed = {n.strip().lower(): k + 1 for k, n in enumerate(names)}
+
+    def eye_of(veh, kind):
+        """the rider's eye (camera list x, y, z) of a vehicle, or None"""
+        k = packed.get(f'/packed_vehicles/{veh}.rpk')
+        if k is None:
+            return None
+        pos = node_positions(entry(k, 1 << 20)) or node_positions(entry(k))
+        return eye_camera(pos, *eye_off[kind])
+    n_eye = 0
     out = Path(a.out) / 'data' / 'camera_config_files'
     out.mkdir(parents=True, exist_ok=True)
     pat = re.compile(r'^/data/camera_config_files/([^/]+)_cams\.txt$', re.I)
@@ -86,7 +105,14 @@ with src.open('rb') as f:
             n_skip += 1
             continue
         kind, (fl, x, y, z, yaw, pitch, roll) = cam2['FORWARD']
-        sx, dy, dz, dp, dyaw, focal = camera_values(m.group(1).lower(), kind, defaults, positions, a.x)
+        veh = m.group(1).lower()
+        pv = positions
+        if a.eye and not {'x', 'dy', 'dz'} <= set(positions.get(veh, {})):
+            e = eye_of(veh, kind)
+            if e is not None:   # the tuned fields (the F2 file) still win over the eye
+                pv = {**positions, veh: {'x': e[0], 'dy': e[1] - y, 'dz': e[2] - z, **positions.get(veh, {})}}
+                n_eye += 1
+        sx, dy, dz, dp, dyaw, focal = camera_values(veh, kind, defaults, pv, a.x)
         add = ['', '#### MSPR_CAM_COCKPIT: in-cockpit (driver\'s-eye) view, generated',
                f'CAMERA 3 {kind}_FORWARD {focal:g}\t\t{sx:g} {y + dy:.3f} {z + dz:.3f} {yaw + dyaw:g} {pitch + dp:g} {roll:g}']
         for side in ('LEFT', 'RIGHT', 'REAR'):   # look-around: the vehicle's own bonnet look-around views
@@ -98,7 +124,8 @@ with src.open('rb') as f:
         n_ok += 1
         cls = re.sub(r'\d+$', '', m.group(1).lower())
         seen.setdefault(cls, []).append((kind, y, z, y + dy, z + dz, sx, dp, focal))
-print(f'wrote {n_ok} camera lists to {out} ({n_skip} skipped: no CAMERA 2 FORWARD or already a CAMERA 3)')
+print(f'wrote {n_ok} camera lists to {out} ({n_skip} skipped: no CAMERA 2 FORWARD or already a CAMERA 3; '
+      f'{n_eye} at the rider\'s eye)')
 for cls, v in sorted(seen.items()):   # the resulting eye per class (vehicle frame, -z forward): median bonnet and eye
     med = lambda i: sorted(r[i] for r in v)[len(v) // 2]
     print(f'  {cls:11s} n={len(v):2d} {v[0][0]:6s} bonnet y {med(1):5.2f} z {med(2):5.2f} -> eye y {med(3):5.2f} z {med(4):5.2f} '
