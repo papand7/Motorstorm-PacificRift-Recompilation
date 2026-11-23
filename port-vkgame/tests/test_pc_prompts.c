@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "pc_keys.h"
 #include "pc_prompts.h"
 
 static int fails;
@@ -80,6 +81,22 @@ int main(int argc, char** argv)
     CHECK(label_is(&l, PCPR_SELECT, "\x07"));
     l.vk[PAD_ACT_SELECT][0] = 0x26;
     CHECK(label_is(&l, PCPR_SELECT, "\x03"));
+
+    /* the user's settings.ini (key lines parsed by pck_parse, as pcmenu_boot does): labels follow the file */
+    {
+        pad_kb_layout u = pad_kb_layout_default();
+        const char* ini = "key.cross = Enter, Ctrl\nkey.square = Q\nkey.triangle = E\nkey.circle = X\n"
+                          "key.start = P\nkey.select = C\nkey.l1 = none\nkey.r1 = none\n";
+        CHECK(pck_parse(&u, ini) == 8);
+        CHECK(label_is(&u, PCPR_CROSS, "\x05"));       /* Enter (first key) */
+        CHECK(label_is(&u, PCPR_SQUARE, "Q"));
+        CHECK(label_is(&u, PCPR_TRIANGLE, "E"));
+        CHECK(label_is(&u, PCPR_CIRCLE, "X"));
+        CHECK(label_is(&u, PCPR_START, "P"));
+        CHECK(label_is(&u, PCPR_SELECT, "C"));
+        CHECK(label_is(&u, PCPR_L1, NULL));             /* none: original icon stays */
+        CHECK(label_is(&u, PCPR_R1, NULL));
+    }
 
     /* every glyph the labels can use is in the font: none falls back to '?' except '?' itself */
     {

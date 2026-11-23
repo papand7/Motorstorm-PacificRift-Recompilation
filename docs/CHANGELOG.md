@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-23 launcher 0.2.1 (alpha, fixes 0.2.0)
+
+- Launcher: 0.2.0 shipped with a syntax error in `ui/app.js` (an apostrophe in a single-quoted string), so no button worked. Fixed; use 0.2.1.
+- Cockpit camera: the eye is placed from the rider's hand nodes in each vehicle's package (`tools/cockpit/rider_eye.py`, `make_cockpit_overlay.py --eye`, on by default), so the rider's head and body fall behind the camera and the arms stay visible. 94 of 111 vehicles; the other 17 keep the old default (9 of them have no model package). Tuned positions in `cockpit_positions.json` (F2) still win.
+- Enhanced lighting keeps the world-fixed shadow tiles off (the game's own shadows are used) unless `RSX_SHADOW_TILES_FORCE=1`.
+- Button prompts: a test of labels read from the `key.*` lines of settings.ini.
+
 ## 2026-11-23 launcher 0.2.0 (alpha release)
 
 - Launcher version 0.2.0 (`launcher/electron/package.json`; the earlier README said 0.1.0). Portable `MotorStormPacificRift.exe`.

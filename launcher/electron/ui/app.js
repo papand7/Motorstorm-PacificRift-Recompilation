@@ -178,7 +178,7 @@ const NOTES = {
     resolution: 'The internal resolution the game is drawn at', dynres: 'Off keeps the resolution steady (the game\'s own drops are suppressed)',
     framerate: '30 FPS is the original speed and the default; above 30 is experimental (camera, shadow and vehicle glitches)', lighting: 'Enhanced (experimental): new lighting, world-fixed shadows, AO and tone mapping', vsync: 'Off is tear-free and keeps 60 FPS steady', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
     hdr: 'Needs an HDR display', aniso: 'Sharper textures at an angle',
-    prompts: 'Keys or controller buttons in the game's prompts; Auto shows keys unless a gamepad or wheel is connected',
+    prompts: 'Keys or controller buttons in the game’s prompts; Auto shows keys unless a gamepad or wheel is connected',
     wheelmode: 'Auto uses Thrustmaster and Logitech wheels; a gamepad keeps working', wheelrange: 'Wheel rotation, lock to lock, that gives full steering',
     wheelpedals: 'Combined: throttle and brake share one axis', wheelpedaldir: 'Auto reads the released pedals at start',
     wheelffb: 'Off by default. Centering spring and the game\'s rumble only; takes the wheel exclusively',
