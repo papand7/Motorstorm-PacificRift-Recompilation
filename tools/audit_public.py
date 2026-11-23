@@ -60,10 +60,20 @@ PROJECT_IMAGES = {
     "launcher/electron/assets/icon.png": b"\x89PNG\r\n\x1a\n",
 }
 MAX_PROJECT_IMAGE_BYTES = 512 * 1024
+# README screenshots: two captures of the game and one of the launcher. The game captures are game output, so this
+# exemption is for the private repository only; remove these entries before any public release.
+PROJECT_SCREENSHOTS = {
+    "docs/screenshots/race-original-lighting.png",
+    "docs/screenshots/race-reflections.png",
+    "docs/screenshots/launcher.png",
+}
+MAX_SCREENSHOT_BYTES = 4 * 1024 * 1024
 BINARY_RULES = {"private or binary file type", "binary content", "non-UTF-8 content requires manual review"}
 
 
 def project_image(name: str, data: bytes) -> bool:
+    if name in PROJECT_SCREENSHOTS:
+        return data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) <= MAX_SCREENSHOT_BYTES
     magic = PROJECT_IMAGES.get(name)
     return magic is not None and data.startswith(magic) and len(data) <= MAX_PROJECT_IMAGE_BYTES
 

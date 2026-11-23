@@ -268,3 +268,11 @@ CMakeCache.txt
 /generated/analysis/vksync/tools/sample_race.py
 /generated/analysis/vksync/tools/vt_dump.py
 /generated/analysis/waits/tools/cg.py
+
+# Public README screenshots
+!/docs/screenshots/
+!/docs/screenshots/*.png
+
+# README screenshots
+!/docs/screenshots/
+!/docs/screenshots/*.png
