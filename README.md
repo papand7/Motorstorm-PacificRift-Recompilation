@@ -124,7 +124,7 @@ working tree, the lifting recipe and the install's tools, audited by `tools/audi
 | Part | State |
 |---|---|
 | Launcher window and settings | Alpha: unit-tested settings file |
-| Install from your own files | See [docs/STATUS.md](docs/STATUS.md) and the release notes for what was verified |
+| Install from your own files | Checked on the development PC (2026-11-23) from the release's source snapshot through the build step: source, shader compiler, translation with all PC hook patches, and the 1.00 build. The PC Settings and cockpit tools ran separately from the snapshot; the install step and the overlay capture (it starts the game) were not run in that check |
 | Game in the port | Alpha: see Known issues |
 
 Detailed records are in [docs/STATUS.md](docs/STATUS.md) and [docs/LAUNCHER.md](docs/LAUNCHER.md).

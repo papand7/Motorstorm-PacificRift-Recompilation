@@ -75,20 +75,21 @@ int main(void)
     CHECK(PCS_COUNT <= 31);   /* explicit_mask */
     CHECK(pcs_find("bloom") < 0);   /* the bloom is fixed at half (rsx_bloom.h default 0.5): no setting */
 
-    /* Defaults: every setting but the upscaler and the frame rate sets nothing; the upscaler mode and the
-     * rate (30 FPS, with its camera mode) are always set, and the MSPR_PATCH default is the port's. */
+    /* Defaults: every setting but the upscaler, the frame rate and the lighting sets nothing; the upscaler mode,
+     * the rate (30 FPS, with its camera mode) and the lighting are always set, and the MSPR_PATCH default is the port's. */
     pcs_defaults(&s);
     pcs_mspr_spec(&s, buf, sizeof buf);
     CHECK(!strcmp(buf, PCS_MSPR_DEFAULT));
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 3);
-    CHECK(s_nset == 3 && set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "1"));   /* FSR 1, the default */
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 4);
+    CHECK(set_value("RSX_LIGHTING") && !strcmp(set_value("RSX_LIGHTING"), "1"));   /* Enhanced, the default */
+    CHECK(s_nset == 4 && set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "1"));   /* FSR 1, the default */
     CHECK(!strcmp(set_value("PS3_SIM_PACE_HZ"), "30") && !strcmp(set_value("MSPR_CAM_MODE"), "0"));
     CHECK(!set_value("RSX_FSR") && !set_value("MSPR_PATCH"));
     /* the default FSR 1 needs no DLL: set without the FSR 3.1 DLLs too */
     s_missing_fsr3 = 1;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 3 && s_nset == 3);
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 4 && s_nset == 4);
     CHECK(!strcmp(set_value("RSX_FSR_MODE"), "1"));
     s_missing_fsr3 = 0;
     CHECK(!pcs_owns_env(&s, "RSX_FSR") && pcs_owns_env(&s, "RSX_FSR_MODE") == 0);
@@ -163,7 +164,7 @@ int main(void)
 
     /* Their variables. */
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, NULL) == 9);   /* eight variables and the MSPR list */
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, NULL) == 10);   /* nine variables and the MSPR list */
     CHECK(set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "1"));
     CHECK(set_value("RSX_RES_SCALE") && !strcmp(set_value("RSX_RES_SCALE"), "1.5"));
     CHECK(!set_value("RSX_PRESENT_INTERVAL"));   /* V-Sync Off is the default: main.cpp k_defaults gives 0 */
@@ -182,8 +183,8 @@ int main(void)
     s_preset[1] = "MSPR_PATCH";
     s_preset[2] = "RSX_FSR";
     { const int nn = pcs_apply(&s, "C:/game", fake_get, fake_set, NULL);
-      if (nn != 6) { printf("apply=%d:", nn); for (int q = 0; q < s_nset; q++) printf(" %s", s_set[q][0]); puts(""); }
-      CHECK(nn == 6); }   /* presets skip resolution, MSPR and FSR; FSR_MODE is always set; 45 FPS gives two */
+      if (nn != 7) { printf("apply=%d:", nn); for (int q = 0; q < s_nset; q++) printf(" %s", s_set[q][0]); puts(""); }
+      CHECK(nn == 7); }   /* presets skip resolution, MSPR and FSR; FSR_MODE and LIGHTING are always set; 45 FPS gives two */
     CHECK(!set_value("RSX_RES_SCALE") && !set_value("MSPR_PATCH") && !set_value("RSX_FSR"));
 
     /* A choice whose feature is missing is not applied; the others are. */
@@ -191,15 +192,15 @@ int main(void)
     pcs_parse(&s, "textures = On\npbr = On\nfsrmode = FSR 3.1\nhdr = On\n");
     s_missing_pack = s_missing_fsr3 = 1;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 3);   /* hdr, and the always-set rate and camera */
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 4);   /* hdr, and the always-set rate, camera and lighting */
     CHECK(set_value("RSX_HDR") && !set_value("RSX_TEX_PACK") &&
           !set_value("RSX_TEX_PBR") && !set_value("RSX_FSR_MODE"));
     s_missing_pack = 0;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 5);   /* hdr, textures, pbr, rate, camera */
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 6);   /* hdr, textures, pbr, rate, camera, lighting */
     s_missing_fsr3 = 0;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 6);
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 7);
     CHECK(set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "3"));
     CHECK(!set_value("RSX_RT_SHADOW"));
     CHECK(!strcmp(pcs_value_text(&s, pcs_find("textures"), "No pack"), "No pack"));
@@ -224,7 +225,7 @@ int main(void)
     pcs_mspr_spec(&s, buf, sizeof buf);
     CHECK(!strcmp(buf, "vfps,audiothread"));   /* vfps stays in every list */
     reset_env();
-    CHECK(pcs_apply(&s, ".", fake_get, fake_set, NULL) == 4);   /* MSPR_PATCH, RSX_FSR_MODE, rate and camera */
+    CHECK(pcs_apply(&s, ".", fake_get, fake_set, NULL) == 5);   /* MSPR_PATCH, RSX_FSR_MODE, rate, camera and lighting */
     CHECK(set_value("MSPR_PATCH") && !strcmp(set_value("MSPR_PATCH"), "vfps,audiothread"));
     CHECK(!strcmp(set_value("PS3_SIM_PACE_HZ"), "30") && !strcmp(set_value("MSPR_CAM_MODE"), "0"));   /* camera fix off at 30 */
     pcs_parse(&s, "framerate = 60 FPS\n");
