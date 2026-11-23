@@ -5,6 +5,8 @@ Pacific Rift jungle, beaches and canyons, as in the original.
 
 This is an early version (0.2.0, alpha). It runs on Windows 10 and 11 (64-bit). You need your own copy of the game.
 
+<p align="center"><img src="docs/screenshots/launcher.png" alt="The MotorStorm launcher" width="300"></p>
+
 <table>
 <tr><th>Original lighting, game's own shadows</th><th>Reflections on the sea and cars (Enhanced)</th></tr>
 <tr><td><img src="docs/screenshots/race-original-lighting.png" alt="Race with the game's own shadows"></td><td><img src="docs/screenshots/race-reflections.png" alt="Race with screen-space reflections"></td></tr>
