@@ -622,6 +622,14 @@ extern "C" void pcmenu_boot(const char* argv0)
                 { "RSX_FX_AO", "old" }, { "RSX_FX_SSSHADOW_FAR", "450" },
             };
             for (const auto& kv : k) if (!getenv(kv[0])) pcmenu_setenv(kv[0], kv[1]);
+            /* The world-fixed tiles are not working yet (no receiver shadows: Kst8o, Kst9). A settings.ini that sets
+             * RSX_SHADOW_TILES=1 (loaded before this) must not turn them on in Enhanced. RSX_SHADOW_TILES_FORCE=1 keeps
+             * them for experiments. The game's own shadows show on the sand (Ksh1). */
+            const char* force = getenv("RSX_SHADOW_TILES_FORCE");
+            if (!(force && force[0] == '1')) {
+                pcmenu_setenv("RSX_SHADOW_TILES", "0");
+                pcmenu_setenv("RSX_SHADOW_TILES_STATIC", "0");
+            }
         }
     }
     s_pcs_boot = s_pcs;
