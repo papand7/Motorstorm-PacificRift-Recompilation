@@ -14,7 +14,7 @@ function msg(text, kind) { const m = $('#msg'); if (m) { m.textContent = text; m
 function show(name) {
     current = name;
     document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.page === name));
-    ({ play: renderPlay, install: renderInstall, settings: renderSettings, textures: renderTextures, log: renderLog })[name]();
+    ({ play: renderPlay, install: renderInstall, settings: renderSettings, textures: renderTextures, cheats: renderCheats, log: renderLog })[name]();
 }
 window.show = show;
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
@@ -176,8 +176,9 @@ function foot() {
 // ---- Settings
 const NOTES = {
     resolution: 'The internal resolution the game is drawn at', dynres: 'Off keeps the resolution steady (the game\'s own drops are suppressed)',
-    framerate: '60 FPS is the default; 30 FPS is the original speed', vsync: 'Off is tear-free and keeps 60 FPS steady', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
-    hdr: 'Needs an HDR display', aniso: 'Sharper textures at an angle', rtshadow: 'Needs a GPU with ray tracing (Vulkan ray queries)',
+    framerate: '30 FPS is the original speed and the default; above 30 is experimental (camera, shadow and vehicle glitches)', lighting: 'Enhanced (experimental): new lighting, world-fixed shadows, AO and tone mapping', vsync: 'Off is tear-free and keeps 60 FPS steady', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
+    hdr: 'Needs an HDR display', aniso: 'Sharper textures at an angle',
+    prompts: 'Keys or controller buttons in the game's prompts; Auto shows keys unless a gamepad or wheel is connected',
     wheelmode: 'Auto uses Thrustmaster and Logitech wheels; a gamepad keeps working', wheelrange: 'Wheel rotation, lock to lock, that gives full steering',
     wheelpedals: 'Combined: throttle and brake share one axis', wheelpedaldir: 'Auto reads the released pedals at start',
     wheelffb: 'Off by default. Centering spring and the game\'s rumble only; takes the wheel exclusively',
@@ -237,9 +238,42 @@ async function renderSettings() {
     $('#reset').onclick = () => { files = null; clearFiles = true; $('#files-path').textContent = "The install's game files"; };
 }
 
+// ---- Cheats: switches saved to settings.ini like the Settings page (the game must be closed; it reads them at start)
+const CHEAT_NOTES = {
+    unlockvehicles: 'Every vehicle class and ticket counts as unlocked.',
+    unlocktracks: 'Every track appears in the Free Play track list. The Festival and Time Trial lists are not covered yet.',
+};
+async function renderCheats() {
+    const s = await L.call('settings:load');
+    game = { running: (await L.call('state')).playing };   // fresh: a stale flag kept Save greyed out after the game closed
+    const rows = s.schema.filter(x => x.group === 'Cheats');
+    const sw = item => `
+        <label class="check"><input type="checkbox" data-cheat="${item.key}" ${s.values[item.key] === 'On' ? 'checked' : ''}>
+          <span><b>${esc(item.label)}</b><br>${esc(CHEAT_NOTES[item.key] || '')}</span></label>`;
+    page.innerHTML = `
+      <h2>Cheats</h2>
+      <p class="lead">Changes what this copy of the game treats as unlocked. Off is the normal game. These switches never
+      change your progress or your saves: while one is on, the game's unlock checks answer "unlocked"; turn it off and the
+      next start is the normal game again.</p>
+      <div class="card">
+        ${rows.map(sw).join('')}
+        <p class="fine">Takes effect when the game next starts. Not tested in the game yet.</p>
+        <button class="act" id="save-cheats" ${game.running ? 'disabled' : ''}>Save</button>
+        ${game.running ? '<p class="fine">The game is running: close it to change these.</p>' : ''}
+        <div class="msg" id="msg"></div>
+      </div>`;
+    $('#save-cheats').onclick = async () => {
+        const values = {};
+        document.querySelectorAll('input[data-cheat]').forEach(el => { values[el.dataset.cheat] = el.checked ? 'On' : 'Off'; });
+        const r = await L.call('settings:save', { values, keys: {} });
+        msg(r.ok ? 'Saved. The game reads it next time it starts.' : r.message, r.ok ? 'good' : 'bad');
+    };
+}
+
 // ---- HD textures
 async function renderTextures() {
     const t = await L.call('textures:info');
+    if (t.packOpts) packChoice = { ...t.packOpts };   // the running (or last) job's choice, so a redraw keeps it
     page.innerHTML = `
       <h2>HD textures</h2>
       <p class="lead">The game saves each texture it draws, then an upscaler makes sharper versions (Real-ESRGAN) with
@@ -263,9 +297,9 @@ async function renderTextures() {
         <p class="fine">The full set (about ${t.dumped || 6000} textures) takes many hours to upscale: about 9 seconds per texture at 2x on the test PC.
         You can stop and run it again; finished textures are kept.</p>
         <div class="row"><label>Size<small>2x is the default: faster and uses less memory. 4x is sharper but slower: use it only for a smaller set</small></label>
-          <select id="scale"><option value="2" selected>2x</option><option value="4">4x (a smaller set)</option></select></div>
+          <select id="scale"><option value="2"${packChoice.scale === 4 ? '' : ' selected'}>2x</option><option value="4"${packChoice.scale === 4 ? ' selected' : ''}>4x (a smaller set)</option></select></div>
         <div class="row"><label>Physically based maps<small>Adds normal and roughness maps (slower)</small></label>
-          <select id="pbr"><option value="0">Off</option><option value="1">On</option></select></div>
+          <select id="pbr"><option value="0">Off</option><option value="1"${packChoice.pbr ? ' selected' : ''}>On</option></select></div>
         <div class="btns">
           <button class="act" id="pack" ${t.making ? 'disabled' : ''}>${t.making ? 'Making the pack...' : 'Make the HD pack'}</button>
           <button class="ghost" id="stop">Stop</button>
@@ -285,15 +319,19 @@ async function renderTextures() {
         const r = await L.call('textures:collect');
         if (!r.ok) msg(r.message, 'bad'); else renderTextures();
     };
+    $('#scale').onchange = () => { packChoice.scale = Number($('#scale').value); };
+    $('#pbr').onchange = () => { packChoice.pbr = $('#pbr').value === '1'; };
     $('#pack').onclick = async () => {
         tlogLines.length = 0;
         $('#tlog').textContent = '';
-        const r = await L.call('textures:pack', { scale: Number($('#scale').value), pbr: $('#pbr').value === '1' });
+        packChoice = { scale: Number($('#scale').value), pbr: $('#pbr').value === '1' };
+        const r = await L.call('textures:pack', packChoice);
         if (!r.ok) msg(r.message, 'bad'); else renderTextures();
     };
     $('#stop').onclick = () => L.call('textures:stop');
     $('#tfolder').onclick = () => L.call('open', 'textures');
 }
+let packChoice = { scale: 2, pbr: false };   // the pack's Size / PBR choice: the page redraws when a job starts or ends
 const tlogLines = [];   // the texture jobs' output, kept so the totals stay on screen after the page redraws
 let tprog = '', tpct = 0;   // the HD pack's progress line and percent (texpack.py prints "PROGRESS n/total ...")
 L.on('pack', p => {

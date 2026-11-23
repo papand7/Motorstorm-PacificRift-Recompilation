@@ -11,7 +11,9 @@
 //   lift      the PPU and SPU code translated from the player's ELFs (pipeline\lift_motorstorm.py)
 //   build     CMake + Ninja: the 1.00 build into work\build-stable
 //   install   the exes into play\, play.json (the builds and how each starts), motorstorm.cfg (paths)
+//   overlays  the SPU overlay captured from one short game run, lifted (tools\build_spu_overlay.py) and built in
 //   pcmenu    the in-game PC Settings pages, from the 1.00 disc's MS2.PSARC
+//   cockpit   the cockpit camera lists, from the same MS2.PSARC (cockpit-tool\, with the tuned positions)
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -24,7 +26,32 @@ const STABLE_EXE = 'MotorStormPacificRiftRecomp.exe';
 // How both builds start (play.json): the Vulkan renderer with guest programs and async shader compile, as raced.
 // The exe picks its renderer during static initialisation, before its own defaults (k_defaults) apply, so these
 // have to be in the process environment.
-const PLAY_ENV = { RSX_BACKEND: 'vulkan', PS3RECOMP_VK_WINDOW: '1', PS3RECOMP_VK_GUEST_PROGRAMS: '1', RSX_SHADER_ASYNC: '1' };
+// The rest is the full optimisation set of the 40+ fps reference run (vksync/ab2 ksr117, exe_c), minus its
+// diagnostics, test-harness switches and per-run paths; most match k_defaults, but an older exe lacks some of them.
+// Nothing settings.ini owns (pc_settings.h: frame rate, camera, patches, vsync, RT shadows, FSR, HDR, resolution,
+// textures...) may be here: the exe skips a setting whose variable is already in the environment.
+const PLAY_ENV = {
+    RSX_BACKEND: 'vulkan', PS3RECOMP_VK_WINDOW: '1', PS3RECOMP_VK_GUEST_PROGRAMS: '1', RSX_SHADER_ASYNC: '1',
+    PS3_ICALL_FAST: '1', PS3_LWCOND_WAKE: '1:poll_ms=100:heavy_draws=200', PS3_MAIN_CORE: '1', PS3_MAIN_CYCLES: '1',
+    PS3_SIM_PACE: '1', PS3_SIM_PACE_LAG_MS: '40',   // catch-up bound: a hitch must not play back as a fast burst
+    PS3_SPURS_EVENT_FALLBACK_MS: '4', PS3_SPURS_EVENT_SCHED: '1', PS3_SPURS_GUEST_MAXCONT: '1',
+    PS3_SPU_DRAIN_RESUME_RELOC: '1', PS3_SPU_FP_CACHE: '1', PS3_SPU_INTERP_REJOIN_RELOC: '1', PS3_SPU_MFC_FAST: '1',
+    PS3_SPU_TASK_POOL: '1', PS3_SPU_TASK_QUIET: '1', PS3_SPU_WWS_AOT: '1', SPU_INTERP_UNLIFTED: '1',
+    PS3_TEX_SNAPSHOT: '1', PS3_TEX_SNAPSHOT_EPOCH: '1', PS3_TEX_SNAPSHOT_WWATCH: '1',
+    PS3_USLEEP_SPIN: '2', PS3_USLEEP_SPIN_MAIN_ONLY: '1', PS3_USLEEP_TAIL_US: '600',
+    PS3_VM_STORE_FAST: '1', PS3_VM_STORE_INLINE: '1',
+    RSX_BIND_DEDUP: '1', RSX_FP_SCAN_MEMO: '1', RSX_FP_SPAN: '1', RSX_GPU_REINTERP: '1', RSX_PIPE_MEMO: '1',
+    RSX_POLY_OFFSET: '1',
+    RSX_RT_NOATLAS: '1', RSX_RT_READBACK: '1', RSX_RT_READBACK_ASYNC: '1',   // =0 fixes exposure spikes (Kbr4/Kbr5) but costs ~5 fps in races; a fenced async ring is being built RSX_RT_READBACK_EAGER: '1',
+    RSX_RT_TMIN: '0.5',
+    RSX_SHADER_CACHE: '3', RSX_SHADER_GLSLANG_PARALLEL: '1', RSX_SHADER_REPLAY_PARALLEL: '1', RSX_SHADER_WINDOW: '1',
+    RSX_TEX_BORDER: '1',   // the guest's texture border colour (vehicle blob shadows drew dark boxes with transparent black)
+    RSX_SRV_REUSE: '1', RSX_TEX_BUDGET_MB: '1024', RSX_TEX_CACHE: '1', RSX_TEX_SLOTS: '1024', RSX_TEX_WWATCH: '1',
+    RSX_VK_LAZY_SYNC: '1', RSX_VK_MEM_RECYCLE: '1',
+    RSX_VP_COMPACT: '1', RSX_VP_FAST_FETCH: '1', RSX_VP_INDEXED: '1', RSX_VP_PARALLEL: '0', RSX_VS_MEMO: '1',
+    RSX_VTX_DENSE: '1', RSX_VTX_GPU: '1', RSX_ZSNAP_ON_WRITE: '1',
+};
+// RSX_RT_DXC is added dynamically in step_install (path beside the exe)
 
 class Builder {
     constructor({ root, meta, source, emit, log }) {
@@ -62,6 +89,7 @@ class Builder {
             ['tools', 'Download the build tools'], ['source', 'Unpack the source'], ['glslang', 'Build the shader compiler'],
             ['lift', 'Translate the game code'], ['build', 'Build the game'], ['install', 'Install'],
             ['overlays', 'Build the SPU overlay code'], ['pcmenu', 'Make the PC Settings pages'],
+            ['cockpit', 'Make the camera files'],
         ].map(([id, title]) => ({ id, title, done: this.done(id) }));
     }
 
@@ -167,7 +195,7 @@ class Builder {
         this.sendState();
         const started = Date.now();
         try {
-            for (const s of ['game', 'elf', 'files', 'tools', 'source', 'glslang', 'lift', 'build', 'install', 'overlays', 'pcmenu']) {
+            for (const s of ['game', 'elf', 'files', 'tools', 'source', 'glslang', 'lift', 'build', 'install', 'overlays', 'pcmenu', 'cockpit']) {
                 if (this.abort.signal.aborted) throw new Error('cancelled');
                 this.stepId = s;
                 this.sendState();
@@ -271,7 +299,8 @@ class Builder {
         try { unpacked = fs.readFileSync(have, 'utf8').trim(); } catch { /* nothing unpacked yet */ }
         if (unpacked === actual) return this.mark('source');
         // a different (or no) source: the old tree goes first, and what was made from it is made again
-        this.unmark('glslang', 'lift', 'build', 'install');
+        // (overlays too: its lift lives in work\src\generated and goes with the old tree)
+        this.unmark('glslang', 'lift', 'build', 'install', 'overlays');
         fs.rmSync(this.srcDir(), { recursive: true, force: true });
         this.say('Unpacking the source', '', -1);
         await tools.unpack(tar, this.srcDir(), { log: l => this.log(l) });
@@ -433,9 +462,12 @@ class Builder {
             }
         }
         const vfs = this.vfsRoot();
+        const dxcExe = path.join(play, 'dxc', 'dxc.exe');
+        const env = { ...PLAY_ENV };
+        if (fs.existsSync(dxcExe)) env.RSX_RT_DXC = dxcExe;
         const builds = {
             stable: { label: this.game.builds.stable.label, version: this.game.builds.stable.version, exe: this.game.builds.stable.exe,
-                      elf: this.elfPath(100), env: { ...PLAY_ENV } },
+                      elf: this.elfPath(100), env },
         };
         const info = { default: 'stable', builds, vfs_root: vfs, release: this.discInfo.release, built: new Date().toISOString() };
         fs.writeFileSync(path.join(play, 'play.json'), JSON.stringify(info, null, 2));
@@ -557,6 +589,64 @@ class Builder {
                                         '--port', path.join(this.srcDir(), 'port-vkgame')], { env, cwd: dir, log: l => this.log('pcmenu: ' + l) });
         if (code !== 0) { this.log(`pcmenu: make_pcmenu.py failed (${code}): the game keeps its retail Options page`); return; }
         this.mark('pcmenu');
+    }
+
+    // ---- cockpit: the camera files for Camera: Cockpit view (MSPR_CAM_COCKPIT), made on this PC from the player's own
+    // MS2.PSARC by make_cockpit_overlay.py, into the same overlay folder as the PC Settings pages (PS3_VFS_OVERLAY).
+    // Never shipped: the output derives from the game's data. The tool is found like make_pcmenu.py: MS_COCKPIT_DIR,
+    // launcher.json "cockpitDir", or cockpit-tool\ in the source snapshot (tools/cockpit). Without it the row does nothing
+    // (the game logs "[cam-cockpit] no ... not applied"); this step only warns. Runs after pcmenu, which rebuilds the folder.
+    // The positions baked in: the shipped cockpit_positions.default.json (camera offsets only), with the player's own
+    // play\cockpit_positions.json (the in-game F2 file) on top, vehicle by vehicle. The player's file is only read.
+    cockpitDir() {
+        for (const d of [process.env.MS_COCKPIT_DIR, this.cfg.cockpitDir, path.join(this.srcDir(), 'cockpit-tool')])
+            if (d && fs.existsSync(path.join(d, 'make_cockpit_overlay.py'))) return d;
+        return null;
+    }
+    async step_cockpit() {
+        const dir = this.cockpitDir();
+        if (!dir) { this.log('cockpit: no make_cockpit_overlay.py: the Camera setting has no camera files'); return; }
+        const psarc = path.join(this.vfsRoot(), 'PS3_GAME', 'USRDIR', 'MS2.PSARC');
+        if (!fs.existsSync(psarc)) { this.log(`cockpit: ${psarc} not found: skipped`); return; }
+        const { env, python } = this.env();
+        const out = path.join(this.dirs.play, 'pcmenu');
+        const positions = this.cockpitPositions(dir);
+        this.say('Making the camera files', `from your game's own camera lists (1.00)`, -1);
+        const code = await run(python, ['-I', path.join(dir, 'make_cockpit_overlay.py'), '--psarc', psarc, '--out', out,
+                                        ...(positions ? ['--positions', positions] : [])],
+                               { env, cwd: dir, log: l => this.log('cockpit: ' + l) });
+        if (code !== 0) { this.log(`cockpit: make_cockpit_overlay.py failed (${code}): the Camera setting has no camera files`); return; }
+        this.mark('cockpit');
+    }
+
+    // the shipped defaults with the player's F2 file on top, written to work\cockpit_positions.json (the player's file
+    // in play\ is never written here); null when neither is readable
+    cockpitPositions(dir) {
+        const FIELDS = ['x', 'dy', 'dz', 'pitch', 'yaw', 'focal'];
+        const read = (file, what) => {
+            if (!fs.existsSync(file)) return {};
+            try {
+                const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+                if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('not an object');
+                const outv = {};
+                for (const [veh, v] of Object.entries(j)) {
+                    if (!v || typeof v !== 'object') continue;
+                    const e = {};
+                    for (const k of FIELDS) if (typeof v[k] === 'number' && Number.isFinite(v[k])) e[k] = v[k];
+                    if (Object.keys(e).length) outv[String(veh).toLowerCase()] = e;
+                }
+                return outv;
+            } catch (e) { this.log(`cockpit: ${what} ${file} not read (${e.message})`); return {}; }
+        };
+        const merged = read(path.join(dir, 'cockpit_positions.default.json'), 'shipped positions');
+        const mine = read(path.join(this.dirs.play, 'cockpit_positions.json'), 'your positions');
+        for (const [veh, e] of Object.entries(mine)) merged[veh] = { ...(merged[veh] || {}), ...e };
+        if (!Object.keys(merged).length) return null;
+        const file = path.join(this.dirs.work, 'cockpit_positions.json');
+        fs.mkdirSync(this.dirs.work, { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(merged, null, 1) + '\n');
+        this.log(`cockpit: positions for ${Object.keys(merged).length} vehicle(s) (${Object.keys(mine).length} from your cockpit_positions.json)`);
+        return file;
     }
 
 }

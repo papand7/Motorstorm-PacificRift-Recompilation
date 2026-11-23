@@ -12,7 +12,7 @@ const SCHEMA = [
     { key: 'resolution', group: 'Display', label: 'Resolution', choices: ['720p', '1080p', '1440p', '2160p'], def: '720p', values: ['1', '1.5', '2', '3'] },
     { key: 'vsync', group: 'Display', label: 'Vertical sync', choices: ['On', 'Off'], def: 'Off', values: ['1', '0'] },
     { key: 'dynres', group: 'Display', label: 'Dynamic resolution (the game\'s own)', choices: ['On', 'Off'], def: 'Off' },
-    { key: 'framerate', group: 'Display', label: 'Frame rate', choices: ['30 FPS', '45 FPS', '60 FPS', '80 FPS', '120 FPS', '144 FPS', '180 FPS'], def: '60 FPS', values: ['30', '45', '60', '80', '120', '144', '180'], alias: { variable: '60 FPS', '60fps': '60 FPS' } },
+    { key: 'framerate', group: 'Display', label: 'Frame rate', choices: ['30 FPS', '45 FPS', '60 FPS', '80 FPS', '120 FPS', '144 FPS', '180 FPS'], def: '30 FPS', values: ['30', '45', '60', '80', '120', '144', '180'], alias: { variable: '60 FPS', '60fps': '60 FPS' } },
     { key: 'fsrmode', group: 'Upscaling', label: 'Upscaler', choices: ['FSR 1', 'FSR 3.1'], def: 'FSR 1', values: ['1', '3'] },
     { key: 'fsr', group: 'Upscaling', label: 'Upscaling (FSR)', choices: ['Off', 'Ultra Quality', 'Quality', 'Balanced', 'Performance'],
       def: 'Off', values: ['off', 'ultra', 'quality', 'balanced', 'performance'] },
@@ -21,8 +21,11 @@ const SCHEMA = [
     { key: 'aniso', group: 'Graphics', label: 'Anisotropic filtering', choices: ['Original', '2x', '4x', '8x', '16x'], def: 'Original' },
     { key: 'textures', group: 'Graphics', label: 'HD texture pack', choices: ['Off', 'On'], def: 'Off' },
     { key: 'pbr', group: 'Graphics', label: 'Physically based materials', choices: ['Off', 'On'], def: 'Off' },
-    { key: 'rtshadow', group: 'Graphics', label: 'Ray-traced shadows', choices: ['Off', 'On'], def: 'Off' },
+    // no 'rtshadow': ray-traced shadows are hidden (slow, and not working with Enhanced lighting); RSX_RT_SHADOW=1 by hand still works
     { key: 'lod', group: 'Graphics', label: 'Level of detail', choices: ['Original', 'High', 'Ultra'], def: 'Original' },
+    { key: 'lighting', group: 'Graphics', label: 'Lighting', choices: ['Original', 'Enhanced'], def: 'Enhanced' },
+    // the game's button prompts as key caps of the player's keys (port pc_prompts.h); Auto: keys unless a gamepad or wheel is connected
+    { key: 'prompts', group: 'Graphics', label: 'Button prompts', choices: ['Keyboard', 'Controller', 'Auto'], def: 'Keyboard', values: ['keyboard', 'controller', 'auto'] },
     // Racing wheel (libs/input pad_wheel.h; the finer wheel.* keys are in docs/SETTINGS.md, not choices)
     { key: 'wheelmode', group: 'Wheel', label: 'Racing wheel', choices: ['Auto', 'Any Device', 'Off'], def: 'Auto', values: ['auto', 'any', 'off'] },
     { key: 'wheelrange', group: 'Wheel', label: 'Steering range', choices: ['Device', '180 deg', '270 deg', '360 deg', '540 deg', '720 deg', '900 deg'], def: '270 deg', values: ['device', '180', '270', '360', '540', '720', '900'] },
@@ -32,11 +35,16 @@ const SCHEMA = [
     { key: 'wheelpedaldir', group: 'Wheel', label: 'Pedal direction', choices: ['Auto', 'Normal', 'Inverted'], def: 'Auto', values: ['auto', 'normal', 'inverted'] },
     { key: 'wheelffb', group: 'Wheel', label: 'Force feedback', choices: ['Off', 'Centering', 'Rumble', 'Both'], def: 'Off', values: ['off', 'center', 'rumble', 'both'] },
     { key: 'wheelffbstrength', group: 'Wheel', label: 'Force feedback strength', choices: ['20%', '40%', '60%', '80%', '100%'], def: '60%', values: ['20', '40', '60', '80', '100'] },
+    // Cheats (their own tab, not the Settings page): the game reads them at start (port pc_menu.cpp); off by default.
+    // unlockvehicles: vehicle classes and tickets. The game also reads the first version's key, unlockall (load below).
+    { key: 'unlockvehicles', group: 'Cheats', label: 'Unlock all vehicles', choices: ['Off', 'On'], def: 'Off', values: ['0', '1'], old: 'unlockall' },
+    // unlocktracks: the Free Play track list (the Festival and Time Trial lists are not covered yet)
+    { key: 'unlocktracks', group: 'Cheats', label: 'Unlock all tracks', choices: ['Off', 'On'], def: 'Off', values: ['0', '1'] },
 ];
 const ACTIONS = [
     ['accelerate', 'W, 2'], ['brake', 'S, 1'], ['steerleft', 'A'], ['steerright', 'D'], ['handbrake', 'Space'],
-    ['cross', 'Z, Ctrl'], ['square', 'R'], ['triangle', 'F'], ['circle', 'X'], ['l1', 'Q'], ['r1', 'E'],
-    ['start', 'Enter'], ['select', 'Tab'],
+    ['cross', 'Enter, Ctrl'], ['square', 'Q'], ['triangle', 'E'], ['circle', 'X'], ['l1', 'none'], ['r1', 'none'],
+    ['start', 'P'], ['select', 'C'],
 ];
 const KEY_NAMES = new Set(('Space Enter Tab Ctrl Shift Backspace Left Right Up Down Insert Delete Home End PageUp PageDown ' +
     'CapsLock Pause NumLock ScrollLock NumPlus NumMinus NumMultiply NumDivide NumDecimal Semicolon Equals Comma Minus ' +
@@ -137,19 +145,17 @@ function migrate(ini, cfgFile) {
 }
 
 // what the page shows: each setting's label, and why a choice would not apply on this PC (docs/SETTINGS.md
-// "Availability"; the GPU's ray tracing is known only to the game)
+// "Availability")
 function load(playDir) {
     const ini = path.join(playDir, 'settings.ini');
     const migrated = migrate(ini, path.join(playDir, 'motorstorm.cfg'));
     const { map } = readIni(ini);
     const values = {};
-    for (const s of SCHEMA) values[s.key] = labelFor(s, map[s.key]) || s.def;
+    for (const s of SCHEMA) values[s.key] = labelFor(s, map[s.key] != null ? map[s.key] : s.old && map[s.old]) || s.def;
     const keys = {};
     for (const [a, def] of ACTIONS) keys[a] = map['key.' + a] != null ? map['key.' + a] : def;
     const cfg = readCfg(path.join(playDir, 'motorstorm.cfg'));
-    const dxc = cfg.RSX_RT_DXC || path.join(playDir, 'dxc', 'dxc.exe');
     const missing = {
-        rtshadow: fs.existsSync(dxc) ? null : 'needs DXC (installed with the game)',
         fsrmode: fs.existsSync(path.join(cfg.RSX_FSR3_DIR || playDir, 'amd_fidelityfx_loader_vk.dll')) ? null : 'FSR 3.1 needs AMD\'s DLLs (installed with the game)',
         textures: fs.existsSync(path.join(playDir, 'textures', 'pack')) ? null : 'no HD pack yet (HD textures page)',
         pbr: fs.existsSync(path.join(playDir, 'textures', 'pack')) ? null : 'needs an HD pack with PBR maps',

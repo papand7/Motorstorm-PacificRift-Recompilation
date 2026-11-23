@@ -8,9 +8,9 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "bundles": "node source_bundles.js",
+    "bundles": "node source_bundles.js --with-pcmenu",
     "service": "node service/cli.js",
-    "dist": "node source_bundles.js && electron-builder --win portable",
+    "dist": "node source_bundles.js --with-pcmenu && electron-builder --win portable",
     "dist:public": "electron-builder --win portable --config electron-builder.public.json"
   },
   "devDependencies": {

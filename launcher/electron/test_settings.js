@@ -30,17 +30,20 @@ assert.strictEqual(s.keys.accelerate, 'Up, W');
 assert.strictEqual(s.keys.brake, 'S, 1');
 
 // save: whole file through .tmp, known keys changed in place, others kept, new ones appended
-assert.strictEqual(S.save(dir, { fsr: 'Performance', rtshadow: 'On' }, { brake: 'Ctrl , 0x20' }), null);
+assert.strictEqual(S.save(dir, { fsr: 'Performance', lod: 'High' }, { brake: 'Ctrl , 0x20' }), null);
 const text = fs.readFileSync(ini, 'utf8');
 assert.ok(text.includes('fsr = Performance') && !/FSR = balanced/.test(text));
 assert.ok(text.includes('future_key = 7') && text.includes('; written by the game'));
-assert.ok(text.includes('rtshadow = On') && text.includes('key.brake = Ctrl, 0x20'));
+assert.ok(text.includes('lod = High') && text.includes('key.brake = Ctrl, 0x20'));
+// ray-traced shadows are hidden: no setting (RSX_RT_SHADOW only by hand)
+assert.ok(!S.SCHEMA.some(x => x.key === 'rtshadow') && !('rtshadow' in S.load(dir).missing));
+assert.ok(S.save(dir, { rtshadow: 'On' }), 'rtshadow is not a setting');
 assert.ok(!fs.existsSync(ini + '.tmp'));
 
-// frame rate: 30/45/60 (default 60); the old "Variable" and "60 FPS" patch values read as 60 FPS; vsync defaults Off
+// frame rate: 30/45/60 (default 30); the old "Variable" and "60 FPS" patch values read as 60 FPS; vsync defaults Off
 const fr = S.SCHEMA.find(x => x.key === 'framerate'), vs = S.SCHEMA.find(x => x.key === 'vsync');
 assert.deepStrictEqual(fr.choices, ['30 FPS', '45 FPS', '60 FPS', '80 FPS', '120 FPS', '144 FPS', '180 FPS']);
-assert.strictEqual(fr.def, '60 FPS');
+assert.strictEqual(fr.def, '30 FPS');
 assert.strictEqual(vs.def, 'Off');
 fs.writeFileSync(ini, 'framerate = Variable\r\n');
 assert.strictEqual(S.load(dir).values.framerate, '60 FPS');
@@ -49,7 +52,7 @@ assert.strictEqual(S.load(dir).values.framerate, '45 FPS');
 fs.writeFileSync(ini, 'framerate = 30 FPS\r\n');
 assert.strictEqual(S.load(dir).values.framerate, '30 FPS');
 fs.rmSync(ini);
-assert.deepStrictEqual([S.load(dir).values.framerate, S.load(dir).values.vsync], ['60 FPS', 'Off']);
+assert.deepStrictEqual([S.load(dir).values.framerate, S.load(dir).values.vsync], ['30 FPS', 'Off']);
 assert.strictEqual(S.save(dir, { framerate: '45 FPS', vsync: 'On' }), null);
 assert.ok(/framerate = 45 FPS/.test(fs.readFileSync(ini, 'utf8')));
 S.save(dir, { framerate: '60 FPS' });
@@ -76,6 +79,48 @@ const wt = fs.readFileSync(ini, 'utf8');
 assert.ok(wt.includes('wheelpedals = Combined') && wt.includes('wheelffb = Centering') && wt.includes('wheelrange = 540'));
 assert.ok(wt.includes('wheel.steer.axis = Rx') && wt.includes('wheel.button.3 = Circle'), 'wheel.* lines kept');
 assert.ok(S.save(dir, { wheelrange: '1000 deg' }));
+
+// The driver's-eye camera (MSPR_CAM_COCKPIT) is not a setting: it is on by default in port-vkgame/main.cpp k_defaults.
+{
+    const cfgC = fs.readFileSync(path.join(__dirname, '..', '..', 'port-vkgame', 'pc_settings.h'), 'utf8');
+    assert.ok(!cfgC.includes('"MSPR_CAM_COCKPIT"'), 'pc_settings.h has no cockpit row');
+    assert.ok(!S.SCHEMA.some(d => d.key === 'cockpit'), 'launcher has no cockpit setting');
+    const mainC = fs.readFileSync(path.join(__dirname, '..', '..', 'port-vkgame', 'main.cpp'), 'utf8');
+    assert.ok(/\{ "MSPR_CAM_COCKPIT", "1" \}/.test(mainC), 'main.cpp defaults MSPR_CAM_COCKPIT to 1');
+}
+
+// Cheats: unlockvehicles is a Cheats-group switch, Off by default, written as its label; the first version's key
+// (unlockall) is read when unlockvehicles is absent; the port reads the same keys (pc_settings.h)
+{
+    const cd = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-cheats-'));
+    const cini = path.join(cd, 'settings.ini');
+    const uv = S.SCHEMA.find(x => x.key === 'unlockvehicles');
+    assert.ok(uv && uv.group === 'Cheats' && uv.def === 'Off');
+    assert.strictEqual(S.load(cd).values.unlockvehicles, 'Off');
+    assert.strictEqual(S.save(cd, { unlockvehicles: 'On' }), null);
+    assert.ok(/^unlockvehicles = On$/m.test(fs.readFileSync(cini, 'utf8')));
+    assert.strictEqual(S.load(cd).values.unlockvehicles, 'On');
+    assert.strictEqual(S.save(cd, { unlockvehicles: 'Off' }), null);
+    assert.strictEqual(S.load(cd).values.unlockvehicles, 'Off');
+    fs.writeFileSync(cini, 'fsr = Off\r\nunlockall = On\r\n');
+    assert.strictEqual(S.load(cd).values.unlockvehicles, 'On', 'the old key is read');
+    fs.writeFileSync(cini, 'unlockall = On\r\nunlockvehicles = Off\r\n');
+    assert.strictEqual(S.load(cd).values.unlockvehicles, 'Off', 'the new key wins');
+    assert.ok(S.save(cd, { unlockvehicles: 'Maybe' }));
+    const ps = fs.readFileSync(path.join(__dirname, '..', '..', 'port-vkgame', 'pc_settings.h'), 'utf8');
+    assert.ok(ps.includes('"unlockvehicles"') && ps.includes('"unlockall"'), 'pc_settings.h reads the same keys');
+    // unlocktracks: its own switch, Off by default, independent of unlockvehicles
+    const ut = S.SCHEMA.find(x => x.key === 'unlocktracks');
+    assert.ok(ut && ut.group === 'Cheats' && ut.def === 'Off');
+    fs.writeFileSync(cini, 'unlockvehicles = On\r\n');
+    assert.strictEqual(S.load(cd).values.unlocktracks, 'Off');
+    assert.strictEqual(S.save(cd, { unlocktracks: 'On' }), null);
+    const lv = S.load(cd).values;
+    assert.deepStrictEqual([lv.unlockvehicles, lv.unlocktracks], ['On', 'On']);
+    assert.ok(/^unlocktracks = On$/m.test(fs.readFileSync(cini, 'utf8')));
+    assert.ok(ps.includes('"unlocktracks"') || ps.includes('unlocktracks'), 'pc_settings.h reads unlocktracks');
+    fs.rmSync(cd, { recursive: true, force: true });
+}
 
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('settings: all checks passed');

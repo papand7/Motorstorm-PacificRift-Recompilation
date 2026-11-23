@@ -1,15 +1,15 @@
-/* Light MotorStorm look: sun-baked sand, hot orange and rust, jungle green. */
+/* Jungle MotorStorm look: deep jungle-green sidebar with palm fronds and tire tracks, a sun-baked sand page with faint tracks, hot orange accents. */
 :root { --bg: #f7ecd7; --panel: #fffaf0; --line: #e6d3b0; --text: #2d2117; --dim: #7a6650; --accent: #e8590c; --accent2: #c2410c; --jungle: #1f7a4d; --sunken: #fffdf7; --bad: #c0392b; --good: #1f7a4d; }
 * { box-sizing: border-box; }
 body { margin: 0; display: flex; height: 100vh; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
-nav { width: 210px; padding: 22px 14px; background: linear-gradient(180deg, #f5821f 0%, #e8590c 55%, #b53a0b 100%); border-right: 3px solid var(--jungle); display: flex; flex-direction: column; gap: 6px; color: #fff7ea; }
-nav h1 { font-size: 20px; margin: 0 0 18px 6px; letter-spacing: .5px; text-transform: uppercase; color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.25); }
-nav h1 span { display: block; font-size: 12px; font-weight: 600; color: #ffe2b8; letter-spacing: 1.5px; }
-nav button { text-align: left; background: none; border: 0; color: #ffe9cc; padding: 10px 12px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
-nav button:hover { color: #fff; background: rgba(255,255,255,.16); }
-nav button.on { color: #fff; background: rgba(0,0,0,.2); box-shadow: inset 4px 0 0 #ffd24a; }
-.nav-foot { margin-top: auto; color: #ffe2b8; font-size: 12px; padding: 0 6px; }
-main { flex: 1; padding: 28px 34px; overflow: auto; }
+nav { width: 210px; padding: 22px 14px; background: url(nav-jungle.svg) bottom center / cover no-repeat, linear-gradient(180deg, #23824f 0%, #145034 50%, #082a1a 100%); border-right: 3px solid #ffd24a; display: flex; flex-direction: column; gap: 6px; color: #fff7ea; }
+nav h1 { font-size: 17px; margin: 0 0 18px 2px; padding-left: 44px; min-height: 40px; background: url(icon.svg) 0 50% / 38px 38px no-repeat; letter-spacing: .5px; text-transform: uppercase; color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.25); }
+nav h1 span { display: block; font-size: 12px; font-weight: 600; color: #ffd24a; letter-spacing: 1.5px; }
+nav button { text-align: left; background: none; border: 0; color: #e4f3d8; padding: 10px 12px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 600; }
+nav button:hover { color: #fff; background: rgba(255,255,255,.14); }
+nav button.on { color: #fff; background: rgba(0,0,0,.32); box-shadow: inset 4px 0 0 #ffd24a; }
+.nav-foot { margin-top: auto; color: #ffd9a3; text-shadow: 0 1px 2px rgba(0,0,0,.6); font-size: 12px; padding: 0 6px; }
+main { flex: 1; padding: 28px 34px; overflow: auto; background: url(tracks.svg) 0 0 / 640px 640px repeat, var(--bg); }
 h2 { font-size: 24px; margin: 0 0 6px; color: var(--accent2); text-transform: uppercase; letter-spacing: .5px; }
 p.lead { color: var(--dim); margin: 0 0 22px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(120,80,30,.10); }

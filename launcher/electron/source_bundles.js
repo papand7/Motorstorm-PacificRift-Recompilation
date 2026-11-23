@@ -1,7 +1,14 @@
 // The game's source the launcher carries (resources\source): one tar of
 //   port-vkgame\   the MotorStorm port (copied from the working tree; it is not in git)
-//   ps3recomp\     the runtime and its lifter tools: `git archive HEAD` of ps3recomp-vkgame (committed files only)
+//   ps3recomp\     the runtime and its lifter tools: ps3recomp-vkgame's working tree (tracked files and untracked files
+//                  git does not ignore, as on disk: `git ls-files -co --exclude-standard`); --runtime-head takes the
+//                  committed tree (`git archive HEAD`) instead
 //   pipeline\      launcher\pipeline: the lifting recipe and its manifest (hashes, offsets and sizes only)
+//   tools\         tools\build_spu_overlay.py (the install's overlays step; it finds ps3recomp\tools beside it)
+//   cockpit-tool\  tools\cockpit: make_cockpit_overlay.py, cockpit_positions.py and cockpit_positions.default.json
+//                  (the shipped cockpit camera offsets; no game data)
+//   pcmenu-tool\   tools\pcmenu (--with-pcmenu; `npm run dist` passes it)
+//   texcollect-tool\ tools\texcollect
 // staged in build\launcher-source\staging, audited with tools\audit_public.py --tree (the release bar: no game
 // input, no lifted code, no binaries), scanned for key material, then packed as build\launcher-source\
 // motorstorm-source.tar with SOURCE.json (the commits and the tar's SHA-256).
@@ -12,7 +19,7 @@
 // keys from the upstream ps3recomp; the scan reports them and the snapshot is refused unless
 // --allow-runtime-keys is given (a decision for the project owner: docs/LAUNCHER.md).
 //
-//   node source_bundles.js [--allow-runtime-keys] [--with-pcmenu] [--runtime-worktree]
+//   node source_bundles.js [--allow-runtime-keys] [--with-pcmenu] [--runtime-head] [--dev] [--stage-only]
 'use strict';
 const { execFileSync } = require('child_process');
 const crypto = require('crypto');
@@ -28,7 +35,8 @@ const STAGE = path.join(OUT, 'staging');
 const TAR = process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
 const allowRuntimeKeys = process.argv.includes('--allow-runtime-keys');
 const withPcmenu = process.argv.includes('--with-pcmenu');
-const runtimeWorktree = process.argv.includes('--runtime-worktree');
+// the runtime as on disk (the default; --runtime-worktree is the old spelling of it), or its HEAD with --runtime-head
+const runtimeWorktree = !process.argv.includes('--runtime-head');
 // --stage-only: stage and audit, pack nothing (a developer's test tree in build\, never a release)
 const stageOnly = process.argv.includes('--stage-only');
 
@@ -36,6 +44,12 @@ const RUNTIME = path.join(ROOT, 'ps3recomp-vkgame');
 const PORT = path.join(ROOT, 'port-vkgame');
 const PIPELINE = path.join(ROOT, 'launcher', 'pipeline');
 const PCMENU = path.join(ROOT, 'tools', 'pcmenu');
+const COCKPIT = path.join(ROOT, 'tools', 'cockpit');
+// single files from the project's tools\ the install runs from <src>\tools (each checked to exist)
+const PROJECT_TOOLS = ['build_spu_overlay.py'];
+// working-tree paths of the runtime never staged (build output, lifts, scratch: the audit's private folders)
+const RUNTIME_SKIP_DIRS = new Set(['.git', '__pycache__', 'build', 'out', 'generated', 'recompiled', 'generated_spu',
+                                   'spu_lifted', 'original', 'private', 'firmware', 'release', 'dist']);
 const LEAVE_OUT = new Set(['tools/pkg_extract.py', 'tools/extract_jobmods.py', 'tools/test_pkg_extract.py']);
 // what the runtime's build never reads and the release audit refuses (upstream's lifted test fixtures, packaging
 // media, scratch, PDFs): removed from the staged runtime. (tests\ folders otherwise stay: CMake names
@@ -78,20 +92,29 @@ function keyScan(dir) {
 function main() {
     fs.rmSync(STAGE, { recursive: true, force: true });
     fs.mkdirSync(STAGE, { recursive: true });
-    // the runtime: its committed tree (HEAD), or the tracked files as on disk with --runtime-worktree
+    // the runtime: the working tree as on disk (default), or its committed tree (HEAD) with --runtime-head
     const head = git(RUNTIME, "rev-parse", "HEAD").toString().trim();
-    const dirty = git(RUNTIME, "status", "--porcelain", "--untracked-files=no").toString().trim();
-    if (dirty && !runtimeWorktree) console.warn(`warning: ps3recomp-vkgame has uncommitted changes; the snapshot takes HEAD ${head}`);
+    const dirty = git(RUNTIME, "status", "--porcelain").toString().trim();
+    if (dirty && !runtimeWorktree) console.warn(`warning: ps3recomp-vkgame has uncommitted changes; --runtime-head takes HEAD ${head} without them`);
     const rt = path.join(STAGE, "ps3recomp");
     fs.mkdirSync(rt);
     if (runtimeWorktree) {
-        // tracked files and new files git does not ignore (an uncommitted header the sources already include)
+        // tracked files and new files git does not ignore (uncommitted headers the sources already include);
+        // a tracked file deleted on disk is left out, as the build on disk would not see it either
+        let copied = 0, skipped = 0;
         for (const f of git(RUNTIME, "ls-files", "-z", "--cached", "--others", "--exclude-standard").toString().split("\0").filter(Boolean)) {
+            if (f.split("/").slice(0, -1).some(p => RUNTIME_SKIP_DIRS.has(p.toLowerCase()))) { skipped++; continue; }
             const a = path.join(RUNTIME, f);
-            if (!fs.existsSync(a)) continue;
+            let st;
+            try { st = fs.lstatSync(a); } catch { continue; }
+            if (st.isSymbolicLink()) throw new Error(`symbolic link in ${a}`);
+            if (!st.isFile()) continue;   // a submodule or a folder
             fs.mkdirSync(path.dirname(path.join(rt, f)), { recursive: true });
             fs.copyFileSync(a, path.join(rt, f));
+            copied++;
         }
+        console.log(`ps3recomp-vkgame working tree: ${copied} files${skipped ? `, ${skipped} under build/generated folders left out` : ""}` +
+                    (dirty ? ` (HEAD ${head.slice(0, 12)} + uncommitted changes)` : ""));
     } else {
         const archive = path.join(OUT, "ps3recomp-head.tar");
         fs.writeFileSync(archive, git(RUNTIME, "archive", "--format=tar", "HEAD"));
@@ -110,6 +133,30 @@ function main() {
     copyTree(PIPELINE, path.join(STAGE, "pipeline"));
     // --with-pcmenu: the page generator and its five reader modules as tools/pcmenu holds them (never a generated folder)
     const parts = ["port-vkgame", "ps3recomp", "pipeline"];
+    // tools\: what the install runs from <src>\tools (build_spu_overlay.py: ROOT = parents[1] = <src>, so its lifter is
+    // <src>\ps3recomp\tools\spu_lifter.py and wrap_spu_elf.py; it imports nothing else)
+    {
+        const to = path.join(STAGE, "tools");
+        fs.mkdirSync(to, { recursive: true });
+        for (const n of PROJECT_TOOLS) fs.copyFileSync(path.join(ROOT, "tools", n), path.join(to, n));
+        for (const n of ["spu_lifter.py", "wrap_spu_elf.py"])
+            if (!fs.existsSync(path.join(rt, "tools", n))) throw new Error(`build_spu_overlay.py needs ps3recomp/tools/${n}: not in the snapshot`);
+        parts.push("tools");
+    }
+    // cockpit-tool\: the cockpit camera lists (code) and the shipped positions (camera offsets only, checked here)
+    {
+        const to = path.join(STAGE, "cockpit-tool");
+        fs.mkdirSync(to, { recursive: true });
+        for (const n of fs.readdirSync(COCKPIT)) if (/\.(py|json)$/.test(n)) fs.copyFileSync(path.join(COCKPIT, n), path.join(to, n));
+        const pos = JSON.parse(fs.readFileSync(path.join(to, "cockpit_positions.default.json"), "utf8"));
+        for (const [veh, v] of Object.entries(pos)) {
+            if (!/^[a-z0-9_]+$/.test(veh)) throw new Error(`cockpit_positions.default.json: odd vehicle name ${veh}`);
+            for (const [k, x] of Object.entries(v))
+                if (!["x", "dy", "dz", "pitch", "yaw", "focal"].includes(k) || typeof x !== "number")
+                    throw new Error(`cockpit_positions.default.json: ${veh}.${k} is not a camera offset`);
+        }
+        parts.push("cockpit-tool");
+    }
     if (withPcmenu) {
         const to = path.join(STAGE, "pcmenu-tool");
         fs.mkdirSync(to, { recursive: true });

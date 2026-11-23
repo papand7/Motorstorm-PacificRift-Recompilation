@@ -37,6 +37,7 @@ let svcState = null;   // its last state event
 let game = null;       // the running game process
 let dumper = null;     // the game running to save its textures
 let packer = null;     // texpack.py making the pack
+let packOpts = null;   // its { scale, pbr }
 let collector = null;  // texcollect.py saving every texture from the player's archive (no game running)
 const TEXCOLLECT = RES ? path.join(RES, 'tools', 'texcollect', 'texcollect.py')
                        : path.resolve(__dirname, '..', '..', 'tools', 'texcollect', 'texcollect.py');
@@ -104,7 +105,14 @@ function startGame(which, extraEnv) {
     const env = { ...process.env, ...(b.env || {}), ...extraEnv };
     if (!env.PS3_VFS_ROOT && !readCfg().PS3_VFS_ROOT) { const p = playInfo(); if (p && p.vfs_root) env.PS3_VFS_ROOT = p.vfs_root; }
     if (!env.PS3_GAMEDATA_ROOT) env.PS3_GAMEDATA_ROOT = path.join(PLAY, 'saves', 'v100');
-    return spawn(path.join(PLAY, b.exe), [b.elf], { cwd: PLAY, env, windowsHide: false, stdio: 'ignore' });
+    // the launcher's icon for the game window (the game looks for game.ico beside its exe)
+    try { fs.copyFileSync(path.join(__dirname, 'assets', 'icon.ico'), path.join(PLAY, 'game.ico')); } catch { /* no icon */ }
+    // the game's own log (stdout and stderr), replaced each run, for reports and tuning
+    let out = 'ignore';
+    try { out = fs.openSync(path.join(PLAY, 'game.log'), 'w'); } catch { /* read-only folder: no log */ }
+    const child = spawn(path.join(PLAY, b.exe), [b.elf], { cwd: PLAY, env, windowsHide: false, stdio: ['ignore', out, out] });
+    if (typeof out === 'number') fs.closeSync(out);
+    return child;
 }
 function play(which = 'stable') {
     if (game || dumper) return { ok: false, message: 'The game is already running.' };
@@ -137,7 +145,8 @@ function runPacker(args) {
 }
 function texturesInfo() {
     const count = dir => { try { return fs.readdirSync(dir).filter(n => /\.dds$/i.test(n)).length; } catch { return 0; } };
-    return { dumped: count(DUMP), pack: count(PACK), folder: PACK, playing: !!game, making: !!packer, collecting: !!dumper, collectingAll: !!collector };
+    return { dumped: count(DUMP), pack: count(PACK), folder: PACK, playing: !!game, making: !!packer, collecting: !!dumper, collectingAll: !!collector,
+             packOpts: packer ? packOpts : null };   // the running job's Size / PBR, so the page shows what it is making
 }
 // the game's files (the folder holding MS2.PSARC): the install's file root, or the one the player set
 function gameFiles() {
@@ -253,7 +262,9 @@ ipcMain.handle('textures:pack', (_, o) => {
     fs.mkdirSync(PACK, { recursive: true });
     const args = ['upscale', '--dump', DUMP, '--pack', PACK, '--scale', String(o.scale === 2 ? 2 : 4)];
     if (o.pbr) args.push('--pbr');
-    return runPacker(args);
+    const r = runPacker(args);
+    if (r.ok) packOpts = { scale: o.scale === 2 ? 2 : 4, pbr: !!o.pbr };
+    return r;
 });
 ipcMain.handle('textures:collectall', () => runCollectAll());
 ipcMain.handle('textures:stop', () => {

@@ -8,7 +8,8 @@ Run by the launcher's install service (the launcher's own Python), from the unpa
 <src> holds ps3recomp/ (the runtime and its tools), port-vkgame/ and pipeline/. Outputs go under <src>/generated/:
 
   generated/meta/                      EBOOT_100.* (find_functions.py, gen_imports.py)
-  generated/ppu-100/                   the 1.00 PPU lift (ppu_lifter.py --trace-hooks), then mspr_patch_lifted.py
+  generated/ppu-100/                   the 1.00 PPU lift (ppu_lifter.py --trace-hooks), then the port's hook patches
+                                       (mspr_patch_lifted.py and the rest of PATCHES_100 below)
   generated/spu_raw/wws_job_pm/        the Wws_Job policy module, cut from the 1.00 ELF at 0x00FFCC80 and lifted
   generated/spu_raw/wws_reloc_v100/    the relocatable Wws job modules of the 1.00 ELF (lift_wws_reloc.py --ctor)
 
@@ -26,6 +27,16 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# the 1.00 lift's hook patches after mspr_patch_lifted.py (launcher copies of the generated/analysis tools the
+# developer builds use; the port's main.cpp / pc_menu.cpp define the functions they call):
+PATCHES_100 = [
+    'slice_patch_lifted.py',          # the main thread's per-frame task slice (MSPR_SLICE_MS)
+    'cam_patch_lifted.py',            # camera rate and shake (MSPR_CAM, above 30 FPS)
+    'dist_patch_lifted.py',           # draw, LOD and shadow distances (the lod setting)
+    'unlockall_lifted.py',            # Cheats: unlockvehicles, unlocktracks
+    'pcmenu_lifted.py',               # the in-game PC Settings pages (pcmenu_lookup, pcmenu_page_load)
+    'cockpit_tune_patch_ppucc.py',    # cockpit camera live tuning and saved positions (after cam_patch_lifted.py)
+]
 
 
 def sha256(path):
@@ -107,8 +118,10 @@ def lift_ppu(tools, py, elf, tag, out, meta, jobs):
          '--jobs', str(jobs), '--trace-hooks'])
     step(f'applying the {tag} PC patches (MSPR_PATCH switches)')
     run([py, HERE / 'mspr_patch_lifted.py', out])
-    if 'v103' not in out.name:   # 1.00: the main thread's per-frame task slice (MSPR_SLICE_MS)
-        run([py, HERE / 'slice_patch_lifted.py', out])
+    if 'v103' not in out.name:   # 1.00: the port's other hooks, in this order (each asserts its own counts)
+        step(f'applying the {tag} PC hooks (settings pages, cheats, camera, detail, cockpit)')
+        for script in PATCHES_100:
+            run([py, HERE / script, out])
 
 
 def main():
