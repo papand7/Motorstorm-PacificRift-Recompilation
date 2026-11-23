@@ -1,148 +1,126 @@
-# MotorStorm: Pacific Rift, PC
+# MotorStorm: Pacific Rift for PC
 
-A native PC port of **MotorStorm: Pacific Rift** (PlayStation 3, 2008), built by recompiling the game's own code ahead
-of time, with an upscaling pipeline and PC settings. For **Windows x64**. **Version 0.2.0, ALPHA.**
+A PC version of **MotorStorm: Pacific Rift**, the 2008 PlayStation 3 racer. Race ATVs, buggies and trucks through the
+Pacific Rift jungle, beaches and canyons, as in the original.
 
-> [!WARNING]
-> **ALPHA.** Expect crashes, graphical faults and missing features (see [Known issues](#known-issues)). Report what
-> you see with the launcher's log.
-
-> [!NOTE]
-> **No game files are included.** The launcher runs only with your own copy of the game: your own disc image or
-> disc folder and your own decrypted program file (`EBOOT.elf`) of version 1.00. The launcher never ships or
-> decrypts game data.
-
-## What it is
-
-The PS3 game's PowerPC and Cell SPU code is translated ahead of time into C++ and built into a native Windows
-program. The PS3 system calls the game makes are provided by an independently written compatibility layer, and the
-RSX graphics commands are drawn with Direct3D 12 or Vulkan. The game's logic, physics and AI are the original code,
-not approximations.
+This is an early version (0.2.0, alpha). It runs on Windows 10 and 11 (64-bit). You need your own copy of the game.
 
 <table>
 <tr><th>Original lighting, game's own shadows</th><th>Reflections on the sea and cars (Enhanced)</th></tr>
 <tr><td><img src="docs/screenshots/race-original-lighting.png" alt="Race with the game's own shadows"></td><td><img src="docs/screenshots/race-reflections.png" alt="Race with screen-space reflections"></td></tr>
 </table>
 
+> [!IMPORTANT]
+> **No game files are included.** You need your own copy of the game and your own decrypted program file (`EBOOT.elf`,
+> version 1.00). The launcher checks your files and builds the game on your PC. Nothing from the game is downloaded or
+> shared.
+
 ## What you need
 
-- Windows 10 or 11, 64-bit, with a graphics card and driver that support Vulkan.
-- Your own copy of the game (the US disc, BCUS98155): an `.iso` image, or a folder with `PS3_GAME` in it.
-- Your own decrypted `EBOOT.elf` of version 1.00 (the disc's), made from your own console. No update is needed. The
-  launcher checks the file by its SHA-256 and refuses anything that does not match.
-- Free disk space for the tools, the build and the game files, and an internet connection for the first install.
-  The launcher downloads its tools from their publishers, checks each download's SHA-256, and asks you to accept
-  Microsoft's terms before it installs the Visual C++ and Windows SDK libraries.
+- Windows 10 or 11, 64-bit.
+- A graphics card and driver that support **Vulkan**.
+- Your copy of the game (the US disc, BCUS98155), as an `.iso` file or a folder with `PS3_GAME` in it.
+- Your `EBOOT.elf` of version 1.00, taken from your own console. No update is needed.
+- Free disk space for the build and the game files, and an internet connection for the first install. The launcher downloads its build
+  tools from their makers and checks each file.
 
 ## Install
 
-1. Download `MotorStormPacificRift.exe` (a portable exe, nothing to unzip) from the
-   [latest release](https://github.com/papand7/motorstorm-pacific-rift-native/releases/latest) into a folder of your own.
-2. Run `MotorStormPacificRift.exe`.
-3. Choose your disc and your 1.00 `EBOOT.elf`, and press **Install**. The launcher builds the game on your PC (the
-   first build takes 30 to 90 minutes). It writes everything under a `MotorStorm\` folder beside the exe.
+1. Download `MotorStormPacificRift.exe` from the
+   [latest release](https://github.com/papand7/motorstorm-pacific-rift-native/releases/latest). It is portable: put it in
+   a folder of your own, nothing to unzip.
+2. Run it and choose your game disc and your `EBOOT.elf`.
+3. Press **Install**. The first install takes 30 to 90 minutes. It starts the game briefly once, to capture some
+   game code. Do not close the launcher during the install.
 4. Press **Play** when the install is done.
 
-The install's last steps run the game once briefly to capture an SPU code overlay, then make the in-game PC Settings
-pages and the cockpit camera lists from your own game files. Install again after updating the launcher: the PC
-Settings pages must match the new exe.
+Everything is kept in a `MotorStorm` folder beside the launcher. If you update the launcher, install again so the
+in-game settings pages match.
 
-The launcher keeps a `launcher.log` with every command it ran and its output. Include it when you report a problem.
+If something goes wrong, the launcher writes `launcher.log`. Send that file when you report a problem.
+
+## Controls
+
+The default keys are below. Every action can be changed in **Options > PC Settings > Keyboard** or in the launcher's
+Settings page.
+
+| Action | Key |
+|---|---|
+| Accelerate | W or 2 |
+| Brake / reverse | S or 1 |
+| Steer left / right | A / D |
+| Handbrake | Space |
+| Cross button (skip, boost) | Enter or Ctrl |
+| Punch left / right | Q / E |
+| Camera | C |
+| Pause | P or Esc |
+
+Esc pauses the game and does not quit it. A racing wheel and gamepad also work. The on-screen button icons change to
+show the keys you have set.
 
 ## Settings
 
-The launcher's **Settings** page and the game's own **PC Settings** pages write to the same file, `play\settings.ini`.
+The launcher's **Settings** page and the game's own **PC Settings** pages change the same settings file.
 
-| Setting | Choices (default first or marked) |
-|---|---|
-| Display | Windowed (default) or Fullscreen |
-| Resolution | 720p (default), 1080p, 1440p, 2160p |
-| Frame rate | **30 FPS** (default, the original speed); 45, 60 and higher are **experimental** |
-| Vsync, dynamic resolution | Off by default |
-| Upscaling | Off by default. Upscaler **FSR 1** (default) or **FSR 3.1** (AMD FidelityFX; needs AMD's two DLLs beside the exe, which the install puts there, otherwise FSR 1 runs) |
-| HDR | Off (default) or On |
-| Lighting | **Enhanced** (default, experimental: new lighting, ambient occlusion, screen-space reflections, tone mapping; the game's own shadows) or **Original** (the game's own lighting) |
-| Level of detail | Original (default), High, Ultra: finer models and objects farther out, at more CPU and GPU time |
-| Textures | **HD texture pack** (your own game's textures, upscaled on your PC) and **PBR materials** (needs a pack made with PBR maps); both Off by default |
-| Motion blur, anisotropic filtering | On / Original by default |
-| Button prompts | Keyboard (default), Controller or Auto: the game's button icons drawn as the keys you bound |
-| Racing wheel | Auto (default), Any Device, Off; steering range, deadzone, curve, pedals, force feedback (off by default) |
-| Keyboard bindings | All 13 actions, rebindable |
+| Setting | What it does | Default |
+|---|---|---|
+| Display | Windowed or fullscreen | Windowed |
+| Resolution | Picture size: 720p, 1080p, 1440p or 2160p | 720p |
+| Frame rate | 30 FPS matches the original. 45 and 60 FPS are experimental and can show glitches | 30 FPS |
+| Lighting | **Enhanced**: new lighting, ambient occlusion, reflections on water and car paint, tone mapping. **Original**: the game's own lighting | Enhanced |
+| Upscaling | Sharpens a lower-resolution picture. FSR 1, or FSR 3.1 if its files are beside the game | Off |
+| Level of detail | Finer models and objects in the distance, at a cost in speed | Original |
+| Textures | HD texture pack and PBR materials, made from your own game files on your PC | Off |
+| Racing wheel | Wheel steering range, pedals, curve and force feedback | Auto |
+| Button prompts | Keyboard icons for the keys you have set, or controller icons | Keyboard |
+| Motion blur, filtering, V-sync, HDR | Picture options | Original-style defaults |
 
-Every choice that needs a missing part (no FSR 3.1 DLLs, no HD pack) shows the reason on its page.
+Each setting shows a note on its page when something it needs is missing.
 
-The launcher's **Cheats** tab has two switches, both off by default: **Unlock all vehicles** (every vehicle class and
-ticket) and **Unlock all tracks** (the Free Play track list). They do not change your saves: turn one off and the game
-is as before.
+**Cheats** (launcher, **Cheats** tab, both off by default):
+- **Unlock all vehicles** opens every vehicle class and ticket.
+- **Unlock all tracks** opens the Free Play track list.
 
-## Features
+Turning a cheat off returns your saves to how they were.
 
-- **Native PC port:** the game's own code, compiled for Windows x64 ahead of time.
-- **Upscaling:** FSR 1 and FSR 3.1 (AMD FidelityFX).
-- **Enhanced lighting** (default, experimental): ambient occlusion (GTAO), screen-space reflections on water and car
-  paint, and tone mapping. Both lighting models are in the game and can be switched at any time.
-- **Level-of-detail** setting.
-- **HD texture pack** and **PBR materials:** your game's textures upscaled on your PC, applied when the pack is in place.
-- **PC Settings pages:** display, upscaling, graphics, racing wheel and keyboard settings in the game's own menus,
-  generated from your copy's data on your PC.
-- **Keyboard rebinding** for all 13 actions, and **PC key prompts:** the game's button icons show your keys.
-- **Racing wheels:** Thrustmaster and Logitech wheels (and other DirectInput wheels with Any Device), beside a gamepad.
-  The layouts are not yet checked on real hardware.
-- **Cockpit view:** a driver's-eye camera, reached with Select (C) like the other cameras. The install bakes in tuned
-  positions for one vehicle of each class; the others use per-class defaults. **Live tuning** while the cockpit view
-  is on: I / K forward and back, J / L left and right, T / G up and down, `.` / `,` pitch, M / N turn, O / U zoom
-  (Shift faster, Num0 finer); **F2** saves to `cockpit_positions.json` beside the game. The next Install keeps that
-  file and uses it.
-- **Cheats tab:** unlock all vehicles and the Free Play tracks.
+## Cockpit view
+
+Press **C** to cycle the cameras. The cockpit view puts you in the driver's seat. Some vehicles have tuned positions;
+the others use the default for their class. While the cockpit view is on, you can move the camera live:
+
+- **I / K**: forward and back
+- **J / L**: left and right
+- **T / G**: up and down
+- **, / .**: tilt
+- **M / N**: turn
+- **O / U**: zoom (hold Shift to go faster, Num 0 for finer steps)
+- **F2**: save your position. The next install keeps it.
 
 ## Known issues
 
-- **60 FPS and above are experimental:** camera and shadow artefacts (and some vehicle glitches). 30 FPS is the
-  default.
-- **Water too bright** in some races (Enhanced lighting).
-- **Shadows:** the world-fixed shadow tiles are not in this release (they do not yet draw shadows on the ground); the
-  game's own shadows are used.
-- **Button prompts:** the key-cap prompts are still being tested and may show the game's original icons.
-- **Garage vehicle-edit screen** may be blank (a fix is pending).
-- **Cheats:** Unlock all tracks covers the Free Play list only; the Festival and Time Trial lists are not unlocked.
-- **Exposure spikes:** the picture can briefly flash too bright or too dark.
+- **Shadows:** the game's own shadows are used. The new world shadows are not finished and are off in this release.
+- **Water** can look too bright in some races with Enhanced lighting.
+- **Garage:** the vehicle editing screen may show nothing. A fix is in progress.
+- **Cheats:** Unlock all tracks covers the Free Play list only. Festival and Time Trial lists stay locked.
+- **Exposure:** the picture can flash briefly too bright or too dark.
+- **60 FPS and above** can show camera and shadow glitches. 30 FPS is the recommended setting.
+- **Button prompts:** the keyboard key icons are still being tested and may show the original icons.
+- **Racing wheels:** supported, but not yet tested on real hardware.
 
 ## Not in this release
 
-- **Multiplayer:** no online or LAN play.
-- **Gamepad rebinding:** key bindings are keyboard-only.
+- Online and LAN multiplayer.
+- Gamepad rebinding (keys are changed on the keyboard only).
 
-## Building
+## Credits and licences
 
-The launcher is an Electron app in `launcher/electron/`. Its unit tests run with `node test_settings.js`. `npm run dist`
-builds the portable exe with the game's source snapshot (`source_bundles.js --with-pcmenu`: the port, the runtime's
-working tree, the lifting recipe and the install's tools, audited by `tools/audit_public.py --tree`). See
-[docs/LAUNCHER.md](docs/LAUNCHER.md).
+- **ps3recomp** by sp00nznet: the translation framework this port is built on (MIT).
+- **AMD FidelityFX** (FSR 1 and FSR 3.1), **DirectX Shader Compiler** (Microsoft), and the build tools the launcher
+  downloads from their makers.
 
-## Status
+The full list is in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). This project contains none of MotorStorm's game
+code or files. MotorStorm belongs to its owners; this port is not affiliated with Sony Interactive Entertainment or
+Evolution Studios.
 
-| Part | State |
-|---|---|
-| Launcher window and settings | Alpha: unit-tested settings file |
-| Install from your own files | Checked on the development PC (2026-11-23) from the release's source snapshot through the build step: source, shader compiler, translation with all PC hook patches, and the 1.00 build. The PC Settings and cockpit tools ran separately from the snapshot; the install step and the overlay capture (it starts the game) were not run in that check |
-| Game in the port | Alpha: see Known issues |
-
-Detailed records are in [docs/STATUS.md](docs/STATUS.md) and [docs/LAUNCHER.md](docs/LAUNCHER.md).
-
-## Credits
-
-- **ps3recomp** by sp00nznet, the static recompilation framework this port is built on (MIT). Pinned to the v0.15.0
-  revision.
-- **AMD FidelityFX** (FSR 1 and FSR 3.1), redistributed by the launcher's tool step with AMD's licence.
-- **DXC** (Microsoft), a shader compiler the install places beside the game.
-- **Electron**, **Clang/LLVM**, **CMake**, **Ninja**, **Python** and the Vulkan SDK components, each downloaded by the
-  launcher from its publisher.
-
-Third-party components and their licences: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
-
-## License
-
-The launcher's package is marked MIT (`launcher/electron/package.json`). No root `LICENSE` file has been added to this
-repository yet; the owner must confirm the project's licence before a public release. This project contains none of
-MotorStorm's code or files: MotorStorm is the property of its owners, and this port is not affiliated with Sony
-Interactive Entertainment or Evolution Studios.
+For developers: the build notes are in [docs/LAUNCHER.md](docs/LAUNCHER.md) and the status records in
+[docs/STATUS.md](docs/STATUS.md).
