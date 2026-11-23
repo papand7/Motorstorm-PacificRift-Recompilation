@@ -1,0 +1,52 @@
+{
+  "about": "What the launcher builds and the releases it accepts. Only SHA-256 hashes and sizes of the player's files are recorded here, never their content. The launcher does not decrypt: the player supplies the decrypted EBOOT.elf of the disc (1.00). eboot_elf is what that file must hash to.",
+  "title": "MotorStorm: Pacific Rift",
+  "exe": "MotorStormPacificRiftRecomp",
+  "discs": [
+    {
+      "name": "USA disc (BCUS98155, 1.00)",
+      "title_id": "BCUS98155",
+      "iso": {
+        "size": 13158055936,
+        "sha256": "4f05f3227199bc65cf4f28cc82ef2749bfe978685c75b576a112e426a9145872"
+      },
+      "eboot_elf": {
+        "size": 19047304,
+        "sha256": "bbb7fe2545e54847483439f59cda54e907db23a111d7afe9a1b655624886b287"
+      }
+    }
+  ],
+  "skip_files": [
+    "/PS3_UPDATE/PS3UPDAT.PUP"
+  ],
+  "builds": {
+    "stable": {
+      "version": "1.00",
+      "label": "Stable",
+      "exe": "MotorStormPacificRiftRecomp.exe",
+      "expect_entry_opd": "0x107B8D8",
+      "options": [
+        "PORT_ENABLE_SPU=ON",
+        "PORT_HLE_NIDS_GENERATE=ON",
+        "PS3RECOMP_RSX_VULKAN=ON",
+        "MSPR_WWS_AOT=ON",
+        "PORT_SPU_AVX2=ON",
+        "MSPR_PPU_INLINE_STORES=ON",
+        "PORT_PPU_VMX_INLINE=ON",
+        "PORT_PPU_GATELESS_LOADS=ON",
+        "PORT_PPU_LTO=ON",
+        "PORT_EXPECT_ENTRY_OPD=0x107B8D8"
+      ],
+      "spu_lifter_image_args": [
+        "spu_cbf1b1a19a3f3eb95183a55e5b65c2de6eef9e025fed16eed2a0a8f1c563dd6f=--chain-chunks",
+        "spu_0e193327f9cedb5cf569b211535978c6145d5f0d2d2e845d0f1e116f668d2dcd=--chain-chunks",
+        "spu_cbf1b1a19a3f3eb95183a55e5b65c2de6eef9e025fed16eed2a0a8f1c563dd6f=--chain-indirect",
+        "spu_0e193327f9cedb5cf569b211535978c6145d5f0d2d2e845d0f1e116f668d2dcd=--chain-indirect",
+        "spu_45c1b7bf045ac567a973f2b5c1fc62c90cbddebd5a1292296e07fc969a775177=--chain-chunks",
+        "spu_d51c6cebd3c35dfadd1c9fddaaa61c6721bd7913112fc1cb24933c8705c2683f=--chain-chunks",
+        "spu_266e45a8fd8d59f18fba05552cbaf9074e346188660a29f9fe5f62d9e15fef98=--chain-chunks",
+        "spu_83451471f1c85a7dea41d41c2d7936a04eb693d7269e25a24d405ad1a569a7cc=--chain-chunks"
+      ]
+    }
+  }
+}

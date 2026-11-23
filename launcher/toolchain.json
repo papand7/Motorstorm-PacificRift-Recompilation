@@ -1,0 +1,147 @@
+{
+  "about": "The build tools the launcher downloads into MotorStorm\\tools, each pinned by its SHA-256 and size. The Microsoft C++ libraries and Windows SDK come from the Visual Studio channel's manifest, which lists their SHA-256s (as in the NightFire launcher). Sizes and hashes of the GitHub assets are the digests GitHub's release API lists; python.org's and the Khronos tag archives were downloaded and hashed on 2026-11-13.",
+  "tools": [
+    {
+      "id": "python",
+      "title": "Python 3.14.0 (embeddable)",
+      "kind": "zip",
+      "url": "https://www.python.org/ftp/python/3.14.0/python-3.14.0-embed-amd64.zip",
+      "sha256": "8d4d3590c10449d78aa4375f534e6d5f3027d67fdc362dd1a882279db6f90fdf",
+      "size": 11994671,
+      "post": "python-embed"
+    },
+    {
+      "id": "llvm",
+      "title": "Clang 23.1.3",
+      "kind": "tar.zst",
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.3/clang%2Bllvm-23.1.3-x86_64-pc-windows-msvc.tar.zst",
+      "sha256": "7e69dc07a4536b79ff24a651a2611990bf8eaab17ea560f1092707c4f31ba01d",
+      "size": 276320456,
+      "strip": 1
+    },
+    {
+      "id": "cmake",
+      "title": "CMake 4.3.1",
+      "kind": "zip",
+      "url": "https://github.com/Kitware/CMake/releases/download/v4.3.1/cmake-4.3.1-windows-x86_64.zip",
+      "sha256": "03a610be931546474e46a442d171ef10532f4fc847de9cf76b7a8065bbef6a23",
+      "size": 52955398,
+      "strip": 1
+    },
+    {
+      "id": "ninja",
+      "title": "Ninja 1.13.2",
+      "kind": "zip",
+      "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
+      "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65",
+      "size": 291570
+    },
+    {
+      "id": "glslang-src",
+      "title": "glslang 16.2.0 source (Vulkan SDK 1.4.341.0)",
+      "kind": "file",
+      "save_as": "src.tar.gz",
+      "url": "https://github.com/KhronosGroup/glslang/archive/refs/tags/vulkan-sdk-1.4.341.0.tar.gz",
+      "sha256": "18cdf7d40a39001dde842c6a1338b2c9321ac5e487139b9d52b4b9c666da3c86",
+      "size": 4297511
+    },
+    {
+      "id": "spirv-tools-src",
+      "title": "SPIRV-Tools source (Vulkan SDK 1.4.341.0)",
+      "kind": "file",
+      "save_as": "src.tar.gz",
+      "url": "https://github.com/KhronosGroup/SPIRV-Tools/archive/refs/tags/vulkan-sdk-1.4.341.0.tar.gz",
+      "sha256": "15bfb678138cdf9cd1480dfb952547bbb66b763a735b6d5582578572f5c2e6f9",
+      "size": 3455701
+    },
+    {
+      "id": "spirv-headers-src",
+      "title": "SPIRV-Headers source (Vulkan SDK 1.4.341.0)",
+      "kind": "file",
+      "save_as": "src.tar.gz",
+      "url": "https://github.com/KhronosGroup/SPIRV-Headers/archive/refs/tags/vulkan-sdk-1.4.341.0.tar.gz",
+      "sha256": "cab0a654c4917e16367483296b44cdb1d614e3120c721beafcd37e3a8580486c",
+      "size": 561287
+    },
+    {
+      "id": "vulkan-headers-src",
+      "title": "Vulkan-Headers 1.4.341",
+      "kind": "file",
+      "save_as": "src.tar.gz",
+      "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.4.341.0.tar.gz",
+      "sha256": "d73bc5036b6556b741f6985ff600ca720308c5f2850e4a43ceb498bd3de069e7",
+      "size": 3058600
+    }
+  ],
+  "runtime": [
+    {
+      "id": "dxc",
+      "title": "DirectX Shader Compiler 1.9.2609 (ray-traced shadows)",
+      "kind": "zip",
+      "url": "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip",
+      "sha256": "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1",
+      "size": 32287592,
+      "include": ["bin/x64/dxc.exe", "bin/x64/dxcompiler.dll", "bin/x64/dxil.dll", "LICEN*"],
+      "install": { "to": "dxc", "files": ["bin/x64/dxc.exe", "bin/x64/dxcompiler.dll", "bin/x64/dxil.dll", "LICEN*"] }
+    },
+    {
+      "id": "fsr3-loader",
+      "title": "AMD FidelityFX FSR 3.1 loader (SDK v2.4.0)",
+      "kind": "file",
+      "save_as": "amd_fidelityfx_loader_vk.dll",
+      "url": "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/v2.4.0/Kits/FidelityFX/signedbin/amd_fidelityfx_loader_vk.dll",
+      "sha256": "38a56a01fb3565c0757d9f5c1e4e69de4b65e5f2e5769b323b200dc1f142bab9",
+      "size": 39184,
+      "install": { "to": ".", "files": ["amd_fidelityfx_loader_vk.dll"] }
+    },
+    {
+      "id": "fsr3-upscaler",
+      "title": "AMD FidelityFX FSR 3.1 upscaler (SDK v2.4.0)",
+      "kind": "file",
+      "save_as": "amd_fidelityfx_upscaler_vk.dll",
+      "url": "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/v2.4.0/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_vk.dll",
+      "sha256": "4a7e895af6e0b615d40a84d59eb8c2b1054ad91cdd0c739567940270d51bdab7",
+      "size": 36135696,
+      "install": { "to": ".", "files": ["amd_fidelityfx_upscaler_vk.dll"] }
+    },
+    {
+      "id": "fsr3-license",
+      "title": "AMD FidelityFX SDK license",
+      "kind": "file",
+      "save_as": "LICENSE-FidelityFX.md",
+      "url": "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/v2.4.0/Kits/FidelityFX/docs/license.md",
+      "sha256": "32357259b965d6a8001e9e508ba60eda6034027c5923a7d226ffbaff813c2bfb",
+      "size": 65770,
+      "install": { "to": "licenses", "files": ["LICENSE-FidelityFX.md"] }
+    }
+  ],
+  "vulkan": {
+    "stamp": "vulkan-sdk-1.4.341.0 glslang 16.2.0 SPIRV-Tools SPIRV-Headers Vulkan-Headers"
+  },
+  "msvc": {
+    "channel": "https://aka.ms/vs/17/release/channel",
+    "version": "14.44.17.14",
+    "packages": [
+      "Microsoft.VC.{v}.CRT.Headers.base",
+      "Microsoft.VC.{v}.CRT.x64.Desktop.base",
+      "Microsoft.VC.{v}.CRT.x64.Store.base",
+      "Microsoft.VC.{v}.CRT.Source.base"
+    ]
+  },
+  "sdk": {
+    "package": "Win11SDK_10.0.26100",
+    "version": "10.0.26100.0",
+    "msis": [
+      "Windows SDK Desktop Headers x64-x86_en-us.msi",
+      "Windows SDK Desktop Libs x64-x86_en-us.msi",
+      "Universal CRT Headers Libraries and Sources-x86_en-us.msi",
+      "Windows SDK for Windows Store Apps Headers-x86_en-us.msi",
+      "Windows SDK for Windows Store Apps Libs-x86_en-us.msi",
+      "Windows SDK OnecoreUap Headers x64-x86_en-us.msi",
+      "Windows SDK Desktop Headers x86-x86_en-us.msi",
+      "Windows SDK OnecoreUap Headers x86-x86_en-us.msi",
+      "Windows SDK for Windows Store Apps Headers OnecoreUap-x86_en-us.msi",
+      "Windows SDK Desktop Tools x64-x86_en-us.msi"
+    ]
+  }
+}

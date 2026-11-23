@@ -7,13 +7,14 @@ bytes, decoded instructions, or generated sources belong in public source.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS = ROOT / "ps3recomp" / "tools"
+TOOLS = Path(os.environ["SPU_OVERLAY_TOOLS"]) if os.environ.get("SPU_OVERLAY_TOOLS") else ROOT / "ps3recomp" / "tools"   # SPU_OVERLAY_TOOLS: another lifter checkout (e.g. ps3recomp-vkgame/tools for --chain-chunks)
 
 
 def fnv64(raw: bytes) -> int:
@@ -33,6 +34,11 @@ def main() -> int:
     ap.add_argument("--size", type=lambda s: int(s, 0), required=True)
     ap.add_argument("--extra-funcs", default="",
                     help="Comma-separated observed indirect LS targets")
+    ap.add_argument("--allow-data-words", action="store_true",
+                    help="Accept undecodable .word inside auto-detected functions (data "
+                         "tables in .text); executing one still logs [spu] UNSUPPORTED")
+    ap.add_argument("--lifter-arg", action="append", default=[],
+                    help="Extra spu_lifter.py argument, e.g. --lifter-arg=--chain-chunks (repeatable)")
     args = ap.parse_args()
     offset = args.entry - args.base
     if args.base < 0 or args.entry & 3 or offset < 0 or offset + 16 > args.size:
@@ -71,6 +77,8 @@ def main() -> int:
     stamp = {
         "input_sha256": digest.hex(), "base": args.base, "entry": args.entry,
         "size": args.size, "extra_entries": extra_entries,
+        "allow_data_words": args.allow_data_words,
+        **({"lifter_args": args.lifter_arg} if args.lifter_arg else {}),
         "tools_sha256": {name: hashlib.sha256((TOOLS / name).read_bytes()).hexdigest()
                          for name in ("wrap_spu_elf.py", "spu_lifter.py")},
         "builder_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -90,9 +98,12 @@ def main() -> int:
     subprocess.run([sys.executable, str(TOOLS / "spu_lifter.py"),
                     "--auto-functions", str(elf), "--extra-funcs", extra,
                     "--output", str(out), "--report", str(report),
-                    "--symbol-prefix", prefix], check=True)
+                    "--symbol-prefix", prefix] + list(args.lifter_arg), check=True)
     findings = json.loads(report.read_text(encoding="utf-8"))
-    if findings.get("unsupported"):
+    unsupported = dict(findings.get("unsupported") or {})
+    if args.allow_data_words:
+        unsupported.pop(".word", None)
+    if unsupported:
         raise SystemExit(f"[spu-overlay] unsupported instructions: {findings['unsupported']}")
     for name in ("spu_recomp.c", "spu_recomp.h"):
         source = out / name

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f9a63"/>
+      <stop offset="0.55" stop-color="#16603c"/>
+      <stop offset="1" stop-color="#082a1a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd24a"/>
+      <stop offset="0.55" stop-color="#f5821f"/>
+      <stop offset="1" stop-color="#e8590c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mud" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b4526"/>
+      <stop offset="1" stop-color="#2c1a0d"/>
+    </linearGradient>
+    <linearGradient id="mtxt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff9ec"/>
+      <stop offset="1" stop-color="#ffd9a3"/>
+    </linearGradient>
+    <clipPath id="rr"><rect width="512" height="512" rx="108"/></clipPath>
+    <path id="frond" d="M0 0 C60 -46 150 -52 230 -6 C150 -22 70 -14 0 0 Z M0 0 C70 -10 150 8 214 54 C140 30 70 14 0 0 Z"/>
+  </defs>
+  <g clip-path="url(#rr)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <circle cx="256" cy="210" r="190" fill="url(#sun)" opacity="0.95"/>
+    <!-- palm fronds from the top corners -->
+    <g fill="#04170d" opacity="0.92">
+      <use href="#frond" transform="translate(-10 -6) rotate(26) scale(1.25)"/>
+      <use href="#frond" transform="translate(-10 40) rotate(52) scale(1.1)"/>
+      <use href="#frond" transform="translate(-10 -20) rotate(4) scale(1.05)"/>
+      <use href="#frond" transform="translate(522 -6) scale(-1.25 1.25) rotate(26)"/>
+      <use href="#frond" transform="translate(522 40) scale(-1.1 1.1) rotate(52)"/>
+      <use href="#frond" transform="translate(522 -20) scale(-1.05 1.05) rotate(4)"/>
+    </g>
+    <!-- muddy ground and two tire tracks running to the horizon -->
+    <path d="M0 330 C140 300 372 300 512 330 L512 512 L0 512 Z" fill="url(#mud)"/>
+    <g fill="none" stroke-linecap="butt">
+      <path d="M205 322 C190 400 150 470 96 530" stroke="#3a2412" stroke-width="40"/>
+      <path d="M307 322 C322 400 362 470 416 530" stroke="#3a2412" stroke-width="40"/>
+      <path d="M205 322 C190 400 150 470 96 530" stroke="#c98a4b" stroke-width="40" stroke-dasharray="7 13" opacity="0.85"/>
+      <path d="M307 322 C322 400 362 470 416 530" stroke="#c98a4b" stroke-width="40" stroke-dasharray="7 13" opacity="0.85"/>
+    </g>
+    <!-- the M -->
+    <text x="256" y="318" text-anchor="middle" font-family="'Arial Black','Segoe UI Black',Impact,sans-serif" font-weight="900"
+          font-size="270" fill="#1a0d05" opacity="0.55" transform="translate(5 7)">M</text>
+    <text x="256" y="318" text-anchor="middle" font-family="'Arial Black','Segoe UI Black',Impact,sans-serif" font-weight="900"
+          font-size="270" fill="url(#mtxt)" stroke="#e8590c" stroke-width="9" paint-order="stroke">M</text>
+  </g>
+  <rect x="4" y="4" width="504" height="504" rx="104" fill="none" stroke="#ffd24a" stroke-opacity="0.55" stroke-width="5"/>
+</svg>

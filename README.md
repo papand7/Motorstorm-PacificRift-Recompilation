@@ -1,236 +1,148 @@
-<p align="center">
-  <img src="docs/media/banner.svg" alt="MotorStorm: Pacific Rift native PC recompilation" width="100%">
-</p>
+# MotorStorm: Pacific Rift, PC
 
-<h1 align="center">MotorStorm: Pacific Rift — Native PC Recompilation</h1>
-
-<p align="center">
-  <strong>An experimental native Windows recompilation of the PlayStation 3 racing game, focused on accuracy, performance and preservation.</strong>
-</p>
-
-<p align="center">
-  <img alt="Status: experimental" src="https://img.shields.io/badge/status-experimental-orange">
-  <img alt="Platform: Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-0078D6">
-  <img alt="Renderer: Direct3D 12" src="https://img.shields.io/badge/renderer-Direct3D%2012-5C2D91">
-  <img alt="Source: PlayStation 3" src="https://img.shields.io/badge/source-PlayStation%203-003791">
-  <img alt="Toolchain: ps3recomp" src="https://img.shields.io/badge/toolchain-ps3recomp-2E8B57">
-</p>
+A native PC port of **MotorStorm: Pacific Rift** (PlayStation 3, 2008), built by recompiling the game's own code ahead
+of time, with an upscaling pipeline and PC settings. For **Windows x64**. **Version 0.2.0, ALPHA.**
 
 > [!WARNING]
-> **Experimental — Work in Progress. Not yet a playable release.**
-> The original game reaches a race and renders it, but at roughly 4–5 frames per second, with known image
-> faults and unverified simulation timing. There are no binaries to download, and none will be distributed.
+> **ALPHA.** Expect crashes, graphical faults and missing features (see [Known issues](#known-issues)). Report what
+> you see with the launcher's log.
 
----
+> [!NOTE]
+> **No game files are included.** The launcher runs only with your own copy of the game: your own disc image or
+> disc folder and your own decrypted program file (`EBOOT.elf`) of version 1.00. The launcher never ships or
+> decrypts game data.
 
-## Contents
+## What it is
 
-- [Overview](#overview)
-- [Current status](#current-status)
-- [Screenshots](#screenshots)
-- [Architecture](#architecture)
-- [Performance and fidelity](#performance-and-fidelity)
-- [Building](#building)
-- [Development and debugging](#development-and-debugging)
-- [Roadmap](#roadmap)
-- [Repository layout](#repository-layout)
-- [Legal and attribution](#legal-and-attribution)
+The PS3 game's PowerPC and Cell SPU code is translated ahead of time into C++ and built into a native Windows
+program. The PS3 system calls the game makes are provided by an independently written compatibility layer, and the
+RSX graphics commands are drawn with Direct3D 12 or Vulkan. The game's logic, physics and AI are the original code,
+not approximations.
 
-## Overview
+<table>
+<tr><th>Original lighting, game's own shadows</th><th>Reflections on the sea and cars (Enhanced)</th></tr>
+<tr><td><img src="docs/screenshots/race-original-lighting.png" alt="Race with the game's own shadows"></td><td><img src="docs/screenshots/race-reflections.png" alt="Race with screen-space reflections"></td></tr>
+</table>
 
-**Static recompilation** translates a program's machine code into source code for another platform ahead of time,
-once, and compiles it with a normal compiler. Here the PlayStation 3 game's PowerPC (PPU) code and its Cell
-SPU programs are lifted to C/C++ by [ps3recomp](https://github.com/sp00nznet/ps3recomp) and built into a native
-Windows x64 executable. The PS3 operating-system and library calls the game makes (threads, SPURS, file system,
-audio, pad, GCM graphics) are provided by an independently written compatibility runtime, and RSX graphics
-commands are translated to Direct3D 12.
+## What you need
 
-**How this differs from emulation.** An emulator decodes and executes guest instructions while the game runs.
-This project runs the *game's own logic, compiled natively*: the same functions, in the same order, with the same
-data — but no instruction decoding on the hot path (a small SPU interpreter remains as a fallback for code that is
-loaded at run time and not yet lifted).
+- Windows 10 or 11, 64-bit, with a graphics card and driver that support Vulkan.
+- Your own copy of the game (the US disc, BCUS98155): an `.iso` image, or a folder with `PS3_GAME` in it.
+- Your own decrypted `EBOOT.elf` of version 1.00 (the disc's), made from your own console. No update is needed. The
+  launcher checks the file by its SHA-256 and refuses anything that does not match.
+- Free disk space for the tools, the build and the game files, and an internet connection for the first install.
+  The launcher downloads its tools from their publishers, checks each download's SHA-256, and asks you to accept
+  Microsoft's terms before it installs the Visual C++ and Windows SDK libraries.
 
-**Why original behaviour matters.** MotorStorm's handling, physics and AI are the game. The project never
-replaces them with approximations: no remade engine, no substitute physics, no skipped intro or forced menus.
-When something is wrong, the fix goes into the compatibility layer, with a focused regression test.
+## Install
 
-**Assets stay outside the repository.** The repository contains only original project source, tools and
-documentation. Each developer supplies their own game data locally; the decrypted executable, lifted source,
-game assets, firmware and every build output stay in Git-ignored folders and are never committed or uploaded.
+1. Download `MotorStormPacificRift.exe` (a portable exe, nothing to unzip) from the
+   [latest release](https://github.com/papand7/motorstorm-pacific-rift-native/releases/latest) into a folder of your own.
+2. Run `MotorStormPacificRift.exe`.
+3. Choose your disc and your 1.00 `EBOOT.elf`, and press **Install**. The launcher builds the game on your PC (the
+   first build takes 30 to 90 minutes). It writes everything under a `MotorStorm\` folder beside the exe.
+4. Press **Play** when the install is done.
 
-## Current status
+The install's last steps run the game once briefly to capture an SPU code overlay, then make the in-game PC Settings
+pages and the cockpit camera lists from your own game files. Install again after updating the launcher: the PC
+Settings pages must match the new exe.
 
-Every row below is backed by a dated entry in [`docs/STATUS.md`](docs/STATUS.md) or a task report. *Not verified*
-means no controlled run has established it yet.
+The launcher keeps a `launcher.log` with every command it ran and its output. Include it when you report a problem.
 
-| Area | State | Evidence and notes |
-|---|---|---|
-| PPU recompilation | ✅ Implemented | The whole decrypted executable is lifted ahead of time and links natively; original startup, frontend and races run. |
-| SPU execution | 🟡 Partial | 26 embedded SPU images and observed overlays run as AOT translations; the SPURS Wws job still runs in the SPU interpreter (relocatable AOT is on an agent branch). |
-| SPURS scheduling | 🟡 Partial | Host lanes, task sets, job chains and LFQueues run the original SPU work. Honouring the game's `maxContention` (five lanes) is on `agent/t134-…`. |
-| Direct3D 12 rendering | 🟡 Partial | Splash, Bink intro, frontend, garage and race scenes render. Open faults: shoreline surf band, right-edge window, single-sampled 2x MSAA targets (fixes are opt-in on agent branches). |
-| Texture loading | 🟡 Partial | Guest textures upload at level 0; mip chains and guest sampler state are opt-in (`RSX_TEX_MIPS`, `RSX_GUEST_SAMPLERS`). |
-| Shader translation | 🟡 Partial | Guest vertex and fragment programs are translated to HLSL; captured race frames bind no fallback pipelines. FP16/FX12 precision is opt-in (`RSX_FP_PRECISION`). |
-| Physics and simulation | ⚪ Not verified | Original code runs unmodified, but at 4–5 FPS its timing against real hardware is unmeasured; `PS3_SIM_PACE` is an experiment. |
-| Audio | 🟡 Partial | WASAPI output; the Bink intro and in-game streams play through the guest mixer. Completeness and sync are not verified. |
-| Input | 🟡 Partial | XInput, a keyboard fallback and scripted pads (`PAD_SCRIPT`) reach the race; full controller mapping is not verified. |
-| Menus | 🟡 Partial | The main menu appears and a scripted route enters a race; interactive navigation of every page is not verified. |
-| Modding framework | 🔵 Planned | Begins after the original offline race is correct and measurable. |
-| Performance optimisation | 🧪 Experimental | Race ≈ 4–5 FPS (frames 193–243 ms) on an RTX 5060 + Ryzen 5 9600X. The critical path is one SPURS lane; candidate fixes await a controlled game run. |
+## Settings
 
-Legend: ✅ implemented · 🟡 partially implemented · 🧪 experimental · 🔵 planned · ⚪ not verified.
+The launcher's **Settings** page and the game's own **PC Settings** pages write to the same file, `play\settings.ini`.
 
-## Screenshots
-
-No screenshots are committed yet. Frames captured from the game show copyrighted game content, so they are added
-only after the owner approves each image (see [CONTRIBUTING.md](CONTRIBUTING.md#screenshots)). Mock-ups and
-generated images are never presented as gameplay.
-
-| Gameplay | Rendering development |
+| Setting | Choices (default first or marked) |
 |---|---|
-| *Placeholder — an approved race capture goes in `docs/media/screenshots/`* | *Placeholder — an approved RSX diagnostic capture* |
+| Display | Windowed (default) or Fullscreen |
+| Resolution | 720p (default), 1080p, 1440p, 2160p |
+| Frame rate | **30 FPS** (default, the original speed); 45, 60 and higher are **experimental** |
+| Vsync, dynamic resolution | Off by default |
+| Upscaling | Off by default. Upscaler **FSR 1** (default) or **FSR 3.1** (AMD FidelityFX; needs AMD's two DLLs beside the exe, which the install puts there, otherwise FSR 1 runs) |
+| HDR | Off (default) or On |
+| Lighting | **Enhanced** (default, experimental: new lighting, ambient occlusion, screen-space reflections, tone mapping; the game's own shadows) or **Original** (the game's own lighting) |
+| Level of detail | Original (default), High, Ultra: finer models and objects farther out, at more CPU and GPU time |
+| Textures | **HD texture pack** (your own game's textures, upscaled on your PC) and **PBR materials** (needs a pack made with PBR maps); both Off by default |
+| Motion blur, anisotropic filtering | On / Original by default |
+| Button prompts | Keyboard (default), Controller or Auto: the game's button icons drawn as the keys you bound |
+| Racing wheel | Auto (default), Any Device, Off; steering range, deadzone, curve, pedals, force feedback (off by default) |
+| Keyboard bindings | All 13 actions, rebindable |
 
-## Architecture
+Every choice that needs a missing part (no FSR 3.1 DLLs, no HD pack) shows the reason on its page.
 
-```mermaid
-flowchart LR
-    subgraph Input["User-supplied, local only"]
-        ISO["Game disc image"] --> ELF["Decrypted EBOOT.elf"]
-        ISO --> DATA["Game data: PSARC archives, Bink video, audio"]
-    end
+The launcher's **Cheats** tab has two switches, both off by default: **Unlock all vehicles** (every vehicle class and
+ticket) and **Unlock all tracks** (the Free Play track list). They do not change your saves: turn one off and the game
+is as before.
 
-    subgraph AOT["Ahead-of-time translation, build time"]
-        ELF --> PPUL["ppu_lifter: PPU to C++"]
-        ELF --> SPUL["spu_lifter: embedded SPU images to C"]
-        PPUL --> EXE["Native x64 executable, clang-cl"]
-        SPUL --> EXE
-    end
+## Features
 
-    subgraph RT["ps3recomp compatibility runtime, run time"]
-        EXE --> PPU["PPU threads on host threads"]
-        PPU --> SYS["LV2 syscalls and HLE libraries"]
-        PPU --> SPURS["SPURS kernel and lanes"]
-        SPURS --> SPU["SPU AOT code, interpreter fallback"]
-        PPU --> GCM["cellGcm command buffer"]
-        GCM --> RSX["RSX FIFO decoder"]
-        MEM[("Guest memory, 4 GiB reservation")]
-        PPU <--> MEM
-        SPU <-->|DMA| MEM
-        RSX <--> MEM
-        SYS -.->|"event flags, queues, semaphores"| SPURS
-    end
+- **Native PC port:** the game's own code, compiled for Windows x64 ahead of time.
+- **Upscaling:** FSR 1 and FSR 3.1 (AMD FidelityFX).
+- **Enhanced lighting** (default, experimental): ambient occlusion (GTAO), screen-space reflections on water and car
+  paint, and tone mapping. Both lighting models are in the game and can be switched at any time.
+- **Level-of-detail** setting.
+- **HD texture pack** and **PBR materials:** your game's textures upscaled on your PC, applied when the pack is in place.
+- **PC Settings pages:** display, upscaling, graphics, racing wheel and keyboard settings in the game's own menus,
+  generated from your copy's data on your PC.
+- **Keyboard rebinding** for all 13 actions, and **PC key prompts:** the game's button icons show your keys.
+- **Racing wheels:** Thrustmaster and Logitech wheels (and other DirectInput wheels with Any Device), beside a gamepad.
+  The layouts are not yet checked on real hardware.
+- **Cockpit view:** a driver's-eye camera, reached with Select (C) like the other cameras. The install bakes in tuned
+  positions for one vehicle of each class; the others use per-class defaults. **Live tuning** while the cockpit view
+  is on: I / K forward and back, J / L left and right, T / G up and down, `.` / `,` pitch, M / N turn, O / U zoom
+  (Shift faster, Num0 finer); **F2** saves to `cockpit_positions.json` beside the game. The next Install keeps that
+  file and uses it.
+- **Cheats tab:** unlock all vehicles and the Free Play tracks.
 
-    subgraph Host["Windows host"]
-        RSX --> D3D["Direct3D 12 backend: HLSL shaders, render targets, present"]
-        SYS --> WAS["WASAPI audio"]
-        SYS --> PAD["XInput and keyboard"]
-        SYS --> FS["File system: VFS root"]
-    end
+## Known issues
 
-    DATA --> FS
-```
+- **60 FPS and above are experimental:** camera and shadow artefacts (and some vehicle glitches). 30 FPS is the
+  default.
+- **Water too bright** in some races (Enhanced lighting).
+- **Shadows:** the world-fixed shadow tiles are not in this release (they do not yet draw shadows on the ground); the
+  game's own shadows are used.
+- **Button prompts:** the key-cap prompts are still being tested and may show the game's original icons.
+- **Garage vehicle-edit screen** may be blank (a fix is pending).
+- **Cheats:** Unlock all tracks covers the Free Play list only; the Festival and Time Trial lists are not unlocked.
+- **Exposure spikes:** the picture can briefly flash too bright or too dark.
 
-The PPU, SPU and RSX sides share one guest address space, exactly as on the console; synchronisation goes
-through the game's own primitives (event flags, LFQueues, GCM labels and flips). Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+## Not in this release
 
-## Performance and fidelity
-
-| Goal | Meaning |
-|---|---|
-| Accurate original physics | The original simulation code runs unchanged; no constants, time steps or gameplay logic are altered. |
-| Correct guest timing | Guest timers, vblank and flip pacing behave as the game expects. |
-| Independent simulation and rendering | Where the game's design allows it, rendering cost must not slow the simulation (under study). |
-| Faithful RSX behaviour | Render targets, samplers, depth/stencil state and MSAA as the console performs them. |
-| Efficient PPU/SPU execution | AOT code everywhere, no host spinning, all SPURS lanes the game asks for. |
-
-**Long-term target:** 1280×720 at 60 FPS on AMD Radeon 890M-class integrated graphics.
-**Achieved today:** about 4–5 FPS in a race on an RTX 5060 desktop. The target is not met, and offline or synthetic
-benchmarks in task reports are never quoted as game frame rates.
+- **Multiplayer:** no online or LAN play.
+- **Gamepad rebinding:** key bindings are keyboard-only.
 
 ## Building
 
-> [!IMPORTANT]
-> A build needs your own legally obtained game data, decrypted on your own system. None is provided here.
+The launcher is an Electron app in `launcher/electron/`. Its unit tests run with `node test_settings.js`. `npm run dist`
+builds the portable exe with the game's source snapshot (`source_bundles.js --with-pcmenu`: the port, the runtime's
+working tree, the lifting recipe and the install's tools, audited by `tools/audit_public.py --tree`). See
+[docs/LAUNCHER.md](docs/LAUNCHER.md).
 
-| Requirement | Version used by the project |
+## Status
+
+| Part | State |
 |---|---|
-| OS | Windows 11 x64 (other Windows versions not tested) |
-| Compiler | Visual Studio 2026 x64 environment (MSVC linker, Windows SDK) and Clang 23 `clang-cl` |
-| Build tools | CMake, Ninja, Python 3, Node.js |
-| GPU | Direct3D 12 capable |
-| Framework | `ps3recomp/` checkout (base `0fe7dbf`, the v0.15.0 package; project changes on its MotorStorm branches) |
+| Launcher window and settings | Alpha: unit-tested settings file |
+| Install from your own files | Checked on the development PC (2026-11-23) from the release's source snapshot through the build step: source, shader compiler, translation with all PC hook patches, and the 1.00 build. The PC Settings and cockpit tools ran separately from the snapshot; the install step and the overlay capture (it starts the game) were not run in that check |
+| Game in the port | Alpha: see Known issues |
 
-Short version, from the workspace root:
+Detailed records are in [docs/STATUS.md](docs/STATUS.md) and [docs/LAUNCHER.md](docs/LAUNCHER.md).
 
-```powershell
-cmd /c tools\build_port.cmd          # full lift-to-link build of build\motorstorm
-cmd /c tools\build_incremental.cmd   # rebuild after source changes
-```
+## Credits
 
-`build_port.cmd` expects the decrypted executable at `generated\decrypted\EBOOT.elf` and the extracted disc in
-`original\game\`. Preparing those inputs, running the executable and the bounded probe scripts are covered step by
-step in [docs/BUILDING.md](docs/BUILDING.md).
+- **ps3recomp** by sp00nznet, the static recompilation framework this port is built on (MIT). Pinned to the v0.15.0
+  revision.
+- **AMD FidelityFX** (FSR 1 and FSR 3.1), redistributed by the launcher's tool step with AMD's licence.
+- **DXC** (Microsoft), a shader compiler the install places beside the game.
+- **Electron**, **Clang/LLVM**, **CMake**, **Ninja**, **Python** and the Vulkan SDK components, each downloaded by the
+  launcher from its publisher.
 
-## Development and debugging
+Third-party components and their licences: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-The runtime is configured through environment variables; all of them default to the original behaviour unless
-stated otherwise. Many live only on agent branches until they are integrated — check the branch before relying
-on one.
+## License
 
-| Switch | Effect | Branch |
-|---|---|---|
-| `PS3_CRITICAL_PATH_TRACE` | Streams a PPU/SPU/RSX timeline; analyse with `ps3recomp/tools/cpath_report.py` | `agent/t134-ppu-spu-critical-path` |
-| `PS3_SPURS_GUEST_MAXCONT` | `0` restores one Wws lane (default there: the game's `maxContention`) | `agent/t134-…` |
-| `PS3_SPURS_EVENT_SCHED` | Event-driven SPURS lane wake-up (opt-in) | `agent/t134-…` |
-| `PS3_SIM_PACE` | Simulation pacing experiment | `agent/t132b-framerate-independent` |
-| `PS3_TEX_SNAPSHOT_EPOCH` | Skips re-hashing unchanged texture snapshots | `agent/t122-…`, `agent/t134-…` |
-| `RSX_TEX_MIPS` | Uploads full guest mip chains | `agent/t133-…`, `agent/t137-…` |
-| `RSX_GUEST_SAMPLERS` | Honours guest sampler state per texture unit | T113 line and later |
-| `RSX_RT_WINDOW` | Samples render targets through the guest's declared window | `agent/t120-…`, T133, T137 |
-| `RSX_DEPTH_STATE` | Applies guest depth-write, compare and stencil state | `agent/t120-…`, T133, T137 |
-| `RSX_FP_PRECISION` | Clamps FX12/FX9/FP16 fragment results | `agent/t133-…`, T137 |
-| `RSX_MSAA` | Renders the game's 2x MSAA targets multisampled | `agent/t137-rsx-msaa-fidelity` |
-
-More switches, test suites and the trace tools: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Working rules for the
-AI coding agents that develop the project: [AGENTS.md](AGENTS.md), [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) and
-[docs/GITHUB_WORKFLOW.md](docs/GITHUB_WORKFLOW.md) (fetching, publishing and pull requests).
-
-## Roadmap
-
-1. Stable race execution
-2. Accurate RSX image quality
-3. Faster PPU/SPU execution
-4. Correct simulation timing
-5. Complete audio and input
-6. Optional graphics enhancements
-7. Modding support
-8. Broader hardware compatibility
-9. Packaging and installation (source-only, user-supplied data)
-
-No dates are promised. Detail and exit criteria: [docs/ROADMAP.md](docs/ROADMAP.md).
-
-## Repository layout
-
-| Path | Contents | In Git |
-|---|---|---|
-| `docs/` | Status log, research notes, architecture, build and workflow guides | yes |
-| `tools/` | Build, probe, analysis and audit scripts | yes |
-| `port/` | The MotorStorm port project (CMake, entry point, port-specific runtime glue) | yes, without lifted code |
-| `generated/analysis/<task>/` | Per-task reports and analysis scripts | reviewed `*.md` / `tools/*.py` only |
-| `ps3recomp/` | Recompiler and runtime (MotorStorm branches; public upstream is fetch-only) | separate private repository, see [REPOSITORY_STRUCTURE.md](docs/REPOSITORY_STRUCTURE.md) |
-| `original/`, `generated/`, `build/` | Game inputs, lifted code, captures, builds | **never** |
-
-## Legal and attribution
-
-This is an independent, unofficial technical project. It is **not affiliated with, endorsed by or sponsored by**
-Sony Interactive Entertainment, Evolution Studios or any MotorStorm rights holder. "MotorStorm", "PlayStation" and
-related names are trademarks of their respective owners and are used only to identify the software being studied.
-
-The repository does not contain, and must never contain, game files, firmware, decryption keys, extracted assets or
-code lifted from the game. You must supply your own legally obtained game data. Whether extracting, decrypting or
-using that data is lawful depends on your jurisdiction; owning a disc does not by itself authorise every method of
-extraction, circumvention or distribution. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
-
-Third-party components and their licences — ps3recomp (MIT), the vendored ATRAC decoder (LGPL-2.1-or-later) and the
-locally installed tools — are listed in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). Security reports:
-[SECURITY.md](SECURITY.md).
+The launcher's package is marked MIT (`launcher/electron/package.json`). No root `LICENSE` file has been added to this
+repository yet; the owner must confirm the project's licence before a public release. This project contains none of
+MotorStorm's code or files: MotorStorm is the property of its owners, and this port is not affiliated with Sony
+Interactive Entertainment or Evolution Studios.
