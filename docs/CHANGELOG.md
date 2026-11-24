@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-24 launcher 0.2.3 (alpha, install fix)
+
+- Install fix: the game build failed to link on Windows in 0.2.2 (an `/alternatename` conflict for `g_spu_coh_armed` from the 0.2.2 store-path coherence change). Fixed in the runtime (ps3recomp-vkgame commit e3b9a21e). Nothing else changed.
+
 ## 2026-11-24 launcher 0.2.2 (alpha)
 
 - Fidelity: the Lighting setting is named Fidelity (Original / Enhanced). Settings files keep working.
