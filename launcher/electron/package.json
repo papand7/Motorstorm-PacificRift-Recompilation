@@ -1,7 +1,7 @@
 {
   "name": "motorstorm-launcher",
   "productName": "MotorStorm Pacific Rift",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "MotorStorm: Pacific Rift on PC (native recompilation): builds the game from your own disc, its settings, HD textures",
   "main": "main.js",
   "private": true,

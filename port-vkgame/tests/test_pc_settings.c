@@ -102,6 +102,8 @@ int main(void)
         for (int c = 0; c < d->count; c++) {
             const char* got = env_for(i, c, "C:/game");
             if (d->env) {
+                /* hidden under the default Fidelity (Enhanced): sets nothing; the Original case is tested below */
+                if (!strcmp(d->key, "shadows")) { CHECK(!got); continue; }
                 if (c == d->def && !d->always) CHECK(!got);
                 else {
                     char want[1100];
@@ -355,6 +357,41 @@ int main(void)
   CHECK(pcs_env_switch("on") == 1);
   CHECK(pcs_env_switch("0") == 0);
   CHECK(pcs_env_switch("Off") == 0);
+
+    /* Shadows: a Graphics row, hidden unless Fidelity is Original, its choice kept while hidden,
+     * and its variable set only then (MSPR_NO_SHADOWS=1 with Off). */
+    {
+        const int sh = pcs_find("shadows"), lf = pcs_find("lighting");
+        CHECK(sh >= 0 && lf >= 0 && sh == lf + 1);
+        CHECK(k_pcs_defs[sh].env && !strcmp(k_pcs_defs[sh].env, "MSPR_NO_SHADOWS") && k_pcs_defs[sh].env2 == NULL);
+        CHECK(!strcmp(k_pcs_defs[sh].values[0], "0") && !strcmp(k_pcs_defs[sh].values[1], "1"));
+        CHECK(k_pcs_defs[sh].def == 0 && k_pcs_defs[sh].always == 0);
+        CHECK(k_pcp_pages[1].first <= sh && sh < k_pcp_pages[1].first + k_pcp_pages[1].rows);   /* Graphics page */
+        pcs_state t;
+        pcs_defaults(&t);
+        CHECK(t.idx[lf] == 1 && pcs_row_hidden(&t, sh));    /* the port's default Fidelity is Enhanced: hidden */
+        t.idx[lf] = 0;
+        CHECK(!pcs_row_hidden(&t, sh) && !pcs_row_hidden(&t, lf));   /* Original: shown */
+        t.idx[sh] = 1;
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("MSPR_NO_SHADOWS") && !strcmp(set_value("MSPR_NO_SHADOWS"), "1"));
+        t.idx[lf] = 1;                                       /* Enhanced: hidden, its choice kept, nothing set */
+        CHECK(pcs_row_hidden(&t, sh) && t.idx[sh] == 1);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("MSPR_NO_SHADOWS"));
+        t.idx[lf] = 0;                                       /* back to Original: the kept Off applies again */
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("MSPR_NO_SHADOWS") && !strcmp(set_value("MSPR_NO_SHADOWS"), "1"));
+        /* settings.ini: the label or the value, and the Original/Enhanced rule for the file's own lines */
+        pcs_defaults(&t);
+        pcs_parse(&t, "lighting = Original\nshadows = Off\n");
+        CHECK(t.idx[lf] == 0 && t.idx[sh] == 1 && !pcs_row_hidden(&t, sh));
+        pcs_parse(&t, "shadows = 0\n");
+        CHECK(t.idx[sh] == 0);
+    }
     printf("test_pc_settings: %d failure(s)\n", fails);
     return fails ? 1 : 0;
 }

@@ -3,7 +3,7 @@
 A PC version of **MotorStorm: Pacific Rift**, the 2008 PlayStation 3 racer. Race ATVs, buggies and trucks through the
 Pacific Rift jungle, beaches and canyons, as in the original.
 
-This is an early version (0.2.0, alpha). It runs on Windows 10 and 11 (64-bit). You need your own copy of the game.
+This is an early version (0.2.2, alpha). It runs on Windows 10 and 11 (64-bit). You need your own copy of the game.
 
 <p align="center"><img src="docs/screenshots/launcher.png" alt="The MotorStorm launcher" width="300"></p>
 
@@ -69,7 +69,8 @@ The launcher's **Settings** page and the game's own **PC Settings** pages change
 | Display | Windowed or fullscreen | Windowed |
 | Resolution | Picture size: 720p, 1080p, 1440p or 2160p | 720p |
 | Frame rate | 30 FPS matches the original. 45 and 60 FPS are experimental and can show glitches | 30 FPS |
-| Lighting | **Enhanced**: new lighting, ambient occlusion, reflections on water and car paint, tone mapping. **Original**: the game's own lighting | Enhanced |
+| Fidelity | **Enhanced**: new lighting, ambient occlusion, reflections on water and car paint, tone mapping. **Original**: the game's own lighting | Enhanced |
+| Shadows | Original only: Off skips the game's own shadows, for slower PCs. Reflections are not changed. Hidden with Enhanced | On |
 | Upscaling | Sharpens a lower-resolution picture. FSR 1, or FSR 3.1 if its files are beside the game | Off |
 | Level of detail | Finer models and objects in the distance, at a cost in speed | Original |
 | Textures | HD texture pack and PBR materials, made from your own game files on your PC | Off |
@@ -100,7 +101,8 @@ the others use the default for their class. While the cockpit view is on, you ca
 
 ## Known issues
 
-- **Shadows:** the game's own shadows are used. The new world shadows are not finished and are off in this release.
+- **Shadows:** the game's own shadows are used. The new world shadows are not finished and are off in this release. Some shadows can seem to follow the camera with Enhanced fidelity; under review.
+- **Blocky fire** on burning vehicles: under investigation.
 - **Water** can look too bright in some races with Enhanced lighting.
 - **Garage:** the vehicle editing screen may show nothing. A fix is in progress.
 - **Cheats:** Unlock all tracks covers the Free Play list only. Festival and Time Trial lists stay locked.

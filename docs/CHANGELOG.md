@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-24 launcher 0.2.2 (alpha)
+
+- Fidelity: the Lighting setting is named Fidelity (Original / Enhanced). Settings files keep working.
+- Shadows: new Graphics row "Shadows" (Original only; hidden with Enhanced). Off skips the game's own shadow casters. Reflections are unchanged.
+- Speed: SPU hardware float is on by default (`PS3_SPU_HWFLOAT=1`), with a fix for a nested-run bug. CPUs without FMA3 fall back safely.
+- Runtime: inline coherence check on the store path; table-based SPU instruction decode.
+- Launcher: install folders with spaces (such as C:\Games\MotorStorm - Pacific Rift) no longer break the shader build.
+- Cockpit camera at the rider's eye (from 0.2.1).
+
+
+- SPU float: `PS3_SPU_HWFLOAT=1` is on by default in the launcher's play environment (`builder.js`, `play.json`). A CPU without FMA3 falls back to the exact helpers. Fixed a nested-run bug in `spu_hwfloat.h`: a nested `spu_run_with_halt` overwrote the saved host MXCSR and did not restore it (`test_spu_hwfloat_nested_host` fails without the fix, passes with it). See `docs/SETTINGS.md`.
+- Runtime: `VM_WRITE_COH` tests the reserved-line bitmap inline (`vm_coh_line_marked`, same test as `spu_coh_line_marked`) instead of calling `spu_coh_is_reserved` (`test_vm_write_coh_inline`).
+- SPU interpreter: opcode decode uses a 2048-entry table indexed by the top 11 bits, built once. Checked against the old cascade for all 2048 prefixes and 4 million words (`test_spu_interp_decode`).
+
 ## 2026-11-23 launcher 0.2.1 (alpha, fixes 0.2.0)
 
 - Launcher: 0.2.0 shipped with a syntax error in `ui/app.js` (an apostrophe in a single-quoted string), so no button worked. Fixed; use 0.2.1.

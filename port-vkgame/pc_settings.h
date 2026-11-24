@@ -118,10 +118,16 @@ static const pcs_def k_pcs_defs[] = {
       "MSPR_CULL_SCALE", { "", "0.5", "0.25" } },
     /* Enhanced: the lit-program rewrite, tone curve, ground toe, AO and screen-space shadows (RSX_LIGHTING,
      * rsx_light.h / rsx_vk_scenefx.h); pc_menu.cpp adds the world-fixed shadow tiles it uses. */
-    { "lighting", "Lighting", "RSX_LIGHTING", 2, 1, 1, 0,
+    { "lighting", "Fidelity", "RSX_LIGHTING", 2, 1, 1, 0,
       { "Original", "Enhanced" }, { "0", "1" },
       "Enhanced (experimental): new lighting, AO and tone mapping. Original is the game's own lighting.", 1,
       NULL, { NULL } },
+    /* Off skips the game's own shadow casters (rsx_shadow_off.h, MSPR_NO_SHADOWS, original lighting only). Shown
+     * only with Fidelity Original (pcs_row_hidden); the choice is kept while it is hidden. Reflections are not
+     * changed by this row. */
+    { "shadows", "Shadows", "MSPR_NO_SHADOWS", 2, 0, 0, 0,
+      { "On", "Off" }, { "0", "1" },
+      "Off skips the game's own shadows; reflections stay. Original look only (hidden with Enhanced)." },
     /* The game's button prompts as key caps (pc_prompts.h, pc_menu.cpp): Keyboard always, Controller never (the
      * original icons), Auto while no gamepad or wheel is connected. The page applies a change at once. */
     { "prompts", "Button Prompts", "MSPR_PROMPTS", 3, 0, 0, 0,
@@ -176,6 +182,15 @@ static inline int pcs_find(const char* key)
     for (int i = 0; i < PCS_COUNT; i++)
         if (!strcmp(k_pcs_defs[i].key, key)) return i;
     return -1;
+}
+
+/* The Shadows row is hidden (no page row text, not applied) unless Fidelity is Original. Its choice is kept
+ * in s, so switching Fidelity back to Original restores it. Other rows: 0. */
+static inline int pcs_row_hidden(const pcs_state* s, int i)
+{
+    if (strcmp(k_pcs_defs[i].key, "shadows")) return 0;
+    const int lf = pcs_find("lighting");
+    return lf >= 0 && s->idx[lf] != 0;
 }
 
 static inline int pcs_ieq(const char* a, const char* b)
@@ -294,7 +309,7 @@ static inline int pcs_apply(const pcs_state* s, const char* base, pcs_get_fn get
     int done = 0;
     for (int i = 0; i < PCS_COUNT; i++) {
         const pcs_def* d = &k_pcs_defs[i];
-        if (!d->env || (s->idx[i] == d->def && !d->always)) continue;
+        if (!d->env || (s->idx[i] == d->def && !d->always) || pcs_row_hidden(s, i)) continue;
         if (avail && avail(d->key, s->idx[i])) continue;
         if (d->env2 && !get(d->env2)) { set(d->env2, d->values2[s->idx[i]]); done++; }
         if (get(d->env)) continue;

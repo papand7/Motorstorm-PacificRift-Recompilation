@@ -24,6 +24,7 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | `pbr` | Graphics | Off*, On | `RSX_TEX_PBR` = 1 (needs a pack with PBR maps) |
 | `lod` | Graphics | Original*, High, Ultra | `MSPR_LOD_BIAS` -1 / -2 and `MSPR_CULL_SCALE` 0.5 / 0.25 (1.00: needs `dist_patch_lifted.py` on the lifted tree; the launcher's lift applies it, with the other hook patches in `launcher/pipeline/lift_motorstorm.py` `PATCHES_100`) |
 | `lighting` | Graphics | Original, Enhanced* | `RSX_LIGHTING` 0 / 1, always set. Enhanced (experimental): new lighting, ambient occlusion, screen-space reflections and tone mapping, with the game's own shadows |
+| `shadows` | Graphics | On*, Off | `MSPR_NO_SHADOWS` 0 / 1. Off skips the game's own shadow casters (depth-only draws into the 1024x2048 shadow atlas, `rsx_shadow_off.h`), so the atlas is not built. Reflections are not changed. Shown only with Fidelity Original; with Enhanced it is hidden and its value is kept (not written to the environment). |
 | `prompts` | Graphics | Keyboard*, Controller, Auto | `MSPR_PROMPTS` keyboard / controller / auto: the game's button icons redrawn as key caps of the first key bound to each button (port `pc_prompts.h`); Auto shows keys unless a gamepad or wheel is connected. Applied at once, also after a rebind |
 | `wheelmode` | Racing Wheel | Auto*, Any Device, Off | `PAD_WHEEL` auto / any / off. Applied at once (no restart) |
 | `wheelrange` | Racing Wheel | Device, 180 deg, 270 deg*, 360 deg, 540 deg, 720 deg, 900 deg | `PAD_WHEEL_RANGE`: wheel rotation, lock to lock, that gives the full stick |
@@ -119,6 +120,17 @@ A choice whose feature is missing is kept in the file but not applied, and the p
 |---|---|---|
 | `textures = On`, `pbr = On` | `<exe>/textures/pack` (or `RSX_TEX_PACK`) is not a folder | No pack |
 | `fsrmode = FSR 3.1` | `amd_fidelityfx_loader_vk.dll` not beside the exe (or in `RSX_FSR3_DIR`); the port then runs FSR 1 | No FSR3 DLL |
+
+## Speed options the launcher sets (not in settings.ini)
+
+- `PS3_SPU_HWFLOAT=1` (set by the launcher's `PLAY_ENV`, `launcher/electron/service/builder.js`, on by default): lifted
+  SPU single-precision maths runs on the host's own float unit (MXCSR round-toward-zero, flush-to-zero, denormals-are-zero)
+  instead of the exact helpers, with the same results bit for bit. Host calls (channels, stops, halts) always run with the
+  thread's own MXCSR. The variable is read only as exactly `1`; on a CPU without FMA3 the runtime prints
+  `[spu-hwfloat] PS3_SPU_HWFLOAT=1 ignored: this CPU has no FMA3` to stderr and runs the exact helpers. The runtime default
+  without the variable stays off.
+- Status: VERIFIED (unit and bracket tests: `tests/test_spu_hwfloat_nested_host.c`, `tests/test_spu_hwfloat_bracket.py`);
+  PARTIAL for speed and game output (not measured in a race; no game was run for this change).
 
 ## What the launcher does
 
