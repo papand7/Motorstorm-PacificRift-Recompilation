@@ -35,7 +35,7 @@ const PLAY_ENV = {
     PS3_ICALL_FAST: '1', PS3_LWCOND_WAKE: '1:poll_ms=100:heavy_draws=200', PS3_MAIN_CORE: '1', PS3_MAIN_CYCLES: '1',
     PS3_SIM_PACE: '1', PS3_SIM_PACE_LAG_MS: '40',   // catch-up bound: a hitch must not play back as a fast burst
     PS3_SPURS_EVENT_FALLBACK_MS: '4', PS3_SPURS_EVENT_SCHED: '1', PS3_SPURS_GUEST_MAXCONT: '1',
-    PS3_SPU_DRAIN_RESUME_RELOC: '1', PS3_SPU_FP_CACHE: '1', PS3_SPU_INTERP_REJOIN_RELOC: '1', PS3_SPU_MFC_FAST: '1',
+    PS3_SPU_DRAIN_RESUME_RELOC: '1', PS3_SPU_FP_CACHE: '1', PS3_SPU_HWFLOAT: '1', PS3_SPU_INTERP_REJOIN_RELOC: '1', PS3_SPU_MFC_FAST: '1',
     PS3_SPU_TASK_POOL: '1', PS3_SPU_TASK_QUIET: '1', PS3_SPU_WWS_AOT: '1', SPU_INTERP_UNLIFTED: '1',
     PS3_TEX_SNAPSHOT: '1', PS3_TEX_SNAPSHOT_EPOCH: '1', PS3_TEX_SNAPSHOT_WWATCH: '1',
     PS3_USLEEP_SPIN: '2', PS3_USLEEP_SPIN_MAIN_ONLY: '1', PS3_USLEEP_TAIL_US: '600',
@@ -412,7 +412,9 @@ class Builder {
                     ? [`-DMSPR_WWS_AOT_DIR=${path.join(gen, 'spu_raw', 'wws_reloc_v100')}`] : []),
                 // ThinLTO (PORT_PPU_LTO) links with lld-link's LTO jobs and a cache beside the build
                 ...(b.options.includes('PORT_PPU_LTO=ON')
-                    ? [`-DCMAKE_EXE_LINKER_FLAGS=/opt:lldltojobs=${this.jobs()} /lldltocache:${fwd(path.join(bld, 'lto-cache'))}`] : []),
+                    // the cache path is quoted: the flags reach lld-link as one command line, and a folder such as
+                    // "MotorStorm - Pacific Rift" would otherwise split into separate file arguments
+                    ? [`-DCMAKE_EXE_LINKER_FLAGS=/opt:lldltojobs=${this.jobs()} "/lldltocache:${fwd(path.join(bld, 'lto-cache'))}"`] : []),
                 ...b.options.map(o => `-D${o}`),
             ];
             const code = await run(cmake, ['-S', path.join(src, 'port-vkgame'), '-B', bld, '-G', 'Ninja', ...defs], { env, log });

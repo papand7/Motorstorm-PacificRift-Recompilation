@@ -23,7 +23,10 @@ const SCHEMA = [
     { key: 'pbr', group: 'Graphics', label: 'Physically based materials', choices: ['Off', 'On'], def: 'Off' },
     // no 'rtshadow': ray-traced shadows are hidden (slow, and not working with Enhanced lighting); RSX_RT_SHADOW=1 by hand still works
     { key: 'lod', group: 'Graphics', label: 'Level of detail', choices: ['Original', 'High', 'Ultra'], def: 'Original' },
-    { key: 'lighting', group: 'Graphics', label: 'Lighting', choices: ['Original', 'Enhanced'], def: 'Enhanced' },
+    { key: 'lighting', group: 'Graphics', label: 'Fidelity', choices: ['Original', 'Enhanced'], def: 'Enhanced' },
+    // Off skips the game's own shadow casters (port rsx_shadow_off.h, MSPR_NO_SHADOWS). Shown only with Fidelity Original
+    // (launcher ui/app.js; the game's page: port pc_settings.h pcs_row_hidden). Not posted while hidden, so its value is kept.
+    { key: 'shadows', group: 'Graphics', label: 'Shadows', choices: ['On', 'Off'], def: 'On', values: ['0', '1'] },
     // the game's button prompts as key caps of the player's keys (port pc_prompts.h); Auto: keys unless a gamepad or wheel is connected
     { key: 'prompts', group: 'Graphics', label: 'Button prompts', choices: ['Keyboard', 'Controller', 'Auto'], def: 'Keyboard', values: ['keyboard', 'controller', 'auto'] },
     // Racing wheel (libs/input pad_wheel.h; the finer wheel.* keys are in docs/SETTINGS.md, not choices)

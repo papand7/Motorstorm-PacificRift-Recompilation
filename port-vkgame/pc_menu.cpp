@@ -329,12 +329,16 @@ static void pcmenu_call(int k, ppu_context* ctx)
         if (kind == PCF_VALUE) pcmenu_keys_pump();
         switch (kind) {
         case PCF_NAME:
-            ctx->gpr[3] = pcmenu_text(k, is_key ? k_pck_actions[act].name : k_pcs_defs[row].name);
+            /* a row hidden by pcs_row_hidden (Shadows with Fidelity Enhanced): blank, and its info says why */
+            ctx->gpr[3] = pcmenu_text(k, is_key ? k_pck_actions[act].name
+                                                : pcs_row_hidden(&s_pcs, row) ? "" : k_pcs_defs[row].name);
             return;
         case PCF_VALUE:
             if (is_key) {
                 if (s_cap_act == act) snprintf(t, sizeof t, "Press a key...");
                 else pck_format_keys(&s_layout, act, t, sizeof t);
+            } else if (pcs_row_hidden(&s_pcs, row)) {
+                t[0] = 0;
             } else {
                 const pcs_def* d = &k_pcs_defs[row];
                 const char* why = pcmenu_avail(d->key, s_pcs.idx[row]);
@@ -346,6 +350,8 @@ static void pcmenu_call(int k, ppu_context* ctx)
         case PCF_INFO:
             if (is_key)
                 snprintf(t, sizeof t, "%s Accept, then press a key. Left/Right: default.", k_pck_actions[act].info);
+            else if (pcs_row_hidden(&s_pcs, row))
+                snprintf(t, sizeof t, "%s", "Hidden: Fidelity is Enhanced. Set Fidelity to Original to show this row.");
             else
                 snprintf(t, sizeof t, "%s%s", k_pcs_defs[row].info,
                          k_pcs_defs[row].restart && s_pcs.idx[row] != s_pcs_boot.idx[row] ? " Restart the game to apply." : "");
@@ -353,7 +359,7 @@ static void pcmenu_call(int k, ppu_context* ctx)
             return;
         case PCF_NEXT:
         case PCF_PREV:
-            if (!is_key) pcmenu_step(row, kind == PCF_NEXT ? 1 : -1);
+            if (!is_key) { if (!pcs_row_hidden(&s_pcs, row)) pcmenu_step(row, kind == PCF_NEXT ? 1 : -1); }
             else if (s_cap_act < 0 && !pck_is_default(&s_layout, act)) {
                 pck_reset(&s_layout, act);
                 fprintf(stderr, "[pc-menu] key.%s = default\n", k_pck_actions[act].key);

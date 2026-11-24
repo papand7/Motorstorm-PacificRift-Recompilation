@@ -176,7 +176,8 @@ function foot() {
 // ---- Settings
 const NOTES = {
     resolution: 'The internal resolution the game is drawn at', dynres: 'Off keeps the resolution steady (the game\'s own drops are suppressed)',
-    framerate: '30 FPS is the original speed and the default; above 30 is experimental (camera, shadow and vehicle glitches)', lighting: 'Enhanced (experimental): new lighting, world-fixed shadows, AO and tone mapping', vsync: 'Off is tear-free and keeps 60 FPS steady', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
+    framerate: '30 FPS is the original speed and the default; above 30 is experimental (camera, shadow and vehicle glitches)', lighting: 'Fidelity. Original is the game’s own look; Enhanced (experimental) adds new lighting, world-fixed shadows, AO and tone mapping', vsync: 'Off is tear-free and keeps 60 FPS steady', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
+    shadows: 'Off skips the game’s own shadows for slower machines. Reflections are not changed. Shown with Fidelity Original only',
     hdr: 'Needs an HDR display', aniso: 'Sharper textures at an angle',
     prompts: 'Keys or controller buttons in the game’s prompts; Auto shows keys unless a gamepad or wheel is connected',
     wheelmode: 'Auto uses Thrustmaster and Logitech wheels; a gamepad keeps working', wheelrange: 'Wheel rotation, lock to lock, that gives full steering',
@@ -193,6 +194,12 @@ async function renderSettings() {
         return `<div class="row"><label>${esc(item.label)}<small>${esc(note)}</small></label><select data-key="${item.key}">${opts}</select></div>`;
     };
     const group = g => s.schema.filter(x => x.group === g).map(select).join('');
+    // "Shadows" is a row only with Fidelity Original (the game's page hides it the same way,
+    // pc_settings.h pcs_row_hidden). Not rendered otherwise, so a save does not post it and its stored value stays.
+    const SHADOWS = s.schema.find(x => x.key === 'shadows');
+    const shadowsRow = () => select(SHADOWS).replace('<div class="row">', '<div class="row" data-shadows>');
+    const gfx = s.schema.filter(x => x.group === 'Graphics' && x.key !== 'shadows').map(item =>
+        select(item) + (item.key === 'lighting' && v.lighting === 'Original' ? shadowsRow() : '')).join('');
     const keyRow = ([a]) => `<div class="row"><label>${esc(a)}</label><input type="text" data-action="${a}" value="${esc(s.keys[a])}"></div>`;
     page.innerHTML = `
       <h2>Settings</h2>
@@ -202,7 +209,7 @@ async function renderSettings() {
         <div class="card"><h3>Display</h3>${group('Display')}</div>
         <div class="card"><h3>Upscaling</h3>${group('Upscaling')}</div>
       </div>
-      <div class="card" style="margin-top:16px"><h3>Graphics</h3>${group('Graphics')}</div>
+      <div class="card" style="margin-top:16px"><h3>Graphics</h3>${gfx}</div>
       <div class="card"><h3>Racing wheel</h3>${group('Wheel')}
         <p class="fine">Thrustmaster T300RS and Logitech G25/G27/G29/DFGT are read through DirectInput, beside a gamepad. Axes, pedal calibration and
         button mapping are wheel.* lines in settings.ini: run wheel_probe (--calibrate) to get them. Not tested on real hardware yet.</p></div>
@@ -220,6 +227,14 @@ async function renderSettings() {
         <button class="act" id="save" ${game.running ? 'disabled' : ''}>Save settings</button>
         <div class="msg" id="msg"></div>
       </div>`;
+    // Fidelity changed on the page: the shadows row appears with Original and goes with Enhanced; its unsaved pick is kept
+    const lightingSel = document.querySelector('select[data-key="lighting"]');
+    lightingSel.onchange = () => {
+        const row = document.querySelector('[data-shadows]');
+        if (row) v.shadows = row.querySelector('select').value;
+        if (lightingSel.value === 'Original' && !row) lightingSel.closest('.row').insertAdjacentHTML('afterend', shadowsRow());
+        else if (lightingSel.value !== 'Original' && row) row.remove();
+    };
     let files = null, clearFiles = false;
     $('#save').onclick = async () => {
         const values = {}, keys = {};
