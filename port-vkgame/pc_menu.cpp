@@ -665,9 +665,13 @@ extern "C" void pcmenu_boot(const char* argv0)
          * The ground toe defaults on inside the scene pass itself. */
         const char* l = getenv("RSX_LIGHTING");
         if (l && *l == '1') {
-            static const char* const k[][2] = {
+            /* Effects Quality Light/Minimal (RSX_FX_QUALITY >= 1, settings.ini, loaded before this) takes the AO out:
+             * the bundle's own AO choice must not put it back (Kfq1: AO stayed on) */
+            const char* q = getenv("RSX_FX_QUALITY");
+            const char* ao = q && atoi(q) >= 1 ? "0" : "old";
+            const char* const k[][2] = {
                 { "RSX_SHADOW_TILES", "0" }, { "RSX_SHADOW_TILES_STATIC", "0" },
-                { "RSX_FX_AO", "old" }, { "RSX_FX_SSSHADOW_FAR", "450" },
+                { "RSX_FX_AO", ao }, { "RSX_FX_SSSHADOW_FAR", "450" },
             };
             for (const auto& kv : k) if (!getenv(kv[0])) pcmenu_setenv(kv[0], kv[1]);
             /* The world-fixed tiles are not working yet (no receiver shadows: Kst8o, Kst9). A settings.ini that sets

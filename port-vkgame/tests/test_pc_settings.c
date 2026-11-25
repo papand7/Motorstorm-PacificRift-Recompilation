@@ -397,14 +397,14 @@ int main(void)
      * Original it is unused (kept, not applied, shown as needing Enhanced); with Enhanced it sets RSX_FX_VOLFOG. */
     {
         const int vf = pcs_find("volfog"), lf = pcs_find("lighting");
-        CHECK(vf >= 0 && vf == PCS_COUNT - 2 && lf >= 0 && lf != vf);
+        CHECK(vf >= 0 && vf == PCS_COUNT - 3 && lf >= 0 && lf != vf);
         CHECK(!strcmp(k_pcs_defs[vf].env, "RSX_FX_VOLFOG") && k_pcs_defs[vf].def == 0 && k_pcs_defs[vf].count == 2);
         CHECK(k_pcs_defs[vf].restart == 1 && k_pcs_defs[vf].env2 == NULL && !k_pcs_defs[vf].folder);
         CHECK(!strcmp(k_pcs_defs[vf].values[0], "0") && !strcmp(k_pcs_defs[vf].values[1], "1"));
         int ep = -1;
         for (int p = 0; p < PCP_COUNT; p++)
             if (!strcmp(k_pcp_pages[p].file, "options-pcf")) ep = p;
-        CHECK(ep >= 0 && k_pcp_pages[ep].first == vf && k_pcp_pages[ep].rows == 2);   /* fog, ruts */
+        CHECK(ep >= 0 && k_pcp_pages[ep].first == vf && k_pcp_pages[ep].rows == 3);   /* fog, ruts, effects quality */
         CHECK(!strcmp(k_pcp_pages[ep].label, "EFFECTS") && ep == 3);   /* the fourth hub item, after Racing Wheel */
         pcs_state t;
         pcs_defaults(&t);
@@ -431,7 +431,7 @@ int main(void)
     /* Wheel Ruts: the second Effects row, the last setting; as Volumetric Fog: restart, Enhanced only, off by default */
     {
         const int ru = pcs_find("ruts"), lf = pcs_find("lighting");
-        CHECK(ru == PCS_COUNT - 1 && !strcmp(k_pcs_defs[ru].env, "RSX_FX_RUTS") && k_pcs_defs[ru].def == 0);
+        CHECK(ru == PCS_COUNT - 2 && !strcmp(k_pcs_defs[ru].env, "RSX_FX_RUTS") && k_pcs_defs[ru].def == 0);
         CHECK(k_pcs_defs[ru].count == 2 && k_pcs_defs[ru].restart == 1 && k_pcs_defs[ru].env2 == NULL);
         pcs_state t;
         pcs_defaults(&t);
@@ -450,6 +450,41 @@ int main(void)
         pcs_defaults(&t);
         CHECK(pcs_parse(&t, "ruts = On\n") == 1 && t.idx[ru] == 1 && (t.explicit_mask & (1u << ru)));
         CHECK(pcs_owns_env(&t, "RSX_FX_RUTS"));
+    }
+    /* Effects Quality: the last setting, Enhanced only; Light sets RSX_FX_QUALITY=1, Full sets nothing */
+    {
+        const int fq = pcs_find("fxquality"), lf = pcs_find("lighting");
+        CHECK(fq == PCS_COUNT - 1 && !strcmp(k_pcs_defs[fq].env, "RSX_FX_QUALITY") && k_pcs_defs[fq].def == 0 && k_pcs_defs[fq].count == 3);
+        pcs_state t;
+        pcs_defaults(&t);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_QUALITY"));
+        t.idx[fq] = 1;
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FX_QUALITY") && !strcmp(set_value("RSX_FX_QUALITY"), "1"));
+        t.idx[lf] = 0;
+        CHECK(pcs_row_unused(&t, fq));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_QUALITY"));
+    }
+    /* Level of Detail Low: bias +1 and cull x1.5; Original (the default, now the second choice) sets nothing */
+    {
+        const int ld = pcs_find("lod");
+        CHECK(ld >= 0 && k_pcs_defs[ld].count == 4 && k_pcs_defs[ld].def == 1 && !strcmp(k_pcs_defs[ld].labels[1], "Original"));
+        pcs_state t;
+        pcs_defaults(&t);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("MSPR_LOD_BIAS") && !set_value("MSPR_CULL_SCALE"));
+        CHECK(pcs_parse(&t, "lod = Low\n") == 1 && t.idx[ld] == 0);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("MSPR_LOD_BIAS") && !strcmp(set_value("MSPR_LOD_BIAS"), "1"));
+        CHECK(set_value("MSPR_CULL_SCALE") && !strcmp(set_value("MSPR_CULL_SCALE"), "1.5"));
+        CHECK(pcs_parse(&t, "lod = Ultra\n") == 1 && t.idx[ld] == 3);
     }
     printf("test_pc_settings: %d failure(s)\n", fails);
     return fails ? 1 : 0;
