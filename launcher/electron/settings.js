@@ -26,7 +26,7 @@ const SCHEMA = [
     { key: 'textures', group: 'Graphics', label: 'HD texture pack', choices: ['Off', 'On'], def: 'Off' },
     { key: 'pbr', group: 'Graphics', label: 'Physically based materials', choices: ['Off', 'On'], def: 'Off' },
     // no 'rtshadow': ray-traced shadows are hidden (slow, and not working with Enhanced lighting); RSX_RT_SHADOW=1 by hand still works
-    { key: 'lod', group: 'Graphics', label: 'Level of detail', choices: ['Original', 'High', 'Ultra'], def: 'Original' },
+    { key: 'lod', group: 'Graphics', label: 'Level of detail', choices: ['Low', 'Original', 'High', 'Ultra'], def: 'Original' },
     { key: 'lighting', group: 'Graphics', label: 'Fidelity', choices: ['Original', 'Enhanced'], def: 'Enhanced' },
     // Off skips the game's own shadow casters (port rsx_shadow_off.h, MSPR_NO_SHADOWS). Shown only with Fidelity Original
     // (launcher ui/app.js; the game's page: port pc_settings.h pcs_row_hidden). Not posted while hidden, so its value is kept.
@@ -38,6 +38,8 @@ const SCHEMA = [
     { key: 'volfog', group: 'Graphics', label: 'Volumetric fog (Enhanced only)', choices: ['Off', 'On'], def: 'Off', values: ['0', '1'] },
     // Wheel ruts (port rsx_ruts.h RSX_FX_RUTS, read at start): only where the game lays its own tyre tracks. As volfog: Enhanced only.
     { key: 'ruts', group: 'Graphics', label: 'Wheel ruts (Enhanced only)', choices: ['Off', 'On'], def: 'Off', values: ['0', '1'] },
+    // Effects quality (port rsx_vk_scenefx.h RSX_FX_QUALITY): Light drops AO and light shafts, Minimal also the sun contact shadows.
+    { key: 'fxquality', group: 'Graphics', label: 'Effects quality (Enhanced only)', choices: ['Full', 'Light', 'Minimal'], def: 'Full', values: ['0', '1', '2'] },
     // Racing wheel (libs/input pad_wheel.h; the finer wheel.* keys are in docs/SETTINGS.md, not choices)
     { key: 'wheelmode', group: 'Wheel', label: 'Racing wheel', choices: ['Auto', 'Any Device', 'Off'], def: 'Auto', values: ['auto', 'any', 'off'] },
     { key: 'wheelrange', group: 'Wheel', label: 'Steering range', choices: ['Device', '180 deg', '270 deg', '360 deg', '540 deg', '720 deg', '900 deg'], def: '270 deg', values: ['device', '180', '270', '360', '540', '720', '900'] },

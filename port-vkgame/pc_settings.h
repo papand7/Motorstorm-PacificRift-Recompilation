@@ -112,10 +112,12 @@ static const pcs_def k_pcs_defs[] = {
     /* MSPR_LOD_BIAS is added to every viewportquality.xml lodBias (lower keeps finer models farther out),
      * MSPR_CULL_SCALE multiplies the screen-size cull thresholds (lower culls less); main.cpp mspr_dist_f,
      * sites patched by vksync/tools/dist_patch_lifted.py (1.00 addresses). */
-    { "lod", "Level of Detail", "MSPR_LOD_BIAS", 3, 0, 1, 0,
-      { "Original", "High", "Ultra" }, { "", "-1", "-2" },
-      "Detailed trees, buildings and objects farther out: less pop-in, more CPU and GPU time.", 0,
-      "MSPR_CULL_SCALE", { "", "0.5", "0.25" } },
+    /* Low (for small GPUs and handhelds): the other way, coarser models sooner and more culling (bias +1, cull x1.5);
+     * more pop-in, less CPU and GPU time. */
+    { "lod", "Level of Detail", "MSPR_LOD_BIAS", 4, 1, 1, 0,
+      { "Low", "Original", "High", "Ultra" }, { "1", "", "-1", "-2" },
+      "Low: less detail and more pop-in, faster. High/Ultra: detail farther out, more CPU and GPU time.", 0,
+      "MSPR_CULL_SCALE", { "1.5", "", "0.5", "0.25" } },
     /* Enhanced: the lit-program rewrite, tone curve, ground toe, AO and screen-space shadows (RSX_LIGHTING,
      * rsx_light.h / rsx_vk_scenefx.h); pc_menu.cpp adds the world-fixed shadow tiles it uses. */
     { "lighting", "Fidelity", "RSX_LIGHTING", 2, 1, 1, 0,
@@ -175,6 +177,11 @@ static const pcs_def k_pcs_defs[] = {
     { "ruts", "Wheel Ruts", "RSX_FX_RUTS", 2, 0, 1, 0,
       { "Off", "On" }, { "0", "1" },
       "Wheels press ruts into the ground where the game lays its tracks. Enhanced only.", 0, NULL, { NULL } },
+    /* The Enhanced scene pass's cost (rsx_vk_scenefx.h vk_fx_quality, RSX_FX_QUALITY): Light drops the ambient
+     * occlusion and the light shafts, Minimal also the screen-space sun shadows. Enhanced only (pcs_row_unused). */
+    { "fxquality", "Effects Quality", "RSX_FX_QUALITY", 3, 0, 1, 0,
+      { "Full", "Light", "Minimal" }, { "0", "1", "2" },
+      "Light: no ambient occlusion or light shafts. Minimal: also no sun contact shadows. For small GPUs.", 0, NULL, { NULL } },
 };
 #define PCS_COUNT ((int)(sizeof k_pcs_defs / sizeof k_pcs_defs[0]))
 
@@ -205,11 +212,12 @@ static inline int pcs_row_hidden(const pcs_state* s, int i)
     return lf >= 0 && s->idx[lf] != 0;
 }
 
-/* The Volumetric Fog and Wheel Ruts rows are shown always but have no effect unless Fidelity is Enhanced: the choice
+/* The Volumetric Fog, Wheel Ruts and Effects Quality rows are shown always but have no effect unless Fidelity is Enhanced: the choice
  * is kept and not applied (pcs_apply), and the page says why. Other rows: 0. */
 static inline int pcs_row_unused(const pcs_state* s, int i)
 {
-    if (strcmp(k_pcs_defs[i].key, "volfog") && strcmp(k_pcs_defs[i].key, "ruts")) return 0;
+    if (strcmp(k_pcs_defs[i].key, "volfog") && strcmp(k_pcs_defs[i].key, "ruts") && strcmp(k_pcs_defs[i].key, "fxquality"))
+        return 0;
     const int lf = pcs_find("lighting");
     return lf >= 0 && s->idx[lf] != 1;
 }

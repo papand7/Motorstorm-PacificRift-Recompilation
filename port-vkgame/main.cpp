@@ -241,10 +241,14 @@ static void beat_drain(void* u)
 }
 
 #ifdef _WIN32
+#include <powerbase.h>   /* CallNtPowerInformation: per-processor maximum clock (PS3_MAIN_CORE) */
+#pragma comment(lib, "powrprof.lib")
+#include "main_core_pick.h"
 static HANDLE s_main_thread;   /* PS3_MAIN_CYCLES: the thread ppu_run runs the guest main thread on */
 #ifdef _WIN32
-/* PS3_MAIN_CORE (opt-in): one physical core for the guest main thread alone. "1" (or "auto") takes the last
- * physical core of the highest efficiency class, "c<N>" core N. Every other thread of the process (the SPU and job
+/* PS3_MAIN_CORE (opt-in): one physical core for the guest main thread alone. "1" (or "auto") takes the fastest
+ * physical core (main_core_pick.h: efficiency class, then the preferred-core rank, then the maximum clock, then the
+ * last index; on a CPU with Zen 5 and Zen 5c cores that is a Zen 5 core), "c<N>" core N. Every other thread of the process (the SPU and job
  * threads that spin-wait, the RSX drain, the audio worker) gets the process default CPU set, which leaves that core
  * out, so nothing shares it with the main thread, not even through SMT; the main thread is also raised to
  * above-normal priority. Windows CPU sets (Windows 10 1709+); without them nothing changes. */
@@ -259,15 +263,34 @@ static void main_core_setup(void)
     if (!buf || !GetSystemCpuSetInformation((PSYSTEM_CPU_SET_INFORMATION)buf, len, &len, GetCurrentProcess(), 0)) {
         free(buf); fprintf(stderr, "[main-core] GetSystemCpuSetInformation failed\n"); return;
     }
-    int target = -1, best_eff = -1;
+    int target = -1;
     if (e[0] == 'c') target = atoi(e + 1);
-    for (ULONG off = 0; off < len;) {   /* default: the last core of the highest efficiency class */
-        const SYSTEM_CPU_SET_INFORMATION* c = (const SYSTEM_CPU_SET_INFORMATION*)(buf + off);
-        if (c->Type == CpuSetInformation && e[0] != 'c') {
-            const int eff = c->CpuSet.EfficiencyClass, core = c->CpuSet.CoreIndex;
-            if (eff > best_eff || (eff == best_eff && core > target)) { best_eff = eff; target = core; }
+    else {   /* default: the fastest core (main_core_pick.h) */
+        struct { ULONG Number, MaxMhz, CurrentMhz, MhzLimit, MaxIdleState, CurrentIdleState; } ppi[256];
+        const DWORD nlp = GetActiveProcessorCount(0);   /* group 0: the processors CallNtPowerInformation reports */
+        const int have_mhz = nlp && nlp <= 256 &&
+            CallNtPowerInformation(ProcessorInformation, NULL, 0, ppi, (ULONG)(sizeof ppi[0] * nlp)) == 0;
+        main_core_lp lp[256];
+        int n = 0;
+        for (ULONG off = 0; off < len && n < 256;) {
+            const SYSTEM_CPU_SET_INFORMATION* c = (const SYSTEM_CPU_SET_INFORMATION*)(buf + off);
+            if (c->Type == CpuSetInformation) {
+                const unsigned li = c->CpuSet.LogicalProcessorIndex;
+                lp[n].core = c->CpuSet.CoreIndex;
+                lp[n].eff = c->CpuSet.EfficiencyClass;
+                lp[n].sched = c->CpuSet.SchedulingClass;
+                lp[n].mhz = have_mhz && c->CpuSet.Group == 0 && li < nlp ? (unsigned)ppi[li].MaxMhz : 0u;
+                n++;
+            }
+            off += c->Size;
         }
-        off += c->Size;
+        target = main_core_pick(lp, n);
+        for (int i = 0; i < n; i++)
+            if (lp[i].core == target) {
+                fprintf(stderr, "[main-core] fastest core %d: efficiency class %d, preferred-core rank %d, max %u MHz\n",
+                        target, lp[i].eff, lp[i].sched, lp[i].mhz);
+                break;
+            }
     }
     ULONG mine[8], rest[256];
     ULONG nmine = 0, nrest = 0;
