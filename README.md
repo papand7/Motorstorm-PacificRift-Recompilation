@@ -21,7 +21,7 @@ This is an early version (0.2.2, alpha). It runs on Windows 10 and 11 (64-bit). 
 
 - Windows 10 or 11, 64-bit.
 - A graphics card and driver that support **Vulkan**.
-- Your copy of the game (the US disc, BCUS98155), as an `.iso` file or a folder with `PS3_GAME` in it.
+- Your copy of the game (the US disc, BCUS98155, or the European disc, BCES00129; its 1.00 EBOOT.elf must be the same program, checked by its SHA-256), as an `.iso` file or a folder with `PS3_GAME` in it.
 - Your `EBOOT.elf` of version 1.00, taken from your own console. No update is needed.
 - Free disk space for the build and the game files, and an internet connection for the first install. The launcher downloads its build
   tools from their makers and checks each file.

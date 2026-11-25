@@ -301,6 +301,8 @@ endif()
 add_executable(${PROJECT_NAME}
     main.cpp
     pc_menu.cpp
+    lan_play.cpp
+    lan_menu.cpp
     audio_thread.cpp
     stubs.cpp
     ${PS3RECOMP_SCAFFOLD}
@@ -308,6 +310,11 @@ add_executable(${PROJECT_NAME}
     ${RECOMP_SOURCES}
     ${SPU_SOURCES}
 )
+
+# lan_play.cpp (LAN play behind the LAN screen, lan_menu.cpp) includes the framework's np_psnr.h.
+# Per file, not for the target: a target-wide include change rebuilds every lifted PPU TU.
+set_source_files_properties(lan_play.cpp PROPERTIES
+    INCLUDE_DIRECTORIES "${PS3RECOMP_DIR}/libs/network")
 
 # The lifted SPU sources use bare #include "spu_context.h". Scope that include
 # directory (and their flags) to those TUs alone: adding it to the whole target
@@ -389,6 +396,8 @@ if(WIN32)
         gdi32
         winmm
         dxguid
+        ws2_32     # lan_room_net.h, lan_discovery.h (Winsock)
+        iphlpapi   # lan_discovery.h: GetAdaptersInfo, the directed broadcast of each network (lan_play.cpp)
     )
 endif()
 

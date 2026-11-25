@@ -53,6 +53,13 @@ const PLAY_ENV = {
 };
 // RSX_RT_DXC is added dynamically in step_install (path beside the exe)
 
+// ThinLTO link flags: lld-link's LTO jobs and a cache folder. The cache path is quoted: the flags reach lld-link as one
+// command line, and an install folder with a space ("D:\EMU D\MotorStorm", issue #6) otherwise splits into separate
+// arguments (lld-link: could not open 'D/MotorStorm/work/build-stable/lto-cache'), which fails CMake's compiler check.
+function ltoLinkerFlags(jobs, cacheDir) {
+    return `/opt:lldltojobs=${jobs} "/lldltocache:${cacheDir.replace(/\\/g, '/')}"`;
+}
+
 class Builder {
     constructor({ root, meta, source, emit, log }) {
         Object.assign(this, { root, meta, source, emit, log });
@@ -143,7 +150,7 @@ class Builder {
     async checkElf(which) {
         const p = this.cfg['elf' + which];
         if (!p) return null;
-        const want = this.game.discs[0].eboot_elf;
+        const want = ((this.discInfo && this.discInfo.disc) || this.game.discs[0]).eboot_elf;   // the chosen disc's program
         const label = '1.00 (the disc)';
         if (!fs.existsSync(p)) return { ok: false, error: 'Not found (moved?).' };
         if (fs.statSync(p).size !== want.size)
@@ -410,11 +417,9 @@ class Builder {
                 `-DPS3RECOMP_SPU_LIFTER_IMAGE_ARGS=${b.spu_lifter_image_args.join(';')}`,
                 ...(b.options.includes('MSPR_WWS_AOT=ON')
                     ? [`-DMSPR_WWS_AOT_DIR=${path.join(gen, 'spu_raw', 'wws_reloc_v100')}`] : []),
-                // ThinLTO (PORT_PPU_LTO) links with lld-link's LTO jobs and a cache beside the build
+                // ThinLTO (PORT_PPU_LTO) links with lld-link's LTO jobs and a cache beside the build (quoted: ltoLinkerFlags)
                 ...(b.options.includes('PORT_PPU_LTO=ON')
-                    // the cache path is quoted: the flags reach lld-link as one command line, and a folder such as
-                    // "MotorStorm - Pacific Rift" would otherwise split into separate file arguments
-                    ? [`-DCMAKE_EXE_LINKER_FLAGS=/opt:lldltojobs=${this.jobs()} "/lldltocache:${fwd(path.join(bld, 'lto-cache'))}"`] : []),
+                    ? [`-DCMAKE_EXE_LINKER_FLAGS=${ltoLinkerFlags(this.jobs(), path.join(bld, 'lto-cache'))}`] : []),
                 ...b.options.map(o => `-D${o}`),
             ];
             const code = await run(cmake, ['-S', path.join(src, 'port-vkgame'), '-B', bld, '-G', 'Ninja', ...defs], { env, log });
@@ -653,4 +658,4 @@ class Builder {
 
 }
 
-module.exports = { Builder };
+module.exports = { Builder, ltoLinkerFlags };

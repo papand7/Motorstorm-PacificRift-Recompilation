@@ -3,15 +3,18 @@
 Inputs (retail only; nothing else of the game is read):
   gui/options.gui           the Options page      (from MS2.PSARC, member "/gui/options.gui")
   gui/options-controls.gui  the Controller page   (member "/gui/options-controls.gui")
+  gui/wreckreation.gui      the Wreckreation page (member "/gui/wreckreation.gui"; make_lanmenu.py)
   port-vkgame/pc_pages.h    the page table (PCP lines) and port-vkgame/pc_settings.h (the number of settings)
 
 Outputs, in <out>/gui/ (the port serves this folder through PS3_VFS_OVERLAY; the exe
 looks for a "pcmenu" folder beside it):
   optionz.gui       options.gui with a PC SETTINGS item before LANGUAGE (the port reads it for
                     gui/options.gui, pc_menu.cpp pcmenu_page_load / pcmenu_load_sync)
-  options-pc.gui    the hub: options.gui's layout, one item per PCP page (six), titled PC Settings
+  options-pc.gui    the hub: options.gui's layout, one item per PCP page (seven), titled PC Settings
   options-pc*.gui   one page per PCP line, made from options-controls.gui: its rows replaced by one row
                     per setting or key binding (two columns of four), the header titled by PcTitle<n>
+  wreckreatioz.gui, wreckreation-lan.gui, wreckreation-lanfind.gui
+                    the LAN play screen (make_lanmenu.py, made from the Wreckreation page; lan_menu.h in the port)
   pcmenu.json       what it was made from and what it made (sha256), for the launcher: regenerate when
                     the page table, the game files or this tool change
 
@@ -23,10 +26,10 @@ field reached must be relocated.
 
 usage: py -3 make_pcmenu.py --out <dir> (--psarc <MS2.PSARC> | --gui <dir>) [--port <port-vkgame dir>]
          --psarc   extracts the two pages from the archive itself (into <out>/_src)
-         --gui     a folder that already holds gui_options.gui and gui_options-controls.gui
+         --gui     a folder that already holds gui_options.gui, gui_options-controls.gui and gui_wreckreation.gui
          --port    the folder with pc_pages.h and pc_settings.h (default: ../../port-vkgame)
        py -3 make_pcmenu.py <gui dir> <out dir>      (old form)
-Needs, in this folder: page.py, actions.py, widgets.py, coverage.py, pack.py (the .gui readers).
+Needs, in this folder: page.py, actions.py, widgets.py, coverage.py, pack.py (the .gui readers) and make_lanmenu.py.
 Exit code 0 only when every written page re-walks clean."""
 import argparse
 import hashlib
@@ -230,7 +233,7 @@ def read_pages(port):
     for f, t, first, rows, label, info in pages:
         assert first == nxt and 1 <= rows <= 8, (f, first, rows)
         nxt += rows
-    assert len(pages) == 6, 'the hub has six items (make_hub places six)'
+    assert len(pages) == 7, 'the hub has seven items (make_hub places seven)'
     return pages, n_settings
 
 
@@ -289,8 +292,8 @@ def make_options(gui, out):
 
 
 def make_hub(gui, out, pages):
-    """options-pc.gui: the Options page's layout with one item per PC page (five slots: the four
-    retail items and the slot LANGUAGE's hidden copy takes in optionz.gui)."""
+    """options-pc.gui: the Options page's layout with one item per PC page (seven slots: the four
+    retail items, then three more below LANGUAGE)."""
     src = os.path.join(gui, 'gui_options.gui')
     p = Page(src); ed = Ed(p)
     menu = find(p, 'Options_menu')
@@ -300,8 +303,8 @@ def make_hub(gui, out, pages):
     gy = lambda r: p.f(p.u(r) + 4)
     gx = lambda r: p.f(p.u(r))
     step = gy(lang) - gy(ctrl)
-    ys = [gy(r) for r in items] + [gy(lang) + k * step for k in (1, 2)]   # six slots: four retail rows + two more
-    xs = [gx(r) for r in items] + [gx(lang), gx(lang)]
+    ys = [gy(r) for r in items] + [gy(lang) + k * step for k in (1, 2, 3)]   # seven slots: four retail rows + three more
+    xs = [gx(r) for r in items] + [gx(lang), gx(lang), gx(lang)]
     assert len(pages) <= len(ys), 'the hub has six item slots'
     new = []
     for i, (fname, title, first, rows, label, info) in enumerate(pages):
@@ -410,17 +413,21 @@ def main(argv):
         gui = os.path.join(a.out, '_src')
         extract_psarc(a.psarc, '/gui/options.gui', os.path.join(gui, 'gui_options.gui'))
         extract_psarc(a.psarc, '/gui/options-controls.gui', os.path.join(gui, 'gui_options-controls.gui'))
+        extract_psarc(a.psarc, '/gui/wreckreation.gui', os.path.join(gui, 'gui_wreckreation.gui'))
     pages, n_settings = read_pages(a.port)
     make_options(gui, a.out)
     make_hub(gui, a.out, pages)
     for i, pg in enumerate(pages):
         make_page(gui, a.out, pg, i, n_settings)
-    outs = {}
+    import make_lanmenu                              # the LAN play screen (reached from the ONLINE item)
+    outs = make_lanmenu.build(gui, a.out)
     for fn in ['optionz', 'options-pc'] + [pg[0] for pg in pages]:
         outs[fn + '.gui'] = sha(os.path.join(a.out, 'gui', fn + '.gui'))
     meta = {
         'inputs': {'gui_options.gui': sha(os.path.join(gui, 'gui_options.gui')),
                    'gui_options-controls.gui': sha(os.path.join(gui, 'gui_options-controls.gui')),
+                   'gui_wreckreation.gui': sha(os.path.join(gui, 'gui_wreckreation.gui')),
+                   'make_lanmenu.py': sha(os.path.join(HERE, 'make_lanmenu.py')),
                    'pc_pages.h': sha(os.path.join(a.port, 'pc_pages.h')),
                    'pc_settings.h': sha(os.path.join(a.port, 'pc_settings.h')),
                    'make_pcmenu.py': sha(os.path.abspath(__file__))},

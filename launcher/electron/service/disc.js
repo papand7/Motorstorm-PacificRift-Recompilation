@@ -129,8 +129,12 @@ async function checkGame(src, game) {
     const sfo = parseSfo(await src.read('/PS3_GAME/PARAM.SFO'));
     const out = { title: sfo.TITLE, titleId: sfo.TITLE_ID, version: sfo.APP_VER || sfo.VERSION, kind: src.kind, path: src.path };
     const disc = game.discs.find(d => d.title_id === sfo.TITLE_ID);
-    if (!disc)
-        return { ...out, ok: false, error: `This is ${sfo.TITLE || 'another game'} (${sfo.TITLE_ID}), not ${game.title}.` };
+    if (!disc) {
+        // the title alone says little (every release of the game has its own TITLE_ID): name the releases that build
+        const known = game.discs.map(d => d.name).join(', ');
+        return { ...out, ok: false, error: `This disc is ${sfo.TITLE || 'another game'} (${sfo.TITLE_ID || 'no title ID'}), a release ` +
+                 `the launcher cannot build yet. It builds: ${known}.` };
+    }
     if (!src.has('/PS3_GAME/USRDIR/EBOOT.BIN')) return { ...out, ok: false, error: 'The game has no PS3_GAME/USRDIR/EBOOT.BIN.' };
     return { ...out, ok: true, release: disc.name, disc };
 }

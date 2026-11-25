@@ -285,7 +285,7 @@ int main(void)
         next += g->rows;
     }
     CHECK(next == PCP_ROWS);
-    CHECK(PCP_COUNT == 6);   /* the hub: six items (four Options slots and two more) */
+    CHECK(PCP_COUNT == 7);   /* the hub: seven items (four Options slots and three more) */
     CHECK(k_pcp_pages[PCP_COUNT - 1].first == PCS_COUNT + 13 && k_pcp_pages[PCP_COUNT - 1].rows == 4);   /* arrows: UP..RIGHT */
     CHECK(PCP_ROWS == PCS_COUNT + PCK_COUNT);
 
@@ -362,7 +362,8 @@ int main(void)
      * and its variable set only then (MSPR_NO_SHADOWS=1 with Off). */
     {
         const int sh = pcs_find("shadows"), lf = pcs_find("lighting");
-        CHECK(sh >= 0 && lf >= 0 && sh == lf + 1);
+        CHECK(sh >= 0 && lf >= 0 && sh == lf + 2 && pcs_find("prompts") == lf + 1);   /* last cell of the Graphics page */
+        CHECK(sh == k_pcp_pages[1].first + k_pcp_pages[1].rows - 1);
         CHECK(k_pcs_defs[sh].env && !strcmp(k_pcs_defs[sh].env, "MSPR_NO_SHADOWS") && k_pcs_defs[sh].env2 == NULL);
         CHECK(!strcmp(k_pcs_defs[sh].values[0], "0") && !strcmp(k_pcs_defs[sh].values[1], "1"));
         CHECK(k_pcs_defs[sh].def == 0 && k_pcs_defs[sh].always == 0);
@@ -391,6 +392,64 @@ int main(void)
         CHECK(t.idx[lf] == 0 && t.idx[sh] == 1 && !pcs_row_hidden(&t, sh));
         pcs_parse(&t, "shadows = 0\n");
         CHECK(t.idx[sh] == 0);
+    }
+    /* Volumetric Fog: a restart setting on the Effects page (one row, its own hub item), Enhanced only: with Fidelity
+     * Original it is unused (kept, not applied, shown as needing Enhanced); with Enhanced it sets RSX_FX_VOLFOG. */
+    {
+        const int vf = pcs_find("volfog"), lf = pcs_find("lighting");
+        CHECK(vf >= 0 && vf == PCS_COUNT - 2 && lf >= 0 && lf != vf);
+        CHECK(!strcmp(k_pcs_defs[vf].env, "RSX_FX_VOLFOG") && k_pcs_defs[vf].def == 0 && k_pcs_defs[vf].count == 2);
+        CHECK(k_pcs_defs[vf].restart == 1 && k_pcs_defs[vf].env2 == NULL && !k_pcs_defs[vf].folder);
+        CHECK(!strcmp(k_pcs_defs[vf].values[0], "0") && !strcmp(k_pcs_defs[vf].values[1], "1"));
+        int ep = -1;
+        for (int p = 0; p < PCP_COUNT; p++)
+            if (!strcmp(k_pcp_pages[p].file, "options-pcf")) ep = p;
+        CHECK(ep >= 0 && k_pcp_pages[ep].first == vf && k_pcp_pages[ep].rows == 2);   /* fog, ruts */
+        CHECK(!strcmp(k_pcp_pages[ep].label, "EFFECTS") && ep == 3);   /* the fourth hub item, after Racing Wheel */
+        pcs_state t;
+        pcs_defaults(&t);
+        CHECK(t.idx[lf] == 1 && t.idx[vf] == 0 && !pcs_row_unused(&t, vf));   /* Enhanced, off by default */
+        CHECK(!pcs_row_hidden(&t, vf));                                        /* shown on its page always */
+        for (int i = 0; i < PCS_COUNT; i++) CHECK(!pcs_row_unused(&t, i));   /* Enhanced: every row applies */
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_VOLFOG"));                                    /* off: nothing set */
+        t.idx[vf] = 1;
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FX_VOLFOG") && !strcmp(set_value("RSX_FX_VOLFOG"), "1"));
+        t.idx[lf] = 0;                                                         /* Original: kept On, not applied */
+        CHECK(t.idx[vf] == 1 && pcs_row_unused(&t, vf) && !pcs_row_hidden(&t, vf));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_VOLFOG"));
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "volfog = On\n") == 1 && t.idx[vf] == 1 && (t.explicit_mask & (1u << vf)));
+        CHECK(pcs_parse(&t, "volfog = 0\n") == 1 && t.idx[vf] == 0);
+        CHECK(pcs_owns_env(&t, "RSX_FX_VOLFOG") && !pcs_owns_env(&t, "RSX_FX_FOG"));
+    }
+    /* Wheel Ruts: the second Effects row, the last setting; as Volumetric Fog: restart, Enhanced only, off by default */
+    {
+        const int ru = pcs_find("ruts"), lf = pcs_find("lighting");
+        CHECK(ru == PCS_COUNT - 1 && !strcmp(k_pcs_defs[ru].env, "RSX_FX_RUTS") && k_pcs_defs[ru].def == 0);
+        CHECK(k_pcs_defs[ru].count == 2 && k_pcs_defs[ru].restart == 1 && k_pcs_defs[ru].env2 == NULL);
+        pcs_state t;
+        pcs_defaults(&t);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_RUTS"));                                      /* off: nothing set */
+        t.idx[ru] = 1;
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FX_RUTS") && !strcmp(set_value("RSX_FX_RUTS"), "1"));
+        t.idx[lf] = 0;                                                         /* Original: kept On, not applied */
+        CHECK(pcs_row_unused(&t, ru) && !pcs_row_hidden(&t, ru));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_RUTS"));
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "ruts = On\n") == 1 && t.idx[ru] == 1 && (t.explicit_mask & (1u << ru)));
+        CHECK(pcs_owns_env(&t, "RSX_FX_RUTS"));
     }
     printf("test_pc_settings: %d failure(s)\n", fails);
     return fails ? 1 : 0;
