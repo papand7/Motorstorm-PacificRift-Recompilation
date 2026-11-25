@@ -34,6 +34,7 @@
 #include "pc_pages.h"
 #include "pad_wheel.h"   /* libs/input: the wheel.* lines of settings.ini */
 #include "pc_prompts.h"  /* the button prompts as key caps */
+#include "lan_menu.h"    /* the LAN play screen (lan_menu.cpp): Lan* functions */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -80,7 +81,7 @@ static void pcmenu_drain(ppu_context* ctx)
 #define PCMENU_FUNCTOR (PCMENU_EA + 0x0000u)   /* 8 bytes each */
 #define PCMENU_OPD     (PCMENU_EA + 0x1000u)   /* 8 bytes each */
 #define PCMENU_TEXT    (PCMENU_EA + 0x2000u)   /* 128 bytes each */
-#define PCMENU_CODE    (PCMENU_EA + 0xA800u)   /* 4 bytes each, never run as guest code (text grew past 0x8000) */
+#define PCMENU_CODE    (PCMENU_EA + 0xC000u)   /* 4 bytes each, never run as guest code (moved up: more rows, more text) */
 #define PCMENU_TOC     0x0109FBF0u
 #define PCMENU_MISS    666u                    /* the lookup's "no such function" signature */
 #define PCMENU_SIG_VOID 0u                     /* void() */
@@ -98,11 +99,14 @@ enum {
     PCF_MENU_LABEL = PCF_TITLE + PCP_COUNT + 1,
     PCF_MENU_INFO,
     PCF_SAVE,
-    PCF_COUNT
+    PCF_LAN,                    /* the LAN play screen's functions (lan_menu.h), LMF_COUNT of them */
+    PCF_COUNT = PCF_LAN + LMF_COUNT
 };
-static_assert(PCF_COUNT * 128 <= 0x8800, "text buffers must fit between the text and the code addresses");
-static_assert(PCF_COUNT * 4 <= 0x5800, "code addresses must fit in their 22 KB window (ends at PCMENU_EA + 0x10000)");
+static_assert(PCF_COUNT * 128 <= 0xA000, "text buffers must fit between the text and the code addresses");
+static_assert(PCF_COUNT * 4 <= 0x4000, "code addresses must fit in their 16 KB window (ends at PCMENU_EA + 0x10000)");
 static_assert(PCF_COUNT * 8 <= 0x1000, "functors must fit below the OPDs");
+
+extern "C" int lanmenu_call(int fn, char* out, size_t cap);   /* lan_menu.cpp */
 
 static const char* const k_pcf_kind[PCF_PER_ROW] = { "PcName", "PcValue", "PcInfo", "PcNext", "PcPrev", "PcKey" };
 
@@ -113,6 +117,7 @@ static char s_ini[1024], s_dir[1024];
 static int s_ready, s_alias;
 static int s_unlock_vehicles;         /* settings.ini unlockvehicles (Cheats tab) or MSPR_UNLOCK_VEHICLES */
 static int s_unlock_tracks;           /* settings.ini unlocktracks (Cheats tab) or MSPR_UNLOCK_TRACKS */
+static int s_screens = 1;             /* settings.ini screens (launcher Display): 1, 2 or 3 monitors (pcs_screens) */
 static int s_cap_act = -1;            /* the key row waiting for a key, or -1 */
 static int s_dxc_ok = -1;             /* a dxc.exe (with its dll) was found */
 
@@ -173,6 +178,7 @@ static void pcmenu_save(void)
     fputs(text, f);
     if (s_unlock_vehicles) fputs("unlockvehicles = On\n", f);   /* Cheats: not page rows, kept while on */
     if (s_unlock_tracks) fputs("unlocktracks = On\n", f);
+    if (s_screens > 1) fprintf(f, "screens = %s\n", k_pcs_screens[s_screens - 1]);   /* launcher only: kept */
     fclose(f);
 #ifdef _WIN32
     if (!MoveFileExA(tmp, s_ini, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
@@ -342,6 +348,8 @@ static void pcmenu_call(int k, ppu_context* ctx)
             } else {
                 const pcs_def* d = &k_pcs_defs[row];
                 const char* why = pcmenu_avail(d->key, s_pcs.idx[row]);
+                /* a row with no effect at this Fidelity (Volumetric Fog with Original) shows that, the choice kept */
+                if (!why && pcs_row_unused(&s_pcs, row)) why = "needs Fidelity Enhanced";
                 if (why) snprintf(t, sizeof t, "%s (%s)", d->labels[s_pcs.idx[row]], why);
                 else snprintf(t, sizeof t, "%s", d->labels[s_pcs.idx[row]]);
             }
@@ -377,6 +385,12 @@ static void pcmenu_call(int k, ppu_context* ctx)
             }
             return;
         }
+    }
+    if (k >= PCF_LAN) {   /* the LAN play screen: text functions return a string, bool functions a flag */
+        const int r = lanmenu_call(k - PCF_LAN, t, sizeof t);
+        if (lm_sig(k - PCF_LAN) == LM_SIG_TEXT) ctx->gpr[3] = pcmenu_text(k, t);
+        else ctx->gpr[3] = (uint64_t)(r != 0);
+        return;
     }
     if (k >= PCF_HUB_LABEL && k < PCF_HUB_INFO) { ctx->gpr[3] = pcmenu_text(k, k_pcp_pages[k - PCF_HUB_LABEL].label); return; }
     if (k >= PCF_HUB_INFO && k < PCF_TITLE) { ctx->gpr[3] = pcmenu_text(k, k_pcp_pages[k - PCF_HUB_INFO].info); return; }
@@ -421,6 +435,11 @@ static int pcmenu_find(const char* n, uint32_t* sig)
     if (!strcmp(n, "PcMenuLabel")) { *sig = PCMENU_SIG_TEXT; return PCF_MENU_LABEL; }
     if (!strcmp(n, "PcMenuInfo"))  { *sig = PCMENU_SIG_TEXT; return PCF_MENU_INFO; }
     if (!strcmp(n, "PcSave"))      { *sig = PCMENU_SIG_VOID; return PCF_SAVE; }
+    {   /* Lan*: the LAN play screen */
+        int ls;
+        const int f = lm_find(n, &ls);
+        if (f >= 0) { *sig = (uint32_t)ls; return PCF_LAN + f; }
+    }
     struct { const char* p; int base, count; } pg[] = {
         { "PcHubLabel", PCF_HUB_LABEL, PCP_COUNT }, { "PcHubInfo", PCF_HUB_INFO, PCP_COUNT },
         { "PcTitle", PCF_TITLE, PCP_COUNT + 1 } };
@@ -459,16 +478,32 @@ static void pcmenu_answer(ppu_context* ctx, uint32_t out, uint32_t name)
     (void)ctx;
 }
 
-/* The page loader's resource load, r5 = the page path: the Options page comes
- * from its overlay copy, the path restored after. */
+/* The page loader's resource load, r5 = the page path: a page the game has and the overlay replaces
+ * (gui/options.gui: the Options page with PC SETTINGS; gui/wreckreation.gui: the Wreckreation page whose
+ * ONLINE item opens the LAN screen) is read from its overlay copy (same length, one letter changed:
+ * optionz, wreckreatioz), the path restored after. The overlay never shadows a disc file, hence the alias. */
+static const struct { const char path[24]; unsigned at; char orig; } k_pcmenu_alias[] = {
+    { "gui/options.gui", 10, 's' },
+    { "gui/wreckreation.gui", 15, 'n' },
+};
+static int s_alias_on[2];   /* the overlay has the alias copy */
+
 static int pcmenu_alias_begin(uint32_t p)
 {
-    static const char opt[] = "gui/options.gui";
     static int s_logged;
-    if (!s_alias || memcmp(vm_base + p, opt, sizeof opt) != 0) return 0;
-    vm_base[p + 10] = 'z';   /* gui/optionz.gui, same length */
-    if (s_logged++ < 4) fprintf(stderr, "[pc-menu] Options page: gui/optionz.gui\n");
-    return 1;
+    for (size_t k = 0; k < sizeof k_pcmenu_alias / sizeof k_pcmenu_alias[0]; k++) {
+        const size_t n = strlen(k_pcmenu_alias[k].path) + 1;
+        if (!s_alias_on[k] || memcmp(vm_base + p, k_pcmenu_alias[k].path, n) != 0) continue;
+        vm_base[p + k_pcmenu_alias[k].at] = 'z';
+        if (s_logged++ < 8) fprintf(stderr, "[pc-menu] page %s: overlay copy\n", k_pcmenu_alias[k].path);
+        return (int)k + 1;   /* for pcmenu_alias_end */
+    }
+    return 0;
+}
+
+static void pcmenu_alias_end(uint32_t p, int alias)
+{
+    vm_base[p + k_pcmenu_alias[alias - 1].at] = k_pcmenu_alias[alias - 1].orig;
 }
 
 #ifndef PORT_V103
@@ -489,7 +524,7 @@ extern "C" void pcmenu_page_load(ppu_context* ctx)
     const int alias = pcmenu_alias_begin(p);
     func_00752C98(ctx);   /* a tail branch to the loader 0x00536A30 */
     pcmenu_drain(ctx);
-    if (alias) vm_base[p + 10] = 's';
+    if (alias) pcmenu_alias_end(p, alias);
 }
 #else
 /* 1.03 (PARTIAL: matched by code shape, not yet run; generated/analysis/pcmenu/
@@ -516,7 +551,7 @@ extern "C" void pcmenu_load_sync(void* v)
     const int alias = pcmenu_alias_begin(p);
     func_00503718(ctx);
     pcmenu_drain(ctx);
-    if (alias) vm_base[p + 10] = 's';
+    if (alias) pcmenu_alias_end(p, alias);
 }
 #endif
 
@@ -594,6 +629,7 @@ extern "C" void pcmenu_boot(const char* argv0)
         pcs_parse(&s_pcs, text);
         s_unlock_vehicles = pcs_unlock_vehicles(text);
         s_unlock_tracks = pcs_unlock_tracks(text);
+        s_screens = pcs_screens(text);
         const int nk = pck_parse(&s_layout, text);
         pcw_parse(&s_wcfg, text);
 #ifdef _WIN32
@@ -610,6 +646,12 @@ extern "C" void pcmenu_boot(const char* argv0)
         if (t >= 0) s_unlock_tracks = t;
         if (s_unlock_vehicles) fprintf(stderr, "[pc-menu] unlock all vehicles: on\n");
         if (s_unlock_tracks) fprintf(stderr, "[pc-menu] unlock all tracks: on\n");
+    }
+    {   /* Screens: PS3RECOMP_VK_SPAN for the Vulkan window (rsx_multiscreen.h); a set variable wins */
+        const char* span = pcs_screens_env(s_screens);
+        if (span && !getenv("PS3RECOMP_VK_SPAN")) pcmenu_setenv("PS3RECOMP_VK_SPAN", span);
+        if (span) fprintf(stderr, "[pc-menu] screens: %s (PS3RECOMP_VK_SPAN=%s)\n", k_pcs_screens[s_screens - 1],
+                          getenv("PS3RECOMP_VK_SPAN"));
     }
     pcmenu_apply_layout();
     /* Button prompts: MSPR_PROMPTS (set by the file's "prompts" line unless the environment had it), Keyboard by default */
@@ -648,6 +690,9 @@ extern "C" void pcmenu_boot(const char* argv0)
     const char* o = getenv("PS3_VFS_OVERLAY");
     snprintf(ov, sizeof ov, "%s/gui/optionz.gui", o ? o : "");
     s_alias = o && *o && stat(ov, &st) == 0;
+    s_alias_on[0] = s_alias;
+    snprintf(ov, sizeof ov, "%s/gui/wreckreatioz.gui", o ? o : "");
+    s_alias_on[1] = o && *o && stat(ov, &st) == 0;
 }
 
 /* After the ELF is loaded: the guest functors and their host functions. */

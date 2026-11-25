@@ -12,6 +12,10 @@ const SCHEMA = [
     { key: 'resolution', group: 'Display', label: 'Resolution', choices: ['720p', '1080p', '1440p', '2160p'], def: '720p', values: ['1', '1.5', '2', '3'] },
     { key: 'vsync', group: 'Display', label: 'Vertical sync', choices: ['On', 'Off'], def: 'Off', values: ['1', '0'] },
     { key: 'dynres', group: 'Display', label: 'Dynamic resolution (the game\'s own)', choices: ['On', 'Off'], def: 'Off' },
+    // one game window over two or three side-by-side monitors of the same height, or one Surround / Eyefinity display
+    // that wide (PS3RECOMP_VK_SPAN, libs/video rsx_multiscreen.h): wider view, HUD and menus on the middle screen.
+    // Launcher only (the game's Display page is full); the port reads it at start (pc_settings.h pcs_screens).
+    { key: 'screens', group: 'Display', label: 'Screens (dual / triple monitors)', choices: ['Single', 'Dual', 'Triple'], def: 'Single', values: ['1', '2', '3'] },
     { key: 'framerate', group: 'Display', label: 'Frame rate', choices: ['30 FPS', '45 FPS', '60 FPS', '80 FPS', '120 FPS', '144 FPS', '180 FPS'], def: '30 FPS', values: ['30', '45', '60', '80', '120', '144', '180'], alias: { variable: '60 FPS', '60fps': '60 FPS' } },
     { key: 'fsrmode', group: 'Upscaling', label: 'Upscaler', choices: ['FSR 1', 'FSR 3.1'], def: 'FSR 1', values: ['1', '3'] },
     { key: 'fsr', group: 'Upscaling', label: 'Upscaling (FSR)', choices: ['Off', 'Ultra Quality', 'Quality', 'Balanced', 'Performance'],
@@ -29,6 +33,11 @@ const SCHEMA = [
     { key: 'shadows', group: 'Graphics', label: 'Shadows', choices: ['On', 'Off'], def: 'On', values: ['0', '1'] },
     // the game's button prompts as key caps of the player's keys (port pc_prompts.h); Auto: keys unless a gamepad or wheel is connected
     { key: 'prompts', group: 'Graphics', label: 'Button prompts', choices: ['Keyboard', 'Controller', 'Auto'], def: 'Keyboard', values: ['keyboard', 'controller', 'auto'] },
+    // Volumetric fog (port rsx_vk_scenefx.h RSX_FX_VOLFOG, read at start). Saved as chosen; the game applies it only with
+    // Fidelity Enhanced (pc_settings.h pcs_row_unused), and its own page is the Effects page (pc_pages.h).
+    { key: 'volfog', group: 'Graphics', label: 'Volumetric fog (Enhanced only)', choices: ['Off', 'On'], def: 'Off', values: ['0', '1'] },
+    // Wheel ruts (port rsx_ruts.h RSX_FX_RUTS, read at start): only where the game lays its own tyre tracks. As volfog: Enhanced only.
+    { key: 'ruts', group: 'Graphics', label: 'Wheel ruts (Enhanced only)', choices: ['Off', 'On'], def: 'Off', values: ['0', '1'] },
     // Racing wheel (libs/input pad_wheel.h; the finer wheel.* keys are in docs/SETTINGS.md, not choices)
     { key: 'wheelmode', group: 'Wheel', label: 'Racing wheel', choices: ['Auto', 'Any Device', 'Off'], def: 'Auto', values: ['auto', 'any', 'off'] },
     { key: 'wheelrange', group: 'Wheel', label: 'Steering range', choices: ['Device', '180 deg', '270 deg', '360 deg', '540 deg', '720 deg', '900 deg'], def: '270 deg', values: ['device', '180', '270', '360', '540', '720', '900'] },

@@ -122,22 +122,23 @@ static const pcs_def k_pcs_defs[] = {
       { "Original", "Enhanced" }, { "0", "1" },
       "Enhanced (experimental): new lighting, AO and tone mapping. Original is the game's own lighting.", 1,
       NULL, { NULL } },
-    /* Off skips the game's own shadow casters (rsx_shadow_off.h, MSPR_NO_SHADOWS, original lighting only). Shown
-     * only with Fidelity Original (pcs_row_hidden); the choice is kept while it is hidden. Reflections are not
-     * changed by this row. */
-    { "shadows", "Shadows", "MSPR_NO_SHADOWS", 2, 0, 0, 0,
-      { "On", "Off" }, { "0", "1" },
-      "Off skips the game's own shadows; reflections stay. Original look only (hidden with Enhanced)." },
     /* The game's button prompts as key caps (pc_prompts.h, pc_menu.cpp): Keyboard always, Controller never (the
      * original icons), Auto while no gamepad or wheel is connected. The page applies a change at once. */
     { "prompts", "Button Prompts", "MSPR_PROMPTS", 3, 0, 0, 0,
       { "Keyboard", "Controller", "Auto" }, { "keyboard", "controller", "auto" },
       "Keys or controller buttons in prompts. Auto: keys unless a gamepad or wheel is connected." },
+    /* Off skips the game's own shadow casters (rsx_shadow_off.h, MSPR_NO_SHADOWS, original lighting only). Shown
+     * only with Fidelity Original (pcs_row_hidden); the choice is kept while it is hidden. Reflections are not
+     * changed by this row. It is the last cell of the Graphics page, so a hidden row leaves the grid's last cell
+     * empty and no gap between the other rows (pc_pages.h). */
+    { "shadows", "Shadows", "MSPR_NO_SHADOWS", 2, 0, 0, 0,
+      { "On", "Off" }, { "0", "1" },
+      "Off skips the game's own shadows; reflections stay. Original look only (hidden with Enhanced)." },
     /* The driver's-eye camera (MSPR_CAM_COCKPIT) is not a setting: it is on by default (main.cpp k_defaults). */
     /* Racing Wheel (libs/input pad_wheel.h and pad_wheel_dinput.h read these variables; the page applies a
      * change at once, so none is a restart setting). The detailed keys (axes, pedal calibration, buttons) are
      * wheel.* lines, not choices: docs/SETTINGS.md. Keep the page at eight rows (pc_pages.h): the guest text
-     * buffers (pc_menu.cpp PCF_COUNT) are full at 256. */
+     * buffers (pc_menu.cpp PCF_COUNT) have room for 272 entries, six texts a row. */
     { "wheelmode", "Racing Wheel", "PAD_WHEEL", 3, 0, 0, 0,
       { "Auto", "Any Device", "Off" }, { "auto", "any", "off" },
       "Auto: Thrustmaster and Logitech wheels. Any Device: any joystick. A gamepad keeps working." },
@@ -163,6 +164,17 @@ static const pcs_def k_pcs_defs[] = {
     { "wheelffbstrength", "Force Feedback Strength", "PAD_WHEEL_FFB_STRENGTH", 5, 2, 0, 0,
       { "20%", "40%", "60%", "80%", "100%" }, { "20", "40", "60", "80", "100" },
       "Overall strength of the effects above." },
+    /* Effects page (pc_pages.h). The fog is the scene pass's volumetric fog (rsx_vk_scenefx.h, RSX_FX_VOLFOG=1, off
+     * by default, read once at start: a restart setting). Enhanced only: with Fidelity Original the row stays on the
+     * page with "(needs Fidelity Enhanced)" and sets nothing (pcs_row_unused). */
+    { "volfog", "Volumetric Fog", "RSX_FX_VOLFOG", 2, 0, 1, 0,
+      { "Off", "On" }, { "0", "1" },
+      "Light shafts and haze in the air. Enhanced only; more GPU time.", 0, NULL, { NULL } },
+    /* Wheel ruts in the scene pass (rsx_draw_engine.c / rsx_ruts.h, RSX_FX_RUTS=1, off by default, read once at start):
+     * the wheels press ruts where the game lays its own tyre tracks. Enhanced only, as the fog (pcs_row_unused). */
+    { "ruts", "Wheel Ruts", "RSX_FX_RUTS", 2, 0, 1, 0,
+      { "Off", "On" }, { "0", "1" },
+      "Wheels press ruts into the ground where the game lays its tracks. Enhanced only.", 0, NULL, { NULL } },
 };
 #define PCS_COUNT ((int)(sizeof k_pcs_defs / sizeof k_pcs_defs[0]))
 
@@ -191,6 +203,15 @@ static inline int pcs_row_hidden(const pcs_state* s, int i)
     if (strcmp(k_pcs_defs[i].key, "shadows")) return 0;
     const int lf = pcs_find("lighting");
     return lf >= 0 && s->idx[lf] != 0;
+}
+
+/* The Volumetric Fog and Wheel Ruts rows are shown always but have no effect unless Fidelity is Enhanced: the choice
+ * is kept and not applied (pcs_apply), and the page says why. Other rows: 0. */
+static inline int pcs_row_unused(const pcs_state* s, int i)
+{
+    if (strcmp(k_pcs_defs[i].key, "volfog") && strcmp(k_pcs_defs[i].key, "ruts")) return 0;
+    const int lf = pcs_find("lighting");
+    return lf >= 0 && s->idx[lf] != 1;
 }
 
 static inline int pcs_ieq(const char* a, const char* b)
@@ -309,7 +330,7 @@ static inline int pcs_apply(const pcs_state* s, const char* base, pcs_get_fn get
     int done = 0;
     for (int i = 0; i < PCS_COUNT; i++) {
         const pcs_def* d = &k_pcs_defs[i];
-        if (!d->env || (s->idx[i] == d->def && !d->always) || pcs_row_hidden(s, i)) continue;
+        if (!d->env || (s->idx[i] == d->def && !d->always) || pcs_row_hidden(s, i) || pcs_row_unused(s, i)) continue;
         if (avail && avail(d->key, s->idx[i])) continue;
         if (d->env2 && !get(d->env2)) { set(d->env2, d->values2[s->idx[i]]); done++; }
         if (get(d->env)) continue;
@@ -389,6 +410,44 @@ static inline int pcs_env_switch(const char* v)
 {
     if (!v || !*v) return -1;
     return (!strcmp(v, "1") || pcs_ieq(v, "On")) ? 1 : 0;
+}
+
+/* Screens: "screens = Single|Dual|Triple" (or 1|2|3), the game window over one, two or three monitors
+ * (PS3RECOMP_VK_SPAN=2|3, libs/video rsx_multiscreen.h; restart). A launcher setting, not a page row: the
+ * Display page is full (eight rows, pc_pages.h). Like the Cheats lines, pcmenu_save writes it back while it is
+ * not Single, so the in-game page keeps it. The last line naming it with a known value wins; 1 without one. */
+static const char* const k_pcs_screens[3] = { "Single", "Dual", "Triple" };
+
+static inline int pcs_screens(const char* text)
+{
+    int n = 1;
+    while (text && *text) {
+        const char* e = strchr(text, '\n');
+        size_t len = e ? (size_t)(e - text) : strlen(text);
+        char line[96];
+        if (len >= sizeof line) len = sizeof line - 1;
+        memcpy(line, text, len);
+        line[len] = 0;
+        text = e ? e + 1 : NULL;
+        char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == ';' || strncmp(p, "screens", 7) != 0) continue;
+        p += 7;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p++ != '=') continue;
+        while (*p == ' ' || *p == '\t') p++;
+        char* v = p + strlen(p);
+        while (v > p && (v[-1] == ' ' || v[-1] == '\t' || v[-1] == '\r')) *--v = 0;
+        for (int i = 0; i < 3; i++)
+            if (pcs_ieq(p, k_pcs_screens[i]) || (p[0] == '1' + i && !p[1])) n = i + 1;
+    }
+    return n;
+}
+
+/* The PS3RECOMP_VK_SPAN value for n screens: NULL for one (nothing is set). */
+static inline const char* pcs_screens_env(int n)
+{
+    return n == 2 ? "2" : n == 3 ? "3" : NULL;
 }
 
 #endif

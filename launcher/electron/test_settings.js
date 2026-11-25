@@ -122,5 +122,25 @@ assert.ok(S.save(dir, { wheelrange: '1000 deg' }));
     fs.rmSync(cd, { recursive: true, force: true });
 }
 
+// Screens (dual / triple monitors): a Display choice, Single by default, labels or 1/2/3 read back; the port reads the
+// same key and labels (pc_settings.h pcs_screens, k_pcs_screens) and turns them into PS3RECOMP_VK_SPAN
+{
+    const sd = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-screens-'));
+    const sini = path.join(sd, 'settings.ini');
+    const sc = S.SCHEMA.find(x => x.key === 'screens');
+    assert.ok(sc && sc.group === 'Display' && sc.def === 'Single');
+    assert.deepStrictEqual(sc.choices, ['Single', 'Dual', 'Triple']);
+    assert.strictEqual(S.load(sd).values.screens, 'Single');
+    assert.strictEqual(S.save(sd, { screens: 'Triple' }), null);
+    assert.ok(/^screens = Triple$/m.test(fs.readFileSync(sini, 'utf8')));
+    fs.writeFileSync(sini, 'screens = 2\r\n');
+    assert.strictEqual(S.load(sd).values.screens, 'Dual');
+    assert.ok(S.save(sd, { screens: 'Quad' }));
+    const ps = fs.readFileSync(path.join(__dirname, '..', '..', 'port-vkgame', 'pc_settings.h'), 'utf8');
+    assert.ok(ps.includes('"screens"') || /strncmp\(p, "screens"/.test(ps), 'pc_settings.h reads screens');
+    assert.ok(ps.includes('{ "Single", "Dual", "Triple" }'), 'pc_settings.h has the same labels');
+    fs.rmSync(sd, { recursive: true, force: true });
+}
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('settings: all checks passed');

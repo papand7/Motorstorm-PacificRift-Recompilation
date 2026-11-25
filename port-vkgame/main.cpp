@@ -44,6 +44,7 @@
 #include "mspr_patch.h"            /* MSPR_PATCH: default patch list (drs) */
 extern "C" void pcmenu_boot(const char* argv0);   /* pc_menu.cpp: settings.ini, PC Settings page */
 extern "C" void pcmenu_init(void);
+#include "lan_play.h"              /* Host / Join (LAN): no socket until a page asks; atexit closes them */
 extern "C" int pcmenu_owns_env(const char* name);   /* settings.ini names the setting behind this variable */
 
 #include <stdint.h>
@@ -204,12 +205,14 @@ extern "C" unsigned ppu_boot_frames_presented(void)
     return (unsigned)g_frames_presented;
 }
 
+static void fly_frame(void);   /* MSPR_DEBUG_FLY: F3, the mouse and the keys, once per presented frame (below) */
 static void present_guest_frame(void)
 {
     rsx_backend_present();
     /* This thread increments and guest threads read, so interlocked rather
      * than a volatile ++, which on arm64 is neither atomic nor a fence. */
     InterlockedIncrement(&g_frames_presented);
+    fly_frame();
 }
 
 /* One vblank beat (ps3emu/frame_beat.h): present the flip the drain completed,
@@ -627,6 +630,26 @@ extern "C" float mspr_dist_f(int kind, float v)
     if (logged[kind]++ < 16)
         fprintf(stderr, "[mspr-dist] %s kind %d group %d: %g -> %g\n", name[kind], kind, group, v, r);
     return r;
+}
+
+/* Screens (settings.ini "screens", PS3RECOMP_VK_SPAN=2|3; libs/video rsx_multiscreen.h): Hor+ for a window
+ * over two or three monitors. The lens's frustum (1.00 func_004302B4, the body func_004302A8 branches to)
+ * takes each half-angle from a film size over the focal length: f9 = [lens+0xB4] * [TOC 0x7050], then
+ * f1 = f9 / focal [lens+0xB0] into the libm stub func_00755EE8 -> func_0070B6F0, an arc tangent (|x| > 1 is
+ * reduced through 1/x, the infinities return constant half-pi values), and the same for [lens+0xB8].
+ * The results become the frustum vector at lens+0x70, which func_004301A8 reads back as the view's x and y
+ * extents. launcher/pipeline/screens_patch_lifted.py makes the first film load pass through here, so the
+ * horizontal extent (tan of the half-angle) is widened by the window's aspect over 16:9 while the vertical one,
+ * the focal length and the lens memory stay as they are (nothing is written to the guest; a lens rebuilt
+ * again gets the same result, no compounding). Without a span window the factor is 1 and v comes back as is. */
+extern "C" float rsx_ms_hfov_scale(void);   /* libs/video rsx_draw_engine.c: 1 unless a span window is open */
+extern "C" double mspr_screens_film(double v)
+{
+    const float k = rsx_ms_hfov_scale();
+    if (k == 1.0f) return v;
+    static int logged;
+    if (logged++ < 4) fprintf(stderr, "[multiscreen] lens film width %g -> %g (x%.3f)\n", v, v * k, k);
+    return v * (double)k;
 }
 
 /* MSPR_CAM: the camera-shake fix under vfps (generated/analysis/vksync/GLITCHES.md;
@@ -1245,6 +1268,134 @@ extern "C" uint64_t mspr_cock_tick(uint64_t mgr)
 }
 
 /* ---------------------------------------------------------------------------
+ * MSPR_DEBUG_FLY=1 (off by default): a debug free-fly camera. F3, with the game window in front, turns
+ * it on and off. On: every perspective draw at least 640 wide (the scene) is drawn from the fly view with
+ * the game's projection (rsx_draw_set_view_override; the ortho shadow maps and the HUD keep their own
+ * matrices, and the light cascade and the scene's extras keep the game's camera). The mouse looks (the
+ * cursor is captured while on), W/S/A/D move 6 m/s, Shift x4, Space / Ctrl rise and fall. The math and its
+ * tests: fly_cam.h, tests/test_fly_cam.c. The game's sim stop is mspr_fly_sim_step (below), hooked at the entry of
+ * the lifted frame step func_008CF1C0 by launcher/pipeline/fly_pause_patch_lifted.py (F3 pauses the race). */
+#include "fly_cam.h"
+extern "C" void rsx_draw_set_view_override(int (*fn)(void*, const float*, uint32_t, float*, int), void* user);
+
+static int s_fly_env = -1;               /* MSPR_DEBUG_FLY=1 */
+static fly_mode s_fly_mode;
+static fly_pose s_fly_pose;
+static CRITICAL_SECTION s_fly_cs;        /* the pose: the frame thread writes it, the draw thread reads it */
+static int s_fly_f3_was;
+static int s_fly_captured;
+static POINT s_fly_centre;
+static LARGE_INTEGER s_fly_last;
+static long s_fly_draws;                 /* draws the fly view replaced since it was turned on */
+
+static int fly_view_cb(void* user, const float* vp, uint32_t clip_w, float* out, int scene)
+{
+    (void)user;
+    if (clip_w < 640u) return 0;
+    int r = 0;
+    EnterCriticalSection(&s_fly_cs);
+    if (s_fly_mode.on) {
+        if (s_fly_mode.init) {   /* the first perspective draw after F3 gives the pose: the game's camera */
+            double m[16];
+            fly_view g;
+            fly_load(vp, m);
+            if (fly_decompose(m, &g)) {
+                fly_pose_from_view(&s_fly_pose, &g);
+                s_fly_mode.init = 0;
+                fprintf(stderr, "[fly] pose from the game's camera (%s, target %u wide): eye %.2f %.2f %.2f yaw %.1f pitch %.1f\n",
+                        scene ? "scene" : "draw", clip_w, g.eye[0], g.eye[1], g.eye[2], s_fly_pose.yaw, s_fly_pose.pitch);
+            }
+        }
+        if (!s_fly_mode.init) r = fly_view_vp(&s_fly_pose, vp, out);
+    }
+    LeaveCriticalSection(&s_fly_cs);
+    if (r && !scene) s_fly_draws++;
+    return r;
+}
+
+static int fly_key(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }
+
+/* once per presented frame (present_guest_frame): F3 edge, cursor capture, the keys and the mouse */
+static void fly_frame(void)
+{
+    if (s_fly_env < 0) {
+        const char* e = getenv("MSPR_DEBUG_FLY");
+        s_fly_env = e && e[0] == '1' && !e[1];
+        if (s_fly_env) {
+            InitializeCriticalSection(&s_fly_cs);
+            fprintf(stderr, "[fly] MSPR_DEBUG_FLY=1: F3 in the game window toggles the debug free-fly camera\n");
+        }
+    }
+    if (!s_fly_env) return;
+    LARGE_INTEGER freq, now;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&now);
+    const double dt = s_fly_last.QuadPart ? (double)(now.QuadPart - s_fly_last.QuadPart) / (double)freq.QuadPart : 0.0;
+    s_fly_last = now;
+    const int f3 = fly_key(VK_F3);
+    const int focused = ct_focused();
+    if (f3 && !s_fly_f3_was && focused) {
+        EnterCriticalSection(&s_fly_cs);
+        fly_toggle(&s_fly_mode);
+        const int on = s_fly_mode.on;
+        if (on) s_fly_draws = 0;
+        LeaveCriticalSection(&s_fly_cs);
+        HWND fg = GetForegroundWindow();
+        RECT rc;
+        if (on) {
+            rsx_draw_set_view_override(fly_view_cb, NULL);
+            if (fg && GetClientRect(fg, &rc)) {
+                s_fly_centre.x = (rc.right - rc.left) / 2; s_fly_centre.y = (rc.bottom - rc.top) / 2;
+                ClientToScreen(fg, &s_fly_centre);
+                SetCursorPos(s_fly_centre.x, s_fly_centre.y);
+                RECT clip = { s_fly_centre.x - 2, s_fly_centre.y - 2, s_fly_centre.x + 2, s_fly_centre.y + 2 };
+                ClipCursor(&clip);
+                s_fly_captured = 1;
+            }
+            ShowCursor(FALSE);
+            fprintf(stderr, "[fly] on: the game is paused; W/S/A/D move, Shift fast, mouse looks, F3 returns\n");
+        } else {
+            rsx_draw_set_view_override(NULL, NULL);
+            if (s_fly_captured) ClipCursor(NULL);
+            s_fly_captured = 0;
+            ShowCursor(TRUE);
+            rsx_title_suffix[0] = 0;
+            fprintf(stderr, "[fly] off: the game resumes (%ld draws flown)\n", s_fly_draws);
+        }
+    }
+    s_fly_f3_was = f3;
+    EnterCriticalSection(&s_fly_cs);
+    const int moving = s_fly_mode.on && !s_fly_mode.init && focused;
+    if (moving) {
+        fly_input in;
+        memset(&in, 0, sizeof in);
+        in.fwd = fly_key('W') - fly_key('S');
+        in.strafe = fly_key('D') - fly_key('A');
+        in.up = fly_key(VK_SPACE) - fly_key(VK_CONTROL);
+        in.fast = fly_key(VK_SHIFT);
+        POINT p;
+        if (s_fly_captured && GetCursorPos(&p)) {
+            in.mx = p.x - s_fly_centre.x;
+            in.my = p.y - s_fly_centre.y;
+            SetCursorPos(s_fly_centre.x, s_fly_centre.y);
+        }
+        fly_move(&s_fly_pose, &in, dt, 1.0);
+        snprintf(rsx_title_suffix, sizeof rsx_title_suffix, " | [fly] on: eye %.1f %.1f %.1f yaw %.0f pitch %.0f",
+                 s_fly_pose.eye[0], s_fly_pose.eye[1], s_fly_pose.eye[2], s_fly_pose.yaw, s_fly_pose.pitch);
+    }
+    LeaveCriticalSection(&s_fly_cs);
+}
+
+/* The game's frame step: func_008CF1C0 (1.00 lift, ppu_recomp_004.cpp) receives the step in f1, and the hook at its
+ * entry (launcher/pipeline/fly_pause_patch_lifted.py) replaces f1 with this result. While fly mode is on it is 0, so
+ * the simulation step is skipped and the frames keep drawing; when F3 turns it off the game's own step passes again
+ * and the sim continues from where it stopped. Unset MSPR_DEBUG_FLY: f1 unchanged. tests/test_fly_pause.c. */
+extern "C" double mspr_fly_sim_step(double dt)
+{
+    return s_fly_env == 1 ? fly_sim_step(&s_fly_mode, dt) : dt;
+}
+
+/* ---------------------------------------------------------------------------
  * Guest VM
  * -----------------------------------------------------------------------*/
 #ifdef _WIN32
@@ -1469,6 +1620,13 @@ int main(int argc, char** argv)
     mspr_patch_init();       /* MSPR_PATCH only */
     mspr_cam_cockpit_init(); /* MSPR_CAM_COCKPIT=1 only */
     pcmenu_init();          /* PC Settings page functions (used only by its overlay pages) */
+    lan_play_init();        /* LAN play: threads and sockets start only when a page asks (Host, Join) */
+    if (const char* lh = getenv("PS3_LAN_HOST"); lh && lh[0] == '1') {   /* test hook: host without the page */
+        char st[200];
+        lan_play_set_host(1);
+        lan_play_status(st, sizeof st);
+        printf("[lan] %s\n", st);
+    }
     cellGcm_fifo_fast_ab = rsx_draw_engine_ab_phase;   /* read only with GCM_FIFO_FAST=ab */
     lv2_init_syscalls();     /* the lv2 syscall table */
 
