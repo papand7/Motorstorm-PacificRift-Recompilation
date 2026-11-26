@@ -660,8 +660,8 @@ extern "C" void pcmenu_boot(const char* argv0)
     fprintf(stderr, "[prompts] mode %s\n", s_prompts_mode == PCPR_MODE_CONTROLLER ? "controller" :
             s_prompts_mode == PCPR_MODE_AUTO ? "auto" : "keyboard");
     {   /* Lighting: Enhanced (RSX_LIGHTING=1) brings its parts along unless each is set: the classic AO
-         * (GTAO still smears the sky) and screen-space shadows overlapping the map's end. The world-fixed
-         * shadow tiles stay off (broken: no receiver shadows yet), so Enhanced uses the game's own shadows.
+         * (GTAO still smears the sky) and screen-space shadows overlapping the map's end. The sun shadows are
+         * the world-fixed tiles in both lightings (RSX_SHADOW_TILES=1 from k_defaults; =0 only for testing).
          * The ground toe defaults on inside the scene pass itself. */
         const char* l = getenv("RSX_LIGHTING");
         if (l && *l == '1') {
@@ -670,18 +670,9 @@ extern "C" void pcmenu_boot(const char* argv0)
             const char* q = getenv("RSX_FX_QUALITY");
             const char* ao = q && atoi(q) >= 1 ? "0" : "old";
             const char* const k[][2] = {
-                { "RSX_SHADOW_TILES", "0" }, { "RSX_SHADOW_TILES_STATIC", "0" },
                 { "RSX_FX_AO", ao }, { "RSX_FX_SSSHADOW_FAR", "450" },
             };
             for (const auto& kv : k) if (!getenv(kv[0])) pcmenu_setenv(kv[0], kv[1]);
-            /* The world-fixed tiles are not working yet (no receiver shadows: Kst8o, Kst9). A settings.ini that sets
-             * RSX_SHADOW_TILES=1 (loaded before this) must not turn them on in Enhanced. RSX_SHADOW_TILES_FORCE=1 keeps
-             * them for experiments. The game's own shadows show on the sand (Ksh1). */
-            const char* force = getenv("RSX_SHADOW_TILES_FORCE");
-            if (!(force && force[0] == '1')) {
-                pcmenu_setenv("RSX_SHADOW_TILES", "0");
-                pcmenu_setenv("RSX_SHADOW_TILES_STATIC", "0");
-            }
         }
     }
     s_pcs_boot = s_pcs;

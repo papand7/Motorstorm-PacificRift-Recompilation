@@ -1419,6 +1419,54 @@ extern "C" double mspr_fly_sim_step(double dt)
     return s_fly_env == 1 ? fly_sim_step(&s_fly_mode, dt) : dt;
 }
 
+/* MSPR_BENCH_AI=1 (race benchmark, off by default): the local human's car is driven by its own AIControls while the
+ * race still counts it as the human. The lifted reads of the Competitor's controls kind (+0x1930) in the getter
+ * func_00127BC8 and the switch at 0x0012A7D0 go through this (generated/analysis/perf60/tools/
+ * bench_ai_patch_lifted.py, which passes the caller's return address); kind 1 (JoyStick) reads as 2 (AI) except
+ * for the flyover-skip check, and a mapped read also sets the game's autopilot flag 0x20 at competitor+0x1698
+ * (bench_ai.h). MSPR_BENCH=race turns it on too. Unset: the kind is returned unchanged and nothing is written.
+ * bench_ai.h, tests/test_bench_ai.c. */
+#include "bench_ai.h"
+static volatile int s_bench_ai_env = -1;
+static volatile int s_bench_ai_log = 0;   /* MSPR_BENCH_AI_LOG=1: each new (caller, kind) pair once, on stderr */
+extern "C" uint32_t mspr_bench_ai_ctl(uint32_t kind, uint32_t lr, uint32_t comp)
+{
+    int on = s_bench_ai_env;
+    if (on < 0) {
+        const char* e = getenv("MSPR_BENCH_AI");
+        on = (e && e[0] == '1' && e[1] == 0) ? 1 : 0;
+        if (bench_mode() == BENCH_RACE) on = 1;   /* the race benchmark: the AI drives the player's car */
+        const char* l = getenv("MSPR_BENCH_AI_LOG");
+        s_bench_ai_log = l && l[0] == '1';
+        s_bench_ai_env = on;
+        if (on) fprintf(stderr, "[bench-ai] MSPR_BENCH_AI=1: the local human car is driven by its AIControls\n");
+    }
+    if (s_bench_ai_log) {
+        static volatile LONG seen_n;
+        static uint64_t seen[256];
+        const uint64_t key = ((uint64_t)lr << 8) | (kind & 0xFFu);
+        LONG n = seen_n, i;
+        for (i = 0; i < n && i < 256; i++) if (seen[i] == key) break;
+        if (i == n && n < 256) {
+            seen[n] = key; seen_n = n + 1;
+            fprintf(stderr, "[bench-ai] caller lr=%08X kind=%u -> %u (t=%llu ms)\n", lr, kind, bench_ai_ctl_kind(on, kind, lr),
+                    (unsigned long long)GetTickCount64());
+        }
+    }
+    if (s_bench_mode == BENCH_RACE) {   /* the race benchmark's events (bench_run.h) */
+        if (lr == BENCH_LR_SKIP) bench_note(&s_bench_fly_qpc, "pre-race flyover (its skip check)");
+        else if (bench_is_race_lr(lr)) bench_note(&s_bench_race_qpc, "race start (the race reads the player's controls)");
+    }
+    const uint32_t out = bench_ai_ctl_kind(on, kind, lr);
+    if (out != kind && comp) {   /* the game's autopilot flag with it (bench_ai.h): func_0012A100(comp, 1) state */
+        uint8_t* p = vm_base + (uint32_t)(comp + 0x1698u);
+        const uint32_t f = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+        const uint32_t nf = bench_ai_flags(on, kind, lr, f);
+        if (nf != f) p[3] = (uint8_t)nf;   /* bit 0x20 lives in the low (last) byte of the big-endian word */
+    }
+    return out;
+}
+
 /* ---------------------------------------------------------------------------
  * Guest VM
  * -----------------------------------------------------------------------*/
@@ -1531,7 +1579,12 @@ int main(int argc, char** argv)
             { "PS3_MAIN_CORE", "1" },
             { "PS3_ICALL_FAST", "1" },
             { "PS3_VM_STORE_FAST", "1" }, { "PS3_VM_STORE_INLINE", "1" },
-            { "PS3_LWCOND_WAKE", "1:poll_ms=100:heavy_draws=200" },   /* stats_ms=1000 (a [lwc-wake] line a second) is opt-in */
+            { "PS3_LWCOND_WAKE", "1:poll_ms=100:heavy_draws=200" },
+            { "PS3_FRAME_CLOCK_KICK", "1" },
+            { "RSX_VK_PRESENT_ASYNC", "1" },
+            { "RSX_VK_ARENA_KEEP", "1" },
+            { "RSX_VK_READBACK_SKIP", "1" },
+            { "RSX_VK_STAGE_VRAM", "1" },   /* depth snapshots and partial depth clears stay in video memory: +30 %, GPU 18.2 -> 9.0 ms (perf60 Ksvr) */   /* no per-frame host copy of the presented frame unless shots/dump/hash need it: +5.6 %, 4/4 pairs (perf60 Krbs) */   /* oversized arena blocks reused, not freed each frame: +0.7 %, 4/4 BENCH-CFG pairs (perf60 Kakp) */   /* the walker stops waiting for the GPU at each present: +20 % fps BENCH-CFG (4/4 pairs), ~+25 % race (perf60 Kpas, Krpa); one frame more latency */   /* drain woken by the guest's dry reference polls: +1.4 % fps, 4 of 4 BENCH-CFG pairs (perf60 Kfck) */   /* stats_ms=1000 (a [lwc-wake] line a second) is opt-in */
             { "PS3_SPURS_EVENT_SCHED", "1" }, { "PS3_SPURS_EVENT_FALLBACK_MS", "4" }, { "PS3_SPURS_GUEST_MAXCONT", "1" },
             { "PS3_SPU_FP_CACHE", "1" }, { "PS3_SPU_MFC_FAST", "1" }, { "PS3_SPU_TASK_QUIET", "1" },
             { "PS3_SPU_WWS_AOT", "1" }, { "SPU_INTERP_UNLIFTED", "1" },
@@ -1543,7 +1596,11 @@ int main(int argc, char** argv)
             { "RSX_VP_COMPACT", "1" }, { "RSX_VP_FAST_FETCH", "1" }, { "RSX_VP_INDEXED", "1" }, { "RSX_VS_MEMO", "1" },
             { "RSX_VTX_DENSE", "1" }, { "RSX_VTX_GPU", "1" }, { "RSX_ZSNAP_ON_WRITE", "1" },
             { "RSX_RT_READBACK", "1" }, { "RSX_RT_READBACK_ASYNC", "1" }, { "RSX_RT_READBACK_EAGER", "1" },
-            { "RSX_TP_PRELOAD", "1" },   /* texture pack built at the first present; unset in the renderer = off, RSX_TP_PRELOAD=0 turns it off */
+            { "RSX_TP_PRELOAD", "1" },
+            /* world-fixed sun shadows (rsx_shadow_tiles.h), Original and Enhanced: a shadow depends only on the sun and the
+             * casters, never on the camera (generated/analysis/shadowtiles/RESULTS.md, Kstf53). RSX_SHADOW_TILES=0 gives the
+             * game's own camera-following cascades (testing only: no menu or launcher row). */
+            { "RSX_SHADOW_TILES", "1" },   /* texture pack built at the first present; unset in the renderer = off, RSX_TP_PRELOAD=0 turns it off */
             /* the SPU interpreter hands back to lifted code inside relocatable WWS job modules (renderablejob ran
              * interpreted to the end of every job once it fell back): 31.8 -> 38.7 fps in a race A/B
              * (Kksr48/52 vs Kksr50/54, criticalpath60). PS3_SPU_INTERP_REJOIN_RELOC=0 turns it off. */

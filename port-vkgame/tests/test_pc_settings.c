@@ -150,6 +150,12 @@ int main(void)
         CHECK(!k_pcs_defs[i].env || strcmp(k_pcs_defs[i].env, "RSX_RT_SHADOW"));
     pcs_defaults(&s);
     CHECK(pcs_parse(&s, "rtshadow = On\n") == 0 && s.explicit_mask == 0 && !pcs_owns_env(&s, "RSX_RT_SHADOW"));
+    /* World-fixed sun shadows are a default of the executable (k_defaults), not a setting: no row owns or sets
+     * RSX_SHADOW_TILES, in either lighting (RSX_SHADOW_TILES=0 stays an environment-only switch for testing). */
+    for (int i = 0; i < PCS_COUNT; i++)
+        CHECK(!k_pcs_defs[i].env || (strcmp(k_pcs_defs[i].env, "RSX_SHADOW_TILES") && strcmp(k_pcs_defs[i].env, "RSX_SHADOW_TILES_STATIC")));
+    pcs_defaults(&s);
+    CHECK(!pcs_owns_env(&s, "RSX_SHADOW_TILES"));
 
     /* Choices by label or value, case-insensitive; junk ignored. */
     pcs_defaults(&s);

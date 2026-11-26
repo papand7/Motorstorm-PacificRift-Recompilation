@@ -41,6 +41,8 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | `unlockvehicles` | launcher Cheats tab | Off*, On | every vehicle class and ticket counts as unlocked (`mspr_unlock_vehicles_on`, read at start; the first version's key `unlockall` is read when this one is absent). Saves are not changed |
 | `unlocktracks` | launcher Cheats tab | Off*, On | every track passes the Free Play track-list filter (`mspr_unlock_tracks_on`, read at start). The Festival and Time Trial lists are not covered |
 
+Sun shadows are world-fixed in both lightings, with no row: `RSX_SHADOW_TILES=1` is a default of the executable (`k_defaults`, port-vkgame/main.cpp) and of the launcher (`PLAY_ENV`). The game's casters are drawn into one shadow map fixed in the world (0.125 m texels, 512 m round the camera), so a shadow depends only on the sun and its casters, not on the camera (`ps3recomp-vkgame/libs/video/rsx_shadow_tiles.h`). `RSX_SHADOW_TILES=0` in the environment gives the game's own camera-following cascades; it is for testing only.
+
 **Upscaler mode (`fsrmode`)** sets its variable at its default too. The default is FSR 1, as the launcher's (`launcher/electron/settings.js`), so the exe sets `RSX_FSR_MODE=1`. FSR 3.1 needs AMD's two DLLs beside the exe; without them that choice is not applied and the port runs FSR 1 (the page shows "FSR 3.1 (No FSR3 DLL)"). The mode only matters when `fsr` is not Off.
 
 ## Racing wheels (Thrustmaster, Logitech and other DirectInput wheels)
