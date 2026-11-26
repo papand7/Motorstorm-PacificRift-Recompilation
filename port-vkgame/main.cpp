@@ -40,6 +40,7 @@
 #include "ps3emu/vblank_clock.h"   /* 59.94 Hz vblank deadlines */
 #include "ps3emu/frame_beat.h"     /* vblank beat ordering */
 #include "frame_clock_watchdog.h"   /* PS3_FC_WATCHDOG_MS: name the stage a stalled frame clock is in */
+#include "stdio_async.h"           /* PS3_STDIO_ASYNC: log writes never wait for the disk */
 #include "ps3emu/pad_trigger.h"     /* PS3_DEV_SKIP_INTRO: one CROSS press during the intro */
 #include "mspr_patch.h"            /* MSPR_PATCH: default patch list (drs) */
 extern "C" void pcmenu_boot(const char* argv0);   /* pc_menu.cpp: settings.ini, PC Settings page */
@@ -1599,6 +1600,9 @@ int main(int argc, char** argv)
      * thing. POSIX timers are already fine-grained. */
     timeBeginPeriod(1);
     setvbuf(stdout, NULL, _IONBF, 0);   /* unbuffered: do not lose prints on a kill */
+    /* stdout/stderr through a memory queue and a writer thread (stdio_async.h, PS3_STDIO_ASYNC=0 turns it
+     * off): a disk stall in a log write held the RSX present thread for 20-48 s (late Present() Timeouts). */
+    stdio_async_start();
 #endif
 
     printf("=== ps3recomp game runner ===\n");
