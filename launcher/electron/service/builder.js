@@ -33,7 +33,6 @@ const STABLE_EXE = 'MotorStormPacificRiftRecomp.exe';
 const PLAY_ENV = {
     RSX_BACKEND: 'vulkan', PS3RECOMP_VK_WINDOW: '1', PS3RECOMP_VK_GUEST_PROGRAMS: '1', RSX_SHADER_ASYNC: '1',
     PS3_ICALL_FAST: '1', PS3_LWCOND_WAKE: '1:poll_ms=100:heavy_draws=200', PS3_FRAME_CLOCK_KICK: '1', RSX_VK_PRESENT_ASYNC: '1', RSX_VK_ARENA_KEEP: '1', RSX_VK_READBACK_SKIP: '1', RSX_VK_STAGE_VRAM: '1', PS3_MAIN_CORE: '1', PS3_MAIN_CYCLES: '1',
-    RSX_SHADOW_TILES: '1',   // world-fixed sun shadows, Original and Enhanced (as k_defaults; =0 only for testing, no row)
     PS3_SIM_PACE: '1', PS3_SIM_PACE_LAG_MS: '40',   // catch-up bound: a hitch must not play back as a fast burst
     PS3_SPURS_EVENT_FALLBACK_MS: '4', PS3_SPURS_EVENT_SCHED: '1', PS3_SPURS_GUEST_MAXCONT: '1',
     PS3_SPU_DRAIN_RESUME_RELOC: '1', PS3_SPU_FP_CACHE: '1', PS3_SPU_HWFLOAT: '1', PS3_SPU_INTERP_REJOIN_RELOC: '1', PS3_SPU_MFC_FAST: '1',
@@ -51,6 +50,7 @@ const PLAY_ENV = {
     RSX_VK_LAZY_SYNC: '1', RSX_VK_MEM_RECYCLE: '1',
     RSX_VP_COMPACT: '1', RSX_VP_FAST_FETCH: '1', RSX_VP_INDEXED: '1', RSX_VP_PARALLEL: '0', RSX_VS_MEMO: '1',
     RSX_VTX_DENSE: '1', RSX_VTX_GPU: '1', RSX_ZSNAP_ON_WRITE: '1',
+    RSX_SHADOW_TILES: '1',   // world-fixed sun shadows, Original and Enhanced (as k_defaults; =0 only for testing, no row)
 };
 // RSX_RT_DXC is added dynamically in step_install (path beside the exe)
 
@@ -659,4 +659,4 @@ class Builder {
 
 }
 
-module.exports = { Builder, ltoLinkerFlags };
+module.exports = { Builder, ltoLinkerFlags, PLAY_ENV };

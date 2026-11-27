@@ -207,9 +207,15 @@ extern "C" unsigned ppu_boot_frames_presented(void)
 }
 
 static void fly_frame(void);   /* MSPR_DEBUG_FLY: F3, the mouse and the keys, once per presented frame (below) */
+static void frame_log(char kind);   /* MSPR_FRAME_LOG: one line a present (below) */
+static void bench_frame(void);      /* MSPR_BENCH: the benchmark's guest frames, window and result (below) */
+static void present_clock_start(void);   /* the first present: the frame log's and the benchmark's ms origin */
 static void present_guest_frame(void)
 {
     rsx_backend_present();
+    present_clock_start();
+    frame_log('g');
+    bench_frame();
     /* This thread increments and guest threads read, so interlocked rather
      * than a volatile ++, which on arm64 is neither atomic nor a fence. */
     InterlockedIncrement(&g_frames_presented);
@@ -246,6 +252,287 @@ static void beat_drain(void* u)
 #pragma comment(lib, "powrprof.lib")
 #include "main_core_pick.h"
 static HANDLE s_main_thread;   /* PS3_MAIN_CYCLES: the thread ppu_run runs the guest main thread on */
+
+/* MSPR_FRAME_LOG=<file> (benchmark, off by default): one text line per backend present, written by the thread that
+ * presents, right after the present call returns: "<g|b> <ms> <main Mcycles> <flips>", g = a present at a guest
+ * flip, b = a boot present before the first flip. <flips> is the guest's flip count: count guest frames by it, not by
+ * the g lines (a flip can be presented twice: Klbr2 had 4687 g lines for 3226 flips in 90 s). <ms> counts from the first present (any kind), the same origin as the Vulkan
+ * backend's [rsx-hb] ms= (its first present), so a reader can pick a window by heartbeat time. <main Mcycles> is the
+ * guest main thread's cumulative CPU cycles (QueryThreadCycleTime, 0 when the thread is not known yet). Flushed every
+ * 240 lines (the runner kills the game). Unset: one cached getenv test a present. generated/analysis/perf60/
+ * bench_race.py reads it. */
+static LARGE_INTEGER s_present_t0;   /* QueryPerformanceCounter at the first present (any kind) */
+static void present_clock_start(void)
+{
+    if (!s_present_t0.QuadPart) QueryPerformanceCounter(&s_present_t0);
+}
+
+static void frame_log(char kind)
+{
+    static int on = -1;
+    static FILE* f;
+    static LARGE_INTEGER freq, t0;
+    static unsigned n;
+    if (on == 0) return;
+    if (on < 0) {
+        const char* e = getenv("MSPR_FRAME_LOG");
+        on = 0;
+        if (!e || !e[0]) return;
+        f = fopen(e, "w");
+        if (!f) { fprintf(stderr, "[frame-log] cannot open %s\n", e); return; }
+        setvbuf(f, NULL, _IOFBF, 1 << 16);
+        QueryPerformanceFrequency(&freq);
+        t0 = s_present_t0;   /* present_clock_start: the first present */
+        if (!t0.QuadPart) QueryPerformanceCounter(&t0);
+        fprintf(f, "# MSPR_FRAME_LOG kind ms main_mcycles flips\n");
+        fprintf(stderr, "[frame-log] %s\n", e);
+        on = 1;
+    }
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    ULONG64 c = 0;
+    if (s_main_thread) QueryThreadCycleTime(s_main_thread, &c);
+    fprintf(f, "%c %.3f %.3f %u\n", kind, (double)(t.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart, (double)c / 1e6,
+            cellGcm_flip_request_count());
+    if (++n % 240u == 0) fflush(f);
+}
+
+/* MSPR_BENCH=fly|race (the launcher's Benchmark page, off by default; bench_run.h): the game runs the benchmark,
+ * measures it, writes the result to MSPR_BENCH_OUT (JSON) and quits by itself.
+ *   fly   the disc's benchmark config (booted through PS3_DEV_GUEST_STR): from the first frame with the world drawn
+ *         (>= 200 guest draws) to the first "HotSpot" view (mspr_bench_hotspot, a lift hook) = the camera flight.
+ *   race  a race with AI racers (configs/mspr_bench_race.cfg from the launcher) and the player's car driven by the
+ *         game's AI (mspr_bench_ai_ctl): CROSS skips the pre-race flyover (pad_trigger.h, as a pad would), the
+ *         window is race start + 21.5 s .. + 111.5 s.
+ * Guest frames count, not presents (bench_run.h). The result names the GPU the game rendered on (the Vulkan device),
+ * the CPU (cpuid brand string), the installed RAM, and the settings the game started with (pc_menu.cpp). Nothing is
+ * changed in the game's settings; unset, one cached test a present. tests/test_bench_run.c. */
+#include "bench_run.h"
+#include <intrin.h>   /* __cpuid: the CPU's brand string */
+extern "C" unsigned rsx_draw_engine_guest_draws(void);
+#if defined(PS3RECOMP_RSX_VULKAN)
+extern "C" const char* rsx_vulkan_device_name(void);
+extern "C" void rsx_vulkan_live_pipelines(unsigned long long* n, double* ms);
+#endif
+extern "C" int pcmenu_bench_settings(char* out, size_t cap);   /* pc_menu.cpp */
+
+static volatile int s_bench_mode = -1;
+static volatile LONG64 s_bench_hot_qpc, s_bench_fly_qpc, s_bench_race_qpc;   /* the game's events (guest threads) */
+static double* s_bench_t;            /* per guest present: ms since the first present ... */
+static uint32_t* s_bench_f;          /* ... and the guest flip count */
+static uint32_t s_bench_n, s_bench_cap;
+static double s_bench_start = -1.0;  /* fly: the first frame with the world drawn */
+static unsigned s_bench_presses;     /* race: CROSS presses made */
+static int s_bench_done;
+static int s_bench_live_at_w0;            /* the pipeline counts sampled at the window's start */
+static unsigned long long s_bench_live_n0;
+static double s_bench_live_ms0;
+/* pipelines built on demand so far (the Vulkan backend; 0 with another backend) */
+static void bench_live(unsigned long long* n, double* ms)
+{
+    *n = 0; *ms = 0.0;
+#if defined(PS3RECOMP_RSX_VULKAN)
+    if (!strcmp(RSX_BACKEND_NAME, "Vulkan")) rsx_vulkan_live_pipelines(n, ms);
+#endif
+}
+static void bench_live_mark(void)
+{
+    if (s_bench_live_at_w0) return;
+    bench_live(&s_bench_live_n0, &s_bench_live_ms0);
+    s_bench_live_at_w0 = 1;
+}
+
+static int bench_mode(void)
+{
+    int m = s_bench_mode;
+    if (m < 0) {
+        m = bench_mode_of(getenv("MSPR_BENCH"));
+        s_bench_mode = m;
+        if (m) fprintf(stderr, "[bench] MSPR_BENCH=%s: the game measures the %s and quits; result to %s\n",
+                       bench_mode_name(m), m == BENCH_FLY ? "camera flight" : "race",
+                       getenv("MSPR_BENCH_OUT") ? getenv("MSPR_BENCH_OUT") : "(stderr only: MSPR_BENCH_OUT unset)");
+    }
+    return m;
+}
+
+static double bench_ms(LONGLONG qpc)
+{
+    static LARGE_INTEGER freq;
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    return (double)(qpc - s_present_t0.QuadPart) * 1000.0 / (double)freq.QuadPart;
+}
+
+static void bench_note(volatile LONG64* slot, const char* what)
+{
+    if (*slot) return;
+    LARGE_INTEGER q;
+    QueryPerformanceCounter(&q);
+    if (InterlockedCompareExchange64(slot, q.QuadPart, 0) == 0)
+        fprintf(stderr, "[bench] %s at %.1f ms\n", what, bench_ms(q.QuadPart));
+}
+
+/* The lift hook (launcher/pipeline/bench_patch_lifted.py): the game formats a "HotSpot" view's label, so the camera
+ * flight is over. Only noted with MSPR_BENCH=fly. */
+extern "C" void mspr_bench_hotspot(void)
+{
+    if (s_bench_mode == BENCH_FLY || (s_bench_mode < 0 && bench_mode() == BENCH_FLY))
+        bench_note(&s_bench_hot_qpc, "first HotSpot view (the camera flight is over)");
+}
+
+/* race: one CROSS press through the pad layer, as a held button (pad_trigger.h: OR'd into port 0's reads for
+ * PAD_TRIGGER_HOLD_MS and at least PAD_TRIGGER_MIN_READS reads), the way the flyover's "Press X to Skip" expects */
+static void bench_press_cross(void)
+{
+    pad_trigger_state* p = &g_pad_trigger;
+    if (__atomic_load_n(&p->state, __ATOMIC_ACQUIRE) == PT_PRESSING) return;
+    if (__atomic_load_n(&p->cfg, __ATOMIC_ACQUIRE) != 2)
+        pad_trigger_configure("\x01mspr-bench", 0x4000 /* CROSS */, 0, PAD_TRIGGER_HOLD_MS);   /* no open matches */
+    p->mask = 0x4000; p->delay_ms = 0; p->hold_ms = PAD_TRIGGER_HOLD_MS; p->reads = 0;
+    p->t_arm_ms = pad_trigger_now_ms();
+    __atomic_store_n(&p->state, PT_ARMED, __ATOMIC_RELEASE);
+}
+
+static void bench_cpu_brand(char* out, size_t cap)
+{
+    int r[4];
+    char b[49] = { 0 };
+    __cpuid(r, (int)0x80000000);
+    if ((unsigned)r[0] >= 0x80000004u)
+        for (int i = 0; i < 3; i++) { __cpuid(r, (int)(0x80000002u + i)); memcpy(b + 16 * i, r, 16); }
+    const char* p = b;
+    while (*p == ' ') p++;
+    snprintf(out, cap, "%s", p);
+    for (size_t n = strlen(out); n && out[n - 1] == ' '; n--) out[n - 1] = 0;
+}
+
+/* Writes the result (or the error) and ends the process. It runs on its own thread (bench_finish below): the frame
+ * clock keeps presenting meanwhile, so the guest never waits on a flip that does not come. When the frame clock's
+ * own thread did this work, the guest reported "GcKernel::Present() Timeout" at the end of every run (Klbr2, Klbf4,
+ * the launcher runs). */
+static struct { int m; bench_result r; int have_r; double w0, w1; const char* anchor; const char* err; } s_bench_fin;
+static DWORD WINAPI bench_finish_main(LPVOID)
+{
+    const int m = s_bench_fin.m;
+    const bench_result* r = s_bench_fin.have_r ? &s_bench_fin.r : NULL;
+    const double w0 = s_bench_fin.w0, w1 = s_bench_fin.w1;
+    const char* anchor = s_bench_fin.anchor;
+    const char* err = s_bench_fin.err;
+    static char cpu[64], settings[8192];
+    bench_cpu_brand(cpu, sizeof cpu);
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof ms;
+    const unsigned long long ram = GlobalMemoryStatusEx(&ms) ? (unsigned long long)ms.ullTotalPhys : 0ull;
+    pcmenu_bench_settings(settings, sizeof settings);
+    const char* gpu = "";
+#if defined(PS3RECOMP_RSX_VULKAN)
+    if (!strcmp(RSX_BACKEND_NAME, "Vulkan")) gpu = rsx_vulkan_device_name();
+#endif
+    unsigned long long ln = 0;
+    double lms = 0.0;
+    bench_live(&ln, &lms);
+    if (!s_bench_live_at_w0) { s_bench_live_n0 = ln; s_bench_live_ms0 = lms; }
+    const bench_info in = { gpu, cpu, ram, settings, w0, w1, anchor, (unsigned)(ln - s_bench_live_n0), lms - s_bench_live_ms0 };
+    const char* out = getenv("MSPR_BENCH_OUT");
+    if (out && *out) {
+        FILE* f = fopen(out, "w");
+        if (f) { bench_write_json(f, m, r, &in, err); fclose(f); }
+        else fprintf(stderr, "[bench] cannot write %s\n", out);
+    }
+    if (err) fprintf(stderr, "[bench] %s: no result: %s\n", bench_mode_name(m), err);
+    else fprintf(stderr, "[bench] %s: %u guest frames in %.2f s (window %.1f .. %.1f ms, %s): avg %.2f fps, min %.0f, "
+                 "max %.0f, 1%% low %.2f, 0.1%% low %.2f; P50 %.2f ms, P99 %.2f ms; GPU %s, CPU %s, RAM %.1f GB\n",
+                 bench_mode_name(m), r->frames, r->span_ms / 1000.0, w0, w1, anchor, r->avg, r->min, r->max, r->low1,
+                 r->low01, r->p50, r->p99, gpu, cpu, (double)ram / (1024.0 * 1024.0 * 1024.0));
+    fflush(NULL);
+    stdio_async_drain(1000);
+    /* the result and the log are out: end at once, without ExitProcess's DLL teardown (the Vulkan driver's, seconds
+     * while the guest still runs) */
+    TerminateProcess(GetCurrentProcess(), err ? 3u : 0u);
+    return 0;
+}
+static void bench_finish(int m, const bench_result* r, double w0, double w1, const char* anchor, const char* err)
+{
+    if (s_bench_done) return;
+    s_bench_done = 1;
+    s_bench_fin.m = m; s_bench_fin.have_r = r != NULL;
+    if (r) s_bench_fin.r = *r;
+    s_bench_fin.w0 = w0; s_bench_fin.w1 = w1; s_bench_fin.anchor = anchor; s_bench_fin.err = err;
+    HANDLE h = CreateThread(NULL, 0, bench_finish_main, NULL, 0, NULL);
+    if (h) CloseHandle(h);
+    else bench_finish_main(NULL);
+}
+
+static void bench_end_window(int m, double w0, double w1, const char* anchor)
+{
+    uint32_t flips = s_bench_f[s_bench_n - 1] - s_bench_f[0] + 16u;
+    double* scratch = (double*)malloc(sizeof(double) * flips);
+    const bench_result r = scratch ? bench_compute(s_bench_t, s_bench_f, s_bench_n, w0, w1, scratch, flips) : bench_result{};
+    free(scratch);
+    bench_finish(m, &r, w0, w1, anchor, r.ok ? NULL : "the measured window has no frames");
+}
+
+/* each guest present (present_guest_frame, the frame clock thread) */
+static void bench_frame(void)
+{
+    const int m = s_bench_mode < 0 ? bench_mode() : s_bench_mode;
+    if (!m || s_bench_done) return;
+    LARGE_INTEGER q;
+    QueryPerformanceCounter(&q);
+    const double t = bench_ms(q.QuadPart);
+    if (s_bench_n == s_bench_cap) {
+        const uint32_t cap = s_bench_cap ? 2 * s_bench_cap : 16384u;
+        double* nt = (double*)realloc(s_bench_t, sizeof(double) * cap);
+        if (nt) s_bench_t = nt;
+        uint32_t* nf = (uint32_t*)realloc(s_bench_f, sizeof(uint32_t) * cap);
+        if (nf) s_bench_f = nf;
+        if (!nt || !nf) { bench_finish(m, NULL, 0, 0, "", "out of memory"); return; }
+        s_bench_cap = cap;
+    }
+    s_bench_t[s_bench_n] = t;
+    s_bench_f[s_bench_n] = cellGcm_flip_request_count();
+    s_bench_n++;
+    if (m == BENCH_FLY) {
+        if (s_bench_start < 0.0 && rsx_draw_engine_guest_draws() >= BENCH_SCENE_DRAWS) {
+            s_bench_start = t;
+            bench_live_mark();
+            fprintf(stderr, "[bench] the world is drawn (%u guest draws) at %.1f ms: the camera flight is measured from here\n",
+                    rsx_draw_engine_guest_draws(), t);
+        }
+        const LONG64 h = s_bench_hot_qpc;
+        static double linger = -1.0;   /* MSPR_BENCH_LINGER_MS (developer check only): quit this much later, same window */
+        if (linger < 0.0) { const char* l = getenv("MSPR_BENCH_LINGER_MS"); linger = l ? atof(l) : 0.0; }
+        if (h && t < bench_ms(h) + linger) return;
+        if (h) {
+            const double e = bench_ms(h);
+            if (s_bench_start < 0.0) bench_finish(m, NULL, 0, e, "", "the HotSpot views came before the camera flight");
+            else if (e - s_bench_start < BENCH_FLY_MIN_MS) bench_finish(m, NULL, s_bench_start, e, "", "the camera flight ended too early");
+            else bench_end_window(m, s_bench_start, e, "first frame with the world drawn .. first HotSpot view");
+        } else if (s_bench_start < 0.0 && t > BENCH_START_TIMEOUT_MS) {
+            bench_finish(m, NULL, 0, t, "", "the benchmark did not start");
+        } else if (s_bench_start >= 0.0 && t - s_bench_start > BENCH_FLY_TIMEOUT_MS) {
+            bench_finish(m, NULL, s_bench_start, t, "", "the camera flight did not end: this build lacks the benchmark "
+                         "hooks (Install: Build again)");
+        }
+        return;
+    }
+    /* race */
+    const double fly = s_bench_fly_qpc ? bench_ms(s_bench_fly_qpc) : -1.0;
+    const double race = s_bench_race_qpc ? bench_ms(s_bench_race_qpc) : -1.0;
+    if (bench_skip_due(fly, race, s_bench_presses, t)) {
+        bench_press_cross();
+        s_bench_presses++;
+        fprintf(stderr, "[bench] CROSS (skip the flyover) at %.1f ms, %.1f s into the flyover\n", t, (t - fly) / 1000.0);
+    }
+    if (race >= 0.0) {
+        if (t >= race + BENCH_RACE_FROM_MS) bench_live_mark();
+        if (t >= race + BENCH_RACE_TO_MS)
+            bench_end_window(m, race + BENCH_RACE_FROM_MS, race + BENCH_RACE_TO_MS, "race start + 21.5 s .. + 111.5 s");
+    } else if (t > BENCH_START_TIMEOUT_MS) {
+        bench_finish(m, NULL, 0, t, "", fly < 0.0 ? "no race: this build lacks the benchmark hooks (Install: Build again)"
+                                                  : "the race did not start");
+    }
+}
+
 #ifdef _WIN32
 /* PS3_MAIN_CORE (opt-in): one physical core for the guest main thread alone. "1" (or "auto") takes the fastest
  * physical core (main_core_pick.h: efficiency class, then the preferred-core rank, then the maximum clock, then the
@@ -470,6 +757,8 @@ static DWORD WINAPI frame_clock(LPVOID)
             } else if (fc == 0) {
                 fcw_mark(FCW_PRESENT);
                 rsx_backend_present();
+                present_clock_start();
+                frame_log('b');
             }
         }
     }

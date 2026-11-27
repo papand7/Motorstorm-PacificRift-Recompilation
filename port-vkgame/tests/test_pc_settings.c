@@ -75,21 +75,23 @@ int main(void)
     CHECK(PCS_COUNT <= 31);   /* explicit_mask */
     CHECK(pcs_find("bloom") < 0);   /* the bloom is fixed at half (rsx_bloom.h default 0.5): no setting */
 
-    /* Defaults: every setting but the upscaler, the frame rate and the lighting sets nothing; the upscaler mode,
-     * the rate (30 FPS, with its camera mode) and the lighting are always set, and the MSPR_PATCH default is the port's. */
+    /* Defaults: every setting but the upscaler, the frame rate, the lighting and the extra particles sets nothing; the
+     * upscaler mode, the rate (30 FPS, with its camera mode), the lighting and the particles (High, under Enhanced) are
+     * always set, and the MSPR_PATCH default is the port's. */
     pcs_defaults(&s);
     pcs_mspr_spec(&s, buf, sizeof buf);
     CHECK(!strcmp(buf, PCS_MSPR_DEFAULT));
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 4);
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 5);
     CHECK(set_value("RSX_LIGHTING") && !strcmp(set_value("RSX_LIGHTING"), "1"));   /* Enhanced, the default */
-    CHECK(s_nset == 4 && set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "1"));   /* FSR 1, the default */
+    CHECK(set_value("RSX_FX_PARTICLES") && !strcmp(set_value("RSX_FX_PARTICLES"), "2"));   /* High, the default */
+    CHECK(s_nset == 5 && set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "1"));   /* FSR 1, the default */
     CHECK(!strcmp(set_value("PS3_SIM_PACE_HZ"), "30") && !strcmp(set_value("MSPR_CAM_MODE"), "0"));
     CHECK(!set_value("RSX_FSR") && !set_value("MSPR_PATCH"));
     /* the default FSR 1 needs no DLL: set without the FSR 3.1 DLLs too */
     s_missing_fsr3 = 1;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 4 && s_nset == 4);
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 5 && s_nset == 5);
     CHECK(!strcmp(set_value("RSX_FSR_MODE"), "1"));
     s_missing_fsr3 = 0;
     CHECK(!pcs_owns_env(&s, "RSX_FSR") && pcs_owns_env(&s, "RSX_FSR_MODE") == 0);
@@ -172,7 +174,7 @@ int main(void)
 
     /* Their variables. */
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, NULL) == 10);   /* nine variables and the MSPR list */
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, NULL) == 11);   /* ten variables (with the particles) and the MSPR list */
     CHECK(set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "1"));
     CHECK(set_value("RSX_RES_SCALE") && !strcmp(set_value("RSX_RES_SCALE"), "1.5"));
     CHECK(!set_value("RSX_PRESENT_INTERVAL"));   /* V-Sync Off is the default: main.cpp k_defaults gives 0 */
@@ -191,8 +193,8 @@ int main(void)
     s_preset[1] = "MSPR_PATCH";
     s_preset[2] = "RSX_FSR";
     { const int nn = pcs_apply(&s, "C:/game", fake_get, fake_set, NULL);
-      if (nn != 7) { printf("apply=%d:", nn); for (int q = 0; q < s_nset; q++) printf(" %s", s_set[q][0]); puts(""); }
-      CHECK(nn == 7); }   /* presets skip resolution, MSPR and FSR; FSR_MODE and LIGHTING are always set; 45 FPS gives two */
+      if (nn != 8) { printf("apply=%d:", nn); for (int q = 0; q < s_nset; q++) printf(" %s", s_set[q][0]); puts(""); }
+      CHECK(nn == 8); }   /* presets skip resolution, MSPR and FSR; FSR_MODE, LIGHTING and PARTICLES are always set; 45 FPS gives two */
     CHECK(!set_value("RSX_RES_SCALE") && !set_value("MSPR_PATCH") && !set_value("RSX_FSR"));
 
     /* A choice whose feature is missing is not applied; the others are. */
@@ -200,15 +202,15 @@ int main(void)
     pcs_parse(&s, "textures = On\npbr = On\nfsrmode = FSR 3.1\nhdr = On\n");
     s_missing_pack = s_missing_fsr3 = 1;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 4);   /* hdr, and the always-set rate, camera and lighting */
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 5);   /* hdr, and the always-set rate, camera, lighting, particles */
     CHECK(set_value("RSX_HDR") && !set_value("RSX_TEX_PACK") &&
           !set_value("RSX_TEX_PBR") && !set_value("RSX_FSR_MODE"));
     s_missing_pack = 0;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 6);   /* hdr, textures, pbr, rate, camera, lighting */
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 7);   /* hdr, textures, pbr, rate, camera, lighting, particles */
     s_missing_fsr3 = 0;
     reset_env();
-    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 7);
+    CHECK(pcs_apply(&s, "C:/game", fake_get, fake_set, fake_avail) == 8);
     CHECK(set_value("RSX_FSR_MODE") && !strcmp(set_value("RSX_FSR_MODE"), "3"));
     CHECK(!set_value("RSX_RT_SHADOW"));
     CHECK(!strcmp(pcs_value_text(&s, pcs_find("textures"), "No pack"), "No pack"));
@@ -233,7 +235,7 @@ int main(void)
     pcs_mspr_spec(&s, buf, sizeof buf);
     CHECK(!strcmp(buf, "vfps,audiothread"));   /* vfps stays in every list */
     reset_env();
-    CHECK(pcs_apply(&s, ".", fake_get, fake_set, NULL) == 5);   /* MSPR_PATCH, RSX_FSR_MODE, rate, camera and lighting */
+    CHECK(pcs_apply(&s, ".", fake_get, fake_set, NULL) == 6);   /* MSPR_PATCH, RSX_FSR_MODE, rate, camera, lighting, particles */
     CHECK(set_value("MSPR_PATCH") && !strcmp(set_value("MSPR_PATCH"), "vfps,audiothread"));
     CHECK(!strcmp(set_value("PS3_SIM_PACE_HZ"), "30") && !strcmp(set_value("MSPR_CAM_MODE"), "0"));   /* camera fix off at 30 */
     pcs_parse(&s, "framerate = 60 FPS\n");
@@ -403,14 +405,14 @@ int main(void)
      * Original it is unused (kept, not applied, shown as needing Enhanced); with Enhanced it sets RSX_FX_VOLFOG. */
     {
         const int vf = pcs_find("volfog"), lf = pcs_find("lighting");
-        CHECK(vf >= 0 && vf == PCS_COUNT - 3 && lf >= 0 && lf != vf);
+        CHECK(vf >= 0 && vf == PCS_COUNT - 4 && lf >= 0 && lf != vf);
         CHECK(!strcmp(k_pcs_defs[vf].env, "RSX_FX_VOLFOG") && k_pcs_defs[vf].def == 0 && k_pcs_defs[vf].count == 2);
         CHECK(k_pcs_defs[vf].restart == 1 && k_pcs_defs[vf].env2 == NULL && !k_pcs_defs[vf].folder);
         CHECK(!strcmp(k_pcs_defs[vf].values[0], "0") && !strcmp(k_pcs_defs[vf].values[1], "1"));
         int ep = -1;
         for (int p = 0; p < PCP_COUNT; p++)
             if (!strcmp(k_pcp_pages[p].file, "options-pcf")) ep = p;
-        CHECK(ep >= 0 && k_pcp_pages[ep].first == vf && k_pcp_pages[ep].rows == 3);   /* fog, ruts, effects quality */
+        CHECK(ep >= 0 && k_pcp_pages[ep].first == vf && k_pcp_pages[ep].rows == 4);   /* fog, ruts, effects quality, particles */
         CHECK(!strcmp(k_pcp_pages[ep].label, "EFFECTS") && ep == 3);   /* the fourth hub item, after Racing Wheel */
         pcs_state t;
         pcs_defaults(&t);
@@ -437,7 +439,7 @@ int main(void)
     /* Wheel Ruts: the second Effects row, the last setting; as Volumetric Fog: restart, Enhanced only, off by default */
     {
         const int ru = pcs_find("ruts"), lf = pcs_find("lighting");
-        CHECK(ru == PCS_COUNT - 2 && !strcmp(k_pcs_defs[ru].env, "RSX_FX_RUTS") && k_pcs_defs[ru].def == 0);
+        CHECK(ru == PCS_COUNT - 3 && !strcmp(k_pcs_defs[ru].env, "RSX_FX_RUTS") && k_pcs_defs[ru].def == 0);
         CHECK(k_pcs_defs[ru].count == 2 && k_pcs_defs[ru].restart == 1 && k_pcs_defs[ru].env2 == NULL);
         pcs_state t;
         pcs_defaults(&t);
@@ -457,10 +459,10 @@ int main(void)
         CHECK(pcs_parse(&t, "ruts = On\n") == 1 && t.idx[ru] == 1 && (t.explicit_mask & (1u << ru)));
         CHECK(pcs_owns_env(&t, "RSX_FX_RUTS"));
     }
-    /* Effects Quality: the last setting, Enhanced only; Light sets RSX_FX_QUALITY=1, Full sets nothing */
+    /* Effects Quality: the third Effects row, Enhanced only; Light sets RSX_FX_QUALITY=1, Full sets nothing */
     {
         const int fq = pcs_find("fxquality"), lf = pcs_find("lighting");
-        CHECK(fq == PCS_COUNT - 1 && !strcmp(k_pcs_defs[fq].env, "RSX_FX_QUALITY") && k_pcs_defs[fq].def == 0 && k_pcs_defs[fq].count == 3);
+        CHECK(fq == PCS_COUNT - 2 && !strcmp(k_pcs_defs[fq].env, "RSX_FX_QUALITY") && k_pcs_defs[fq].def == 0 && k_pcs_defs[fq].count == 3);
         pcs_state t;
         pcs_defaults(&t);
         reset_env();
@@ -475,6 +477,50 @@ int main(void)
         reset_env();
         pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
         CHECK(!set_value("RSX_FX_QUALITY"));
+    }
+    /* Extra Particles: the last setting (fourth Effects row), restart, Enhanced only. High is the default and always set
+     * (the port draws none with the variable unset), so Off sets 0; with Fidelity Original nothing is set (kept, unused). */
+    {
+        const int pt = pcs_find("particles"), lf = pcs_find("lighting");
+        CHECK(pt == PCS_COUNT - 1 && !strcmp(k_pcs_defs[pt].env, "RSX_FX_PARTICLES") && k_pcs_defs[pt].count == 3);
+        CHECK(k_pcs_defs[pt].def == 2 && !strcmp(k_pcs_defs[pt].labels[2], "High") && k_pcs_defs[pt].always == 1);
+        CHECK(k_pcs_defs[pt].restart == 1 && k_pcs_defs[pt].env2 == NULL && !k_pcs_defs[pt].folder);
+        CHECK(!strcmp(k_pcs_defs[pt].labels[0], "Off") && !strcmp(k_pcs_defs[pt].values[0], "0"));
+        CHECK(!strcmp(k_pcs_defs[pt].labels[1], "Low") && !strcmp(k_pcs_defs[pt].values[1], "1"));
+        pcs_state t;
+        pcs_defaults(&t);
+        CHECK(t.idx[lf] == 1 && t.idx[pt] == 2 && !pcs_row_unused(&t, pt) && !pcs_row_hidden(&t, pt));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FX_PARTICLES") && !strcmp(set_value("RSX_FX_PARTICLES"), "2"));   /* Enhanced default: High */
+        t.idx[pt] = 0;
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FX_PARTICLES") && !strcmp(set_value("RSX_FX_PARTICLES"), "0"));   /* Off is written: no auto-on */
+        t.idx[pt] = 1;
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FX_PARTICLES") && !strcmp(set_value("RSX_FX_PARTICLES"), "1"));
+        t.idx[lf] = 0;                                                         /* Original: kept Low, not applied */
+        CHECK(t.idx[pt] == 1 && pcs_row_unused(&t, pt));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_PARTICLES"));
+        t.idx[pt] = 2;                                                         /* nor the default */
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_PARTICLES"));
+        s_preset[0] = "RSX_FX_PARTICLES";                                      /* a set variable wins */
+        t.idx[lf] = 1;
+        reset_env();
+        s_preset[0] = "RSX_FX_PARTICLES";
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FX_PARTICLES"));
+        s_preset[0] = NULL;
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "particles = Low\n") == 1 && t.idx[pt] == 1 && (t.explicit_mask & (1u << pt)));
+        CHECK(pcs_parse(&t, "particles = 0\n") == 1 && t.idx[pt] == 0);
+        CHECK(pcs_owns_env(&t, "RSX_FX_PARTICLES"));
     }
     /* Level of Detail Low: bias +1 and cull x1.5; Original (the default, now the second choice) sets nothing */
     {

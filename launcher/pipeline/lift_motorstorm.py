@@ -38,6 +38,7 @@ PATCHES_100 = [
     'cockpit_tune_patch_ppucc.py',    # cockpit camera live tuning and saved positions (after cam_patch_lifted.py)
     'fly_pause_patch_lifted.py',      # debug fly camera: the sim step is held while F3 is on (MSPR_DEBUG_FLY)
     'screens_patch_lifted.py',        # Screens (dual / triple monitors): Hor+ lens film width (PS3RECOMP_VK_SPAN)
+    'bench_patch_lifted.py',          # Benchmark page: AI-driven race car, end of the fly-through (MSPR_BENCH)
 ]
 
 

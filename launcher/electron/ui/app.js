@@ -14,7 +14,8 @@ function msg(text, kind) { const m = $('#msg'); if (m) { m.textContent = text; m
 function show(name) {
     current = name;
     document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.page === name));
-    ({ play: renderPlay, install: renderInstall, settings: renderSettings, textures: renderTextures, cheats: renderCheats, log: renderLog })[name]();
+    ({ play: renderPlay, install: renderInstall, settings: renderSettings, textures: renderTextures, benchmark: renderBenchmark,
+       cheats: renderCheats, log: renderLog })[name]();
 }
 window.show = show;
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
@@ -363,6 +364,89 @@ L.on('pack', p => {
     const log = $('#tlog');
     if (p.line && log) { log.textContent += p.line + '\n'; log.scrollTop = log.scrollHeight; }
     if (p.done && current === 'textures') renderTextures();
+});
+
+// ---- Benchmark: the game runs it with the player's settings, measures it itself, quits, and this page shows its result
+const BENCH_ABOUT = {
+    fly: 'The game\'s own benchmark: a camera flight over Kanaloa Bay, no cars. Only the flight is measured (about 30 seconds); ' +
+         'the still views the game shows after it are not. About a minute in all.',
+    race: 'A 16-car race on Kanaloa Bay. The game\'s own AI drives every car, yours included. 90 seconds of racing are measured, ' +
+          'from about 20 seconds after the start. About two and a half minutes in all. Crashes differ from run to run, so its ' +
+          'results vary a little more than the fly-through\'s.',
+};
+let benchShown = null;   // the benchmark whose result is on screen (the one that just ended, else the last picked)
+const fmt = (x, d = 0) => (typeof x === 'number' && isFinite(x) ? x.toFixed(d) : '-');
+function gb(bytes) { return bytes > 0 ? `${(bytes / 1024 ** 3).toFixed(bytes >= 10 * 1024 ** 3 ? 0 : 1)} GB` : '-'; }
+function benchResultCard(mode, r, info) {
+    const title = info.modes[mode].title;
+    const when = r.at ? new Date(r.at).toLocaleString() : '';
+    // GPU, CPU and RAM as the game reported them (the GPU it rendered on); the launcher's view only if the game named none
+    const sys = [['GPU', r.gpu || 'not reported by the game'], ['CPU', r.cpu || info.host.cpu || '-'],
+                 ['Total RAM', gb(r.ram_bytes || info.host.ram_bytes)]];
+    const sysRows = sys.map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+    if (!r.ok) return `
+      <div class="card result bad">
+        <h3>${esc(title)}: no result <span class="when">${esc(when)}</span></h3>
+        ${sysRows}
+        <p class="msg bad">${esc(r.error || 'The benchmark did not finish.')}</p>
+      </div>`;
+    const f = r.fps;
+    const tile = (label, v, d) => `<div class="tile"><div class="v">${fmt(v, d)}</div><div class="l">${esc(label)}</div></div>`;
+    const set = (r.settings || []).map(x => `<div class="kv${x.applied === false ? ' off' : ''}"><span>${esc(x.name)}</span>` +
+        `<b>${esc(x.value)}${x.applied === false ? ' (not used with this Fidelity)' : ''}</b></div>`).join('');
+    return `
+      <div class="card result">
+        <h3>${esc(title)}: result <span class="when">${esc(when)}</span></h3>
+        ${sysRows}
+        <div class="tiles">${tile('Min FPS', f.min)}${tile('Max FPS', f.max)}${tile('Average FPS', f.avg, 1)}</div>
+        <div class="kv"><span>1 % low</span><b>${fmt(f.low1, 1)} FPS</b></div>
+        <div class="kv"><span>0.1 % low</span><b>${fmt(f.low01, 1)} FPS</b></div>
+        <div class="kv"><span>Measured</span><b>${fmt(r.seconds, 1)} s, ${esc(r.frames)} frames</b></div>
+        <div class="kv"><span>Benchmark</span><b>${esc(title)}</b></div>
+        ${r.pipelines_built > 0 ? `<p class="msg bad">The game built ${esc(r.pipelines_built)} shader pipelines while it was measured
+        (${fmt((r.pipelines_ms || 0) / 1000, 1)} s): the first run of a benchmark on this PC compiles them, and the stutter
+        lowers Min and the lows. The game keeps them, so run it again for a steady result.</p>` : ''}
+        <p class="fine">Frames are the game's own finished frames. Min and max: the slowest and the fastest whole second of the
+        measured part. 1 % low: the average of the slowest 1 % of frames, as frames per second.</p>
+        <details open><summary>Settings used</summary><div class="settings-used">${set || '<p class="fine">Not reported.</p>'}</div></details>
+      </div>`;
+}
+async function renderBenchmark() {
+    const info = await L.call('bench:info');
+    const busy = info.playing || !info.installed;
+    const card = mode => `
+        <div class="card">
+          <h3>${esc(info.modes[mode].title)}</h3>
+          <p class="fine">${esc(BENCH_ABOUT[mode])}</p>
+          <div class="btns">
+            <button class="act" data-bench="${mode}" ${busy ? 'disabled' : ''}>${info.running === mode ? 'Running...' : 'Run'}</button>
+            ${info.results[mode] ? `<button class="ghost small" data-showbench="${mode}">Last result</button>` : ''}
+          </div>
+        </div>`;
+    if (!benchShown || !info.results[benchShown]) benchShown = Object.keys(info.results).find(m => info.results[m]) || null;
+    page.innerHTML = `
+      <h2>Benchmark</h2>
+      <p class="lead">Runs the game with your current settings (the Settings page, settings.ini), measures it and closes it
+      by itself, then shows the result here. Nothing is changed in your settings. Leave the game window in front and the PC
+      alone while it runs.</p>
+      ${info.running ? `<div class="card"><h3>Running: ${esc(info.modes[info.running].title)}</h3>
+        <p class="fine">The game closes by itself when the measurement is done.</p>
+        <button class="ghost" id="benchstop">Stop</button></div>` : ''}
+      <div class="grid">${card('fly')}${card('race')}</div>
+      ${!info.installed ? '<p class="fine" style="margin-top:12px">Install the game first (Install page).</p>' : ''}
+      <div id="benchresult" style="margin-top:16px">${benchShown && !info.running ? benchResultCard(benchShown, info.results[benchShown], info) : ''}</div>
+      <div class="msg" id="msg"></div>`;
+    document.querySelectorAll('[data-bench]').forEach(b => b.onclick = async () => {
+        const r = await L.call('bench:run', b.dataset.bench);
+        if (!r.ok) msg(r.message, 'bad'); else renderBenchmark();
+    });
+    document.querySelectorAll('[data-showbench]').forEach(b => b.onclick = () => { benchShown = b.dataset.showbench; renderBenchmark(); });
+    if ($('#benchstop')) $('#benchstop').onclick = () => L.call('game:stop');
+}
+L.on('bench', ev => {
+    if (ev.result) benchShown = ev.mode;   // the run just ended: its result on screen
+    if (ev.result && current !== 'benchmark') show('benchmark');
+    else if (current === 'benchmark') renderBenchmark();
 });
 
 // ---- Log

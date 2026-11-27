@@ -81,7 +81,8 @@ static void pcmenu_drain(ppu_context* ctx)
 #define PCMENU_FUNCTOR (PCMENU_EA + 0x0000u)   /* 8 bytes each */
 #define PCMENU_OPD     (PCMENU_EA + 0x1000u)   /* 8 bytes each */
 #define PCMENU_TEXT    (PCMENU_EA + 0x2000u)   /* 128 bytes each */
-#define PCMENU_CODE    (PCMENU_EA + 0xC000u)   /* 4 bytes each, never run as guest code (moved up: more rows, more text) */
+#define PCMENU_CODE    (PCMENU_EA + 0xD000u)   /* 4 bytes each, never run as guest code (moved up: more rows, more text;
+                                                  0xD000 since the Extra Particles row; audio_thread.cpp uses +0xF000) */
 #define PCMENU_TOC     0x0109FBF0u
 #define PCMENU_MISS    666u                    /* the lookup's "no such function" signature */
 #define PCMENU_SIG_VOID 0u                     /* void() */
@@ -102,8 +103,8 @@ enum {
     PCF_LAN,                    /* the LAN play screen's functions (lan_menu.h), LMF_COUNT of them */
     PCF_COUNT = PCF_LAN + LMF_COUNT
 };
-static_assert(PCF_COUNT * 128 <= 0xA000, "text buffers must fit between the text and the code addresses");
-static_assert(PCF_COUNT * 4 <= 0x4000, "code addresses must fit in their 16 KB window (ends at PCMENU_EA + 0x10000)");
+static_assert(PCF_COUNT * 128 <= PCMENU_CODE - PCMENU_TEXT, "text buffers must fit between the text and the code addresses");
+static_assert(PCF_COUNT * 4 <= 0x2000, "code addresses must fit in their 8 KB window (ends at PCMENU_EA + 0xF000, audio_thread.cpp's OPD)");
 static_assert(PCF_COUNT * 8 <= 0x1000, "functors must fit below the OPDs");
 
 extern "C" int lanmenu_call(int fn, char* out, size_t cap);   /* lan_menu.cpp */
@@ -697,4 +698,67 @@ extern "C" void pcmenu_init(void)
     s_ready = 1;
     fprintf(stderr, "[pc-menu] %d functions at 0x%08X, options page %s, dxc %s\n", PCF_COUNT, PCMENU_EA,
             s_alias ? "from the overlay" : "original", s_dxc_ok ? "found" : "missing");
+}
+
+/* The label a row is running with: read back from its variable (pcs_apply set it from settings.ini, and a variable
+ * that was already set won over the file), or from MSPR_PATCH for the patch rows; a row whose variable is unset runs
+ * at its default, which is the boot choice. A variable value no choice has is shown as "<value> (<variable>)". */
+static const char* pcmenu_bench_label(int i, char* buf, size_t cap)
+{
+    const pcs_def* d = &k_pcs_defs[i];
+    if (d->env) {
+        const char* v = getenv(d->env);
+        if (v) {
+            for (int j = 0; j < d->count; j++)
+                if (d->folder ? (!*v) == (!*d->values[j]) : !strcmp(v, d->values[j])) return d->labels[j];
+            snprintf(buf, cap, "%s (%s)", v, d->env);
+            return buf;
+        }
+    } else if (const char* mp = getenv("MSPR_PATCH")) {   /* a patch row: its patch name in the list, or none */
+        auto has = [mp](const char* name) {
+            const size_t n = strlen(name);
+            for (const char* p = mp; (p = strstr(p, name)) != NULL; p += n)
+                if ((p == mp || p[-1] == ',') && (p[n] == 0 || p[n] == ',')) return true;
+            return false;
+        };
+        for (int j = 0; j < d->count; j++) if (*d->values[j] && has(d->values[j])) return d->labels[j];
+        for (int j = 0; j < d->count; j++) if (!*d->values[j]) return d->labels[j];
+    }
+    return d->labels[s_pcs_boot.idx[i]];
+}
+
+/* The benchmark result's "settings" (bench_run.h): every page row as the game runs it, as a JSON array of
+ * {"key", "name", "value", "applied"} (applied false: kept in the file but not used with this Fidelity, as the page
+ * shows it), then the launcher's Screens. Rows the page hides (pcs_row_hidden) are left out. Returns the length. */
+extern "C" int pcmenu_bench_settings(char* out, size_t cap)
+{
+    char lbuf[160];
+    size_t w = 0;
+    auto put = [&](const char* t) { const size_t n = strlen(t); if (w + n + 1 < cap) { memcpy(out + w, t, n); w += n; } };
+    auto str = [&](const char* t) {   /* a JSON string: the labels are plain text; quotes and backslashes escaped */
+        put("\"");
+        for (; t && *t; t++) {
+            const bool q = *t == '"' || *t == '\\';
+            const char c[3] = { q ? '\\' : *t, q ? *t : '\0', '\0' };
+            if ((unsigned char)*t >= 0x20) put(c);
+        }
+        put("\"");
+    };
+    if (!cap) return 0;
+    put("[");
+    int first = 1;
+    for (int i = 0; i < PCS_COUNT; i++) {
+        if (pcs_row_hidden(&s_pcs_boot, i)) continue;
+        put(first ? "\n    { \"key\": " : ",\n    { \"key\": ");
+        first = 0;
+        str(k_pcs_defs[i].key);
+        put(", \"name\": "); str(k_pcs_defs[i].name);
+        put(", \"value\": "); str(pcmenu_bench_label(i, lbuf, sizeof lbuf));
+        put(pcs_row_unused(&s_pcs_boot, i) ? ", \"applied\": false }" : ", \"applied\": true }");
+    }
+    put(first ? "\n    { \"key\": \"screens\", \"name\": \"Screens\", \"value\": " : ",\n    { \"key\": \"screens\", \"name\": \"Screens\", \"value\": ");
+    str(k_pcs_screens[(s_screens >= 1 && s_screens <= 3 ? s_screens : 1) - 1]);
+    put(", \"applied\": true }\n  ]");
+    out[w] = 0;
+    return (int)w;
 }

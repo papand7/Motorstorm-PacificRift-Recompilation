@@ -182,6 +182,13 @@ static const pcs_def k_pcs_defs[] = {
     { "fxquality", "Effects Quality", "RSX_FX_QUALITY", 3, 0, 1, 0,
       { "Full", "Light", "Minimal" }, { "0", "1", "2" },
       "Light: no ambient occlusion or light shafts. Minimal: also no sun contact shadows. For small GPUs.", 0, NULL, { NULL } },
+    /* Extra wheel particles over the scene pass (rsx_particles.h, RSX_FX_PARTICLES 0/1/2, read once at start): dust, mud
+     * clods and spray where the wheels touch the game's tracked ground. An added layer; the game's own particles stay.
+     * High is the default and `always` set (the port's own default, with the variable unset, is off), so Off sets 0.
+     * Enhanced only (pcs_row_unused): with Fidelity Original nothing is set and the port draws none. */
+    { "particles", "Extra Particles", "RSX_FX_PARTICLES", 3, 2, 1, 0,
+      { "Off", "Low", "High" }, { "0", "1", "2" },
+      "Dust, mud clods and spray from the wheels. Enhanced only; a little GPU time.", 1, NULL, { NULL } },
 };
 #define PCS_COUNT ((int)(sizeof k_pcs_defs / sizeof k_pcs_defs[0]))
 
@@ -212,11 +219,12 @@ static inline int pcs_row_hidden(const pcs_state* s, int i)
     return lf >= 0 && s->idx[lf] != 0;
 }
 
-/* The Volumetric Fog, Wheel Ruts and Effects Quality rows are shown always but have no effect unless Fidelity is Enhanced: the choice
- * is kept and not applied (pcs_apply), and the page says why. Other rows: 0. */
+/* The Volumetric Fog, Wheel Ruts, Effects Quality and Extra Particles rows are shown always but have no effect unless Fidelity
+ * is Enhanced: the choice is kept and not applied (pcs_apply), and the page says why. Other rows: 0. */
 static inline int pcs_row_unused(const pcs_state* s, int i)
 {
-    if (strcmp(k_pcs_defs[i].key, "volfog") && strcmp(k_pcs_defs[i].key, "ruts") && strcmp(k_pcs_defs[i].key, "fxquality"))
+    if (strcmp(k_pcs_defs[i].key, "volfog") && strcmp(k_pcs_defs[i].key, "ruts") && strcmp(k_pcs_defs[i].key, "fxquality") &&
+        strcmp(k_pcs_defs[i].key, "particles"))
         return 0;
     const int lf = pcs_find("lighting");
     return lf >= 0 && s->idx[lf] != 1;
