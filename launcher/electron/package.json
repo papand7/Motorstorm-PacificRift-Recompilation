@@ -26,6 +26,7 @@
     "files": [
       "main.js",
       "settings.js",
+      "bench.js",
       "preload.js",
       "service/**/*",
       "ui/**/*",

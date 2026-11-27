@@ -24,7 +24,7 @@ Everything the install makes goes under `MotorStorm\` beside the launcher exe:
 | tools | Python 3.14.0 (embeddable; it also unpacks LLVM's `.tar.zst`, whose zstd window Windows' `tar.exe` refuses), Clang 23.1.3, CMake 4.3.1, Ninja 1.13.2, glslang/SPIRV-Tools/SPIRV-Headers/Vulkan-Headers sources (Vulkan SDK 1.4.341.0 tags), Microsoft C++ libraries 14.44 and Windows SDK 10.0.26100 (from the Visual Studio channel, after the player accepts Microsoft's terms) into `tools\`; and the run-time pieces (`toolchain.json` `runtime`): DXC 1.9.2609 (`dxc.exe`, `dxcompiler.dll`, `dxil.dll` and its licence files) and AMD's FSR 3.1 DLLs (FidelityFX SDK v2.4.0 `signedbin`) with AMD's licence | SHA-256 of every download (`launcher/toolchain.json`; Microsoft's from its manifest, whose listed sizes are not always the served ones, so only the hash is enforced there) |
 | source | the launcher's source snapshot (`resources\source\motorstorm-source.tar`) into `work\src\` | `SOURCE.json` |
 | glslang | glslang 16.2.0 with SPIRV-Tools built into `tools\vulkan-sdk` (Include\, Lib\ as the runtime's CMake expects of a LunarG SDK) | build result |
-| lift | `pipeline/lift_motorstorm.py`: the 1.00 PPU lift (`ppu_loader.py`, `ppu_lifter.py --trace-hooks`, `mspr_patch_lifted.py`, then the hook patches `PATCHES_100`: `slice_patch_lifted.py`, `cam_patch_lifted.py`, `dist_patch_lifted.py`, `unlockall_lifted.py`, `pcmenu_lifted.py`, `cockpit_tune_patch_ppucc.py`), the Wws_Job policy module (`spu_lifter.py`, cut from the 1.00 ELF at 0x00FFCC80), and the relocatable Wws job modules (`lift_wws_reloc.py --ctor`) | SHA-256 of every output against `pipeline/manifest.json` |
+| lift | `pipeline/lift_motorstorm.py`: the 1.00 PPU lift (`ppu_loader.py`, `ppu_lifter.py --trace-hooks`, `mspr_patch_lifted.py`, then the hook patches `PATCHES_100`: `slice_patch_lifted.py`, `cam_patch_lifted.py`, `dist_patch_lifted.py`, `unlockall_lifted.py`, `pcmenu_lifted.py`, `cockpit_tune_patch_ppucc.py`, `fly_pause_patch_lifted.py`, `screens_patch_lifted.py`, `bench_patch_lifted.py`), the Wws_Job policy module (`spu_lifter.py`, cut from the 1.00 ELF at 0x00FFCC80), and the relocatable Wws job modules (`lift_wws_reloc.py --ctor`) | SHA-256 of every output against `pipeline/manifest.json` |
 | build | CMake + Ninja in `work\build-stable` with the options of `game.json` `builds.stable` (includes `PORT_EXPECT_ENTRY_OPD=0x107B8D8`, the 1.00 entry check, so a wrong ELF is refused before guest code runs) | exe exists |
 | install | the exe as `play\MotorStormPacificRiftRecomp.exe`; DXC into `play\dxc\`, the FSR 3.1 DLLs beside the exe, licences into `play\licenses\`; `play\play.json` (the exe, the player's ELF it runs, and its start environment); `motorstorm.cfg` with `PS3_VFS_ROOT` only | |
 | pcmenu | the in-game PC Settings pages: `make_pcmenu.py --psarc <game>\PS3_GAME\USRDIR\MS2.PSARC --out play\pcmenu --port <src>\port-vkgame`, after every install (the pages must match the exe). Made from the player's own data, never shipped. The tool is found at `MS_PCMENU_DIR`, `launcher.json` `pcmenuDir`, or `pcmenu-tool\` in the source snapshot (`source_bundles.js --with-pcmenu`). Missing or failing: a warning only; the game keeps its retail Options page and `settings.ini` still applies | `make_pcmenu.py` exit 0 (every page re-walked) |
@@ -97,6 +97,27 @@ shown with the reason (no FSR 3.1 DLLs, no HD pack). `motorstorm.cfg` keeps only
 load, an old launcher's `motorstorm.cfg` lines (`RSX_FSR`, `RSX_FSR_MODE`, `RSX_HDR`, `PS3RECOMP_VK_FULLSCREEN`,
 `RSX_PRESENT_INTERVAL`, `RSX_TEX_PACK`, `RSX_TEX_PBR`) move into `settings.ini` once (`launcher/electron/settings.js`,
 tests: `node launcher/electron/test_settings.js`). No RPCS3 path is stored in any settings file.
+
+## Benchmark
+
+The Benchmark page runs one of two benchmarks with the player's current settings: the game is started exactly as Play
+starts it (`bench.js` `gameEnv`, shared with Play), plus only `MSPR_BENCH` (fly | race), `MSPR_BENCH_OUT` (the result
+file, `play\benchmark\<mode>.json`) and `PS3_DEV_GUEST_STR` (the boot config). None of them is a settings.ini variable,
+so the game applies settings.ini as on Play (`node launcher/electron/test_bench.js` checks both).
+
+- **Fly-through**: the disc's own `configs/benchmark_happyJungle.cfg`, a camera flight over Kanaloa Bay without cars.
+  Measured: from the first frame with the world drawn to the first static "HotSpot" view (a lift hook in
+  `bench_patch_lifted.py`), i.e. the flight only.
+- **Race with AI racers**: a 16-car race on Kanaloa Bay, the player's car driven by the game's own AI (the same lift
+  patch, port `bench_ai.h`). Its config is made at run time from the player's own `MS2.PSARC`
+  (`configs/aggression_race.cfg` + the benchmark config's environment, a few edits checked against the SHA-256 of the
+  tested config) and written into the overlay folder the game already reads (`play\pcmenu`). The game skips the pre-race
+  flyover itself (CROSS through its pad layer) and measures race start + 21.5 s .. + 111.5 s.
+
+The game measures (guest frames, not presents: `port-vkgame/bench_run.h`, test `port-vkgame/tests/test_bench_run.c`),
+writes the JSON result (GPU it rendered on, CPU, RAM, min / max / avg FPS, 1 % and 0.1 % low, frame-time percentiles,
+the settings it started with) and quits by itself; the page then shows it. Min and max are the slowest and fastest
+whole second of the measured part.
 
 ## Keys and decryption: what is and is not in the launcher
 

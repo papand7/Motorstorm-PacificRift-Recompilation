@@ -30,6 +30,9 @@ const TEXPACK = RES ? path.join(RES, 'tools', 'texpack.py')
 const DEV = !app.isPackaged || process.env.MS_DEV_INSTALL === '1';
 
 const settings = require('./settings');   // settings.ini (the player's) and motorstorm.cfg (paths, diagnostics)
+const bench = require('./bench');         // the Benchmark page: start environment, the race config, the result
+const os = require('os');
+const BENCH_DIR = path.join(PLAY, 'benchmark');   // the game's result files, <mode>.json
 
 let win = null;
 let svc = null;        // the install service
@@ -100,11 +103,13 @@ function copyBuild(from) {
 
 // ---- playing: the chosen build in its folder, its decrypted EBOOT.elf as the argument, its own start environment
 // (from play.json), its settings from settings.ini (paths from motorstorm.cfg)
+// (bench.js gameEnv: the same composition for Play and the benchmarks, which add only bench.BENCH_KEYS)
+function startEnv(which, extraEnv = {}) {
+    return bench.gameEnv({ processEnv: process.env, build: buildOf(which), cfg: readCfg(), play: playInfo(), playDir: PLAY }, extraEnv);
+}
 function startGame(which, extraEnv) {
     const b = buildOf(which);
-    const env = { ...process.env, ...(b.env || {}), ...extraEnv };
-    if (!env.PS3_VFS_ROOT && !readCfg().PS3_VFS_ROOT) { const p = playInfo(); if (p && p.vfs_root) env.PS3_VFS_ROOT = p.vfs_root; }
-    if (!env.PS3_GAMEDATA_ROOT) env.PS3_GAMEDATA_ROOT = path.join(PLAY, 'saves', 'v100');
+    const env = startEnv(which, extraEnv);
     // the launcher's icon for the game window (the game looks for game.ico beside its exe)
     try { fs.copyFileSync(path.join(__dirname, 'assets', 'icon.ico'), path.join(PLAY, 'game.ico')); } catch { /* no icon */ }
     // the game's own log (stdout and stderr), replaced each run, for reports and tuning
@@ -122,6 +127,59 @@ function play(which = 'stable') {
     game.on('exit', code => { game = null; send('game', { running: false, code }); });
     game.on('error', e => { game = null; send('game', { running: false, code: -1, message: e.message }); });
     send('game', { running: true });
+    return { ok: true };
+}
+
+// ---- benchmarks: the stable build started as Play starts it, plus bench.BENCH_KEYS. The game measures, writes
+// BENCH_DIR\<mode>.json and quits by itself; the page then shows that file. Nothing of the player's settings changes.
+let benchMode = null;   // the benchmark running now
+function benchResults() {
+    const out = {};
+    for (const m of Object.keys(bench.MODES)) {
+        const f = path.join(BENCH_DIR, `${m}.json`);
+        out[m] = bench.readResult(f);
+        if (out[m]) try { out[m].at = fs.statSync(f).mtime.toISOString(); } catch { /* gone */ }
+    }
+    return out;
+}
+function benchInfo() {
+    return { installed: installed(), playing: !!(game || dumper), running: benchMode, modes: bench.MODES, results: benchResults(),
+             host: { cpu: (os.cpus()[0] || {}).model || '', ram_bytes: os.totalmem() } };   // fallbacks when the game names none
+}
+function runBench(mode) {
+    if (!bench.MODES[mode]) return { ok: false, message: 'Unknown benchmark.' };
+    if (game || dumper || collector) return { ok: false, message: 'The game is already running: close it first.' };
+    if (svcState && svcState.busy) return { ok: false, message: 'The install is running: wait for it to finish.' };
+    if (!buildOf('stable')) return { ok: false, message: 'Install the game first (Install page).' };
+    const out = path.join(BENCH_DIR, `${mode}.json`);
+    try {
+        fs.mkdirSync(BENCH_DIR, { recursive: true });
+        fs.rmSync(out, { force: true });
+        if (mode === 'race') {
+            const files = gameFiles();
+            if (!files || !fs.existsSync(files)) return { ok: false, message: 'The game files are not set: install the game first.' };
+            bench.prepareRace(files, bench.overlayDir(startEnv('stable'), readCfg(), PLAY));
+        }
+    } catch (e) { return { ok: false, message: e.message }; }
+    const started = Date.now();
+    game = startGame('stable', bench.benchEnv(mode, out));
+    benchMode = mode;
+    const done = (code, why) => {
+        game = null; benchMode = null;
+        let r = bench.readResult(out);
+        if (!r) {   // the game closed without a result (stopped, or it failed before it could write one)
+            r = { version: 1, benchmark: mode, ok: false, error: why || `The game closed without a result (exit code ${code}).`, settings: [] };
+            try { fs.writeFileSync(out, JSON.stringify(r, null, 2)); } catch { /* read-only folder */ }
+        }
+        r.duration_s = Math.round((Date.now() - started) / 1000);
+        r.at = new Date().toISOString();
+        send('game', { running: false, code });
+        send('bench', { running: null, mode, result: r });
+    };
+    game.on('exit', code => done(code));
+    game.on('error', e => done(-1, e.message));
+    send('game', { running: true });
+    send('bench', { running: mode });
     return { ok: true };
 }
 
@@ -188,7 +246,7 @@ function createWindow() {
         win.webContents.once('did-finish-load', async () => {
             const wait = ms => new Promise(r => setTimeout(r, ms));
             await wait(2000);
-            for (const page of (process.env.MS_SHOT_PAGES || 'play,install,settings,textures,log').split(',')) {
+            for (const page of (process.env.MS_SHOT_PAGES || 'play,install,settings,textures,benchmark,log').split(',')) {
                 await win.webContents.executeJavaScript(`show(${JSON.stringify(page)})`);
                 await wait(900);
                 const img = await win.webContents.capturePage();
@@ -246,6 +304,8 @@ ipcMain.handle('settings:save', (_, patch) => {
 });
 ipcMain.handle('game:play', (_, which) => play('stable'));
 ipcMain.handle('game:stop', () => { if (game) game.kill(); return { ok: true }; });
+ipcMain.handle('bench:info', () => benchInfo());
+ipcMain.handle('bench:run', (_, mode) => runBench(mode));
 ipcMain.handle('textures:info', () => texturesInfo());
 ipcMain.handle('textures:collect', () => {
     if (game || dumper) return { ok: false, message: 'Close the game first.' };

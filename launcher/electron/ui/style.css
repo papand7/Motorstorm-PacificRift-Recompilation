@@ -58,3 +58,17 @@ pre.log.tall { height: calc(100vh - 160px); }
 .dev { border-style: dashed; }
 input[data-action] { min-width: 140px; width: 160px; }
 .grid select { min-width: 150px; width: 170px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0; }
+.tile { background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; text-align: center; }
+.tile .v { font-size: 34px; font-weight: 800; color: var(--accent2); line-height: 1.1; }
+.tile .l { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+.kv { display: flex; gap: 14px; padding: 5px 0; border-top: 1px solid var(--line); }
+.kv:first-of-type { border-top: 0; }
+.kv span { width: 170px; color: var(--dim); flex: none; }
+.kv.off b { color: var(--dim); font-weight: 400; }
+.result h3 .when { float: right; color: var(--dim); font-weight: 400; font-size: 12px; }
+.result.bad { border-top-color: var(--bad); }
+.result details { margin-top: 8px; }
+.result summary { cursor: pointer; color: var(--accent2); font-weight: 600; }
+.settings-used { columns: 2; column-gap: 24px; margin-top: 6px; }
+.settings-used .kv { break-inside: avoid; }
