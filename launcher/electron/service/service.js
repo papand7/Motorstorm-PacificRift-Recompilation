@@ -1,4 +1,4 @@
-﻿// The install service: JSON lines in (commands), JSON lines out (events), as the NightFire launcher's service.
+// The install service: JSON lines in (commands), JSON lines out (events), as the NightFire launcher's service.
 // Run by the launcher's own exe as Node (ELECTRON_RUN_AS_NODE=1), or by node for tests:
 //   node service.js --root <work folder> --meta <folder with game.json, toolchain.json> --source <source snapshot folder>
 // Commands: {cmd:'state'} {cmd:'set', disc?, elf100?} {cmd:'scan'} {cmd:'install', agreed}
@@ -22,8 +22,13 @@ fs.mkdirSync(root, { recursive: true });
 
 const logFile = path.join(root, 'launcher.log');
 const emit = ev => process.stdout.write(JSON.stringify(ev) + '\n');
-const log = line => {
-    try { fs.appendFileSync(logFile, `${new Date().toISOString()} ${line}\n`); } catch { /* the log is best effort */ }
+// one handle for the whole run: a build writes hundreds of thousands of compiler lines, and reopening the file for
+// each of them (appendFileSync) is slow on Windows
+let logFd = null;
+try { logFd = fs.openSync(logFile, 'a'); } catch { /* the log is best effort */ }
+const log = (line, { fileOnly = false } = {}) => {
+    if (logFd != null) { try { fs.writeSync(logFd, `${new Date().toISOString()} ${line}\n`); } catch { /* best effort */ } }
+    if (fileOnly) return;   // compiler warnings: launcher.log only, not the window (Builder.buildLog)
     emit({ ev: 'log', line });
 };
 

@@ -84,6 +84,14 @@ class Builder {
         };
     }
 
+    // A compile's output for the log: every line goes to launcher.log, but only ninja's progress and failures go to
+    // the window. The lifted sources raise ~100k compiler warnings; sending each to the window backed up the
+    // service's stdout (synchronous on Windows), which stalled ninja and made a 20 s compile take minutes.
+    buildLog(prefix = '') {
+        const show = /^\[\d+\/\d+\]|error|FAILED|^ninja:|^CMake|^--/i;
+        return l => this.log(prefix + l, { fileOnly: !show.test(l) });
+    }
+
     save() { fs.writeFileSync(this.cfgFile, JSON.stringify(this.cfg, null, 2)); }
     say(step, detail = '', fraction = -1) { this.emit({ ev: 'step', step, detail, fraction }); }
     stamp(id) { return path.join(this.root, 'work', `.done-${id}`); }
@@ -344,7 +352,7 @@ class Builder {
             '-DSPIRV_SKIP_TESTS=ON', '-DSPIRV_SKIP_EXECUTABLES=ON', '-DSPIRV_WERROR=OFF', '-DBUILD_SHARED_LIBS=OFF',
             '-DENABLE_HLSL=ON', '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'], { env, log });
         if (code !== 0) throw new Error('Preparing the glslang build failed, see the log.');
-        code = await run(cmake, ['--build', bld, '--target', 'install', '--parallel', String(this.jobs())], { env, log,
+        code = await run(cmake, ['--build', bld, '--target', 'install', '--parallel', String(this.jobs())], { env, log: this.buildLog('glslang: '),
             onLine: l => { const m = /^\[(\d+)\/(\d+)\]/.exec(l); if (m) this.say('Building the shader compiler (glslang)', `${m[1]} of ${m[2]}`, m[1] / m[2]); } });
         if (code !== 0) throw new Error('Building glslang failed, see the log.');
         // the LunarG layout the runtime's CMake reads: Include\ and Lib\ (CMake installs include\ and lib\; Windows
@@ -372,8 +380,16 @@ class Builder {
     jobs() {
         if (Number(process.env.MS_BUILD_JOBS) > 0) return Number(process.env.MS_BUILD_JOBS);   // developers, tests
         // leave the PC usable: the lifted sources take 2-4 GB of memory each to compile
-        const byMem = Math.max(1, Math.floor(os.totalmem() / (4 * 1024 ** 3)));
+        // (a lifted PPU chunk peaked at 2.7 GB, an SPU image at 0.4 GB: measured 2026-11-27 on the HX 370)
+        const byMem = Math.max(1, Math.floor(os.totalmem() / (3 * 1024 ** 3)));
         return Math.max(1, Math.min(os.cpus().length - 1, byMem));
+    }
+
+    // the ThinLTO link's backend jobs: about 1.3 GB each (7 jobs peaked at 9.9 GB), so more fit than compiles; the link
+    // is the longest single step of an install (15 min at 7 jobs on the HX 370)
+    ltoJobs() {
+        if (Number(process.env.MS_BUILD_JOBS) > 0) return Number(process.env.MS_BUILD_JOBS);
+        return Math.max(1, Math.min(os.cpus().length, Math.floor(os.totalmem() / (2 * 1024 ** 3))));
     }
 
     // ---- lift: pipeline\lift_motorstorm.py (in the source snapshot) from the player's ELFs into work\src\generated
@@ -385,7 +401,7 @@ class Builder {
         const script = path.join(this.srcDir(), 'pipeline', 'lift_motorstorm.py');
         const args = [script, '--root', this.srcDir(), '--elf-disc', this.elfPath(100),
                       '--jobs', String(Math.max(1, Math.min(os.cpus().length - 1, Math.floor(os.totalmem() / (3 * 1024 ** 3)))))];
-        this.say('Translating the game code', 'about 10 minutes', -1);
+        this.say('Translating the game code', 'about 4 minutes', -1);
         const code = await run(python, args, { env, cwd: this.srcDir(), log: l => this.log('lift: ' + l),
             onLine: l => { const m = /^\[step\] (.*)$/.exec(l); if (m) this.say('Translating the game code', m[1], -1);
                            const p = /lifted (\d+)\/(\d+) functions/.exec(l); if (p) this.say('Translating the game code', `PPU: ${p[1]} of ${p[2]} functions`, p[1] / p[2]); } });
@@ -420,13 +436,13 @@ class Builder {
                     ? [`-DMSPR_WWS_AOT_DIR=${path.join(gen, 'spu_raw', 'wws_reloc_v100')}`] : []),
                 // ThinLTO (PORT_PPU_LTO) links with lld-link's LTO jobs and a cache beside the build (quoted: ltoLinkerFlags)
                 ...(b.options.includes('PORT_PPU_LTO=ON')
-                    ? [`-DCMAKE_EXE_LINKER_FLAGS=${ltoLinkerFlags(this.jobs(), path.join(bld, 'lto-cache'))}`] : []),
+                    ? [`-DCMAKE_EXE_LINKER_FLAGS=${ltoLinkerFlags(this.ltoJobs(), path.join(bld, 'lto-cache'))}`] : []),
                 ...b.options.map(o => `-D${o}`),
             ];
             const code = await run(cmake, ['-S', path.join(src, 'port-vkgame'), '-B', bld, '-G', 'Ninja', ...defs], { env, log });
             if (code !== 0) { fs.rmSync(path.join(bld, 'CMakeCache.txt'), { force: true }); throw new Error(`Preparing the ${b.label} build failed, see the log.`); }
             this.say(`Building MotorStorm ${b.version} (${b.label})`, 'the first build takes 30 to 90 minutes', 0);
-            const built = await run(cmake, ['--build', bld, '--parallel', String(this.jobs())], { env, log,
+            const built = await run(cmake, ['--build', bld, '--parallel', String(this.jobs())], { env, log: this.buildLog(),
                 onLine: l => { const m = /^\[(\d+)\/(\d+)\]/.exec(l); if (m) this.say(`Building MotorStorm ${b.version} (${b.label})`, `${m[1]} of ${m[2]} steps`, m[1] / m[2]); } });
             if (built !== 0) throw new Error(this.abort.signal.aborted ? 'cancelled' : `The ${b.label} build failed, see the log.`);
             if (!fs.existsSync(path.join(bld, STABLE_EXE))) throw new Error(`The ${b.label} build made no ${STABLE_EXE}.`);
@@ -512,17 +528,29 @@ class Builder {
         fs.mkdirSync(dumpDir, { recursive: true });
 
         const captureEnv = { ...process.env, ...(sb.env || {}), PS3_VFS_ROOT: playJson.vfs_root,
-                             SPU_DUMP_OVL: dumpDir, SPU_DUMP_OVL_LATEST: '1' };
+                             // <dir>,<LS base>: the dumper watches LS 0x5000 unless told; the overlay loads at its base
+                             // (0x35F00 for spu38790, docs/BUILD.md), so without it nothing was ever written
+                             SPU_DUMP_OVL: `${dumpDir},0x${PLAN[0].base.toString(16)}`, SPU_DUMP_OVL_LATEST: '1' };
         this.say('Capturing the SPU overlay', 'running the game briefly (up to 2 minutes)', -1);
         this.log(`overlays: starting ${sb.exe} with SPU_DUMP_OVL=${dumpDir}`);
         const cp = require('child_process');
-        const proc = cp.spawn(exe, [], { env: captureEnv, cwd: this.dirs.play, detached: false, stdio: 'ignore' });
+        // the player's EBOOT.elf is the game's argument, as Play passes it (main.js): without it the exe exits at once
+        // and nothing is ever captured. The game's output goes to the log, so a failed capture says why.
+        const proc = cp.spawn(exe, [sb.elf], { env: captureEnv, cwd: this.dirs.play, detached: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        let exited = null;
+        proc.on('exit', code => { exited = code; });
+        const tail = [];
+        for (const s of [proc.stdout, proc.stderr]) require('readline').createInterface({ input: s })
+            .on('line', l => { tail.push(l); if (tail.length > 40) tail.shift(); this.log('overlays: game: ' + l, { fileOnly: true }); });
 
         const foundBins = [];
         const deadline = Date.now() + 120000;
-        while (Date.now() < deadline && foundBins.length < PLAN.length) {
+        let gameGone = false;
+        while (Date.now() < deadline && foundBins.length < PLAN.length && !gameGone) {
             await new Promise(r => setTimeout(r, 3000));
             if (this.abort && this.abort.signal.aborted) break;
+            // the game has gone: this pass still reads what it wrote, then the loop ends (no 2-minute wait for nothing)
+            if (exited !== null && !gameGone) { gameGone = true; this.log(`overlays: the game exited (code ${exited}); its last lines:\n${tail.join('\n')}`); }
             for (const f of fs.readdirSync(dumpDir)) {
                 if (!f.endsWith('.bin')) continue;
                 const fp = path.join(dumpDir, f);
@@ -565,7 +593,7 @@ class Builder {
         let code = await run(cmake, ['-S', path.join(src, 'port-vkgame'), '-B', bld, '-G', 'Ninja',
             '-DMSPR_OVL_CHAIN=ON'], { env, log: l => this.log(l) });
         if (code !== 0) { this.log('overlays: CMake reconfigure failed — no overlay AOT'); return; }
-        code = await run(cmake, ['--build', bld, '--parallel', String(this.jobs())], { env, log: l => this.log(l),
+        code = await run(cmake, ['--build', bld, '--parallel', String(this.jobs())], { env, log: this.buildLog(),
             onLine: l => { const m = /^\[(\d+)\/(\d+)\]/.exec(l); if (m) this.say('Rebuilding with SPU overlay AOT', `${m[1]} of ${m[2]} steps`, m[1] / m[2]); } });
         if (code !== 0) { this.log('overlays: rebuild failed — no overlay AOT'); return; }
         try { fs.copyFileSync(path.join(bld, STABLE_EXE), path.join(this.dirs.play, b.exe)); }

@@ -18,6 +18,9 @@ const EXE = 'MotorStormPacificRiftRecomp' + (WIN ? '.exe' : '');
 const LAUNCHER_DIR = process.env.PORTABLE_EXECUTABLE_DIR ||
     (app.isPackaged ? path.dirname(app.getPath('exe')) : (process.env.MS_LAUNCHER_DIR || path.resolve(__dirname, '..', 'dev')));
 const ROOT = path.join(LAUNCHER_DIR, 'MotorStorm');          // everything the launcher makes
+// Portable: the window's own data (Chromium's caches) goes under ROOT too, not %APPDATA%. The launcher keeps none of
+// its state there (launcher.json and settings.ini hold it), so nothing needs to move from an earlier launcher's folder.
+app.setPath('userData', path.join(ROOT, 'launcher-data'));
 const PLAY = path.join(ROOT, 'play');                          // the installed game: exe, DLLs, motorstorm.cfg
 const CFG = path.join(PLAY, 'motorstorm.cfg');
 const DUMP = path.join(PLAY, 'textures', 'dump');

@@ -7,6 +7,22 @@ let game = { running: false };
 let svc = null;                 // the install service's last state
 let progress = null;            // its last step event
 const logLines = [];            // the service's log, for the Install and Log pages
+// The log box is redrawn at most once a frame from the newest lines, never grown line by line: appending to its
+// text made every line cost more than the last, and a build's flood of lines then stalled the install itself.
+// an install that stopped part-way: a step past the quick checks is done, so Install carries on from there
+const resumable = s => !s.built && (s.steps || []).some(x => x.done && !['game', 'elf', 'files'].includes(x.id));
+let logPaint = 0;
+function scheduleLogPaint() {
+    if (logPaint) return;
+    logPaint = requestAnimationFrame(() => {
+        logPaint = 0;
+        const el = $('#log');
+        if (!el) return;
+        const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+        el.textContent = logLines.slice(current === 'log' ? -2000 : -300).join('\n');
+        if (atEnd) el.scrollTop = el.scrollHeight;
+    });
+}
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function msg(text, kind) { const m = $('#msg'); if (m) { m.textContent = text; m.className = 'msg' + (kind ? ' ' + kind : ''); } }
@@ -100,7 +116,7 @@ async function renderInstall() {
           </div>
           <div class="msg" id="msg"></div>
           <div class="btns">
-            <button class="act" id="install" ${busy || !ready || game.running ? 'disabled' : ''}>${s.built ? 'Build again' : 'Install'}</button>
+            <button class="act" id="install" ${busy || !ready || game.running ? 'disabled' : ''}>${s.built ? 'Build again' : resumable(s) ? 'Resume install' : 'Install'}</button>
             <button class="ghost" id="stop" ${busy ? '' : 'hidden'}>Stop</button>
             <button class="ghost" id="clean" ${busy ? 'disabled' : ''} title="Removes the build and the translated code. Keeps your EBOOT.elf files (they are not copied), the the build tools, the game files, your settings and HD textures.">Start over</button>
           </div>
@@ -161,9 +177,9 @@ L.on('svc', ev => {
         if (logLines.length > 5000) logLines.splice(0, 1000);
         const el = $('#log');
         if (el && (current === 'install' || current === 'log')) {
-            const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
-            el.textContent += (el.textContent ? '\n' : '') + line;
-            if (atEnd) el.scrollTop = el.scrollHeight;
+            // (painted from logLines, once a frame)
+            scheduleLogPaint();
+
         }
         if (ev.ev !== 'log' && current === 'install') msg(ev.message, ev.ev === 'error' || ev.ok === false ? 'bad' : 'good');
     }
