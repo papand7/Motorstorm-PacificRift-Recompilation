@@ -148,26 +148,37 @@ static inline void lanb_sort(lanb_list* l)
         }
 }
 
-/* An answer from ip at now_ms. Keyed by address and room port (a host's new session replaces its
- * old one). Returns the entry's index after sorting, or -1 when the list is full. */
+static inline int lanb_loopback(const uint8_t ip[4]) { return ip[0] == 127; }
+
+/* An answer from ip at now_ms. Keyed by the host's session (one host answers once per path: a host on
+ * this PC answers both the loopback query and the broadcast, Klp1b showed it listed twice), else by
+ * address and room port (a host's new session replaces its old one). Of two paths the LAN address is
+ * kept: it is the one other PCs see. Returns the entry's index after sorting, or -1 when full. */
 static inline int lanb_add(lanb_list* l, const uint8_t ip[4], const lanb_answer* a, uint32_t now_ms)
 {
     int k = -1;
-    for (int i = 0; i < l->n; i++)
-        if (!memcmp(l->e[i].ip, ip, 4) && l->e[i].a.room_port == a->room_port) { k = i; break; }
+    if (a->session)
+        for (int i = 0; i < l->n; i++)
+            if (l->e[i].a.session == a->session && l->e[i].a.room_port == a->room_port) { k = i; break; }
+    if (k < 0)
+        for (int i = 0; i < l->n; i++)
+            if (!memcmp(l->e[i].ip, ip, 4) && l->e[i].a.room_port == a->room_port) { k = i; break; }
     if (k < 0) {
         if (l->n >= LANB_MAX) return -1;
         k = l->n++;
+        memcpy(l->e[k].ip, ip, 4);
     }
     lanb_entry* e = &l->e[k];
-    memcpy(e->ip, ip, 4);
+    if (!(lanb_loopback(ip) && !lanb_loopback(e->ip) && e->a.session == a->session)) memcpy(e->ip, ip, 4);
     e->a = *a;
     e->seen_ms = now_ms;
     e->ping_ms = now_ms - a->sent_ms;   /* our own clock, echoed */
     if (e->ping_ms > 9999) e->ping_ms = 9999;
+    const lanb_entry key = *e;
     lanb_sort(l);
     for (int i = 0; i < l->n; i++)
-        if (!memcmp(l->e[i].ip, ip, 4) && l->e[i].a.room_port == a->room_port) return i;
+        if (!memcmp(l->e[i].ip, key.ip, 4) && l->e[i].a.room_port == key.a.room_port && l->e[i].a.session == key.a.session)
+            return i;
     return -1;
 }
 

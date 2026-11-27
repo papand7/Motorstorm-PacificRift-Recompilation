@@ -10,7 +10,7 @@ Outputs, in <out>/gui/ (the port serves this folder through PS3_VFS_OVERLAY; the
 looks for a "pcmenu" folder beside it):
   optionz.gui       options.gui with a PC SETTINGS item before LANGUAGE (the port reads it for
                     gui/options.gui, pc_menu.cpp pcmenu_page_load / pcmenu_load_sync)
-  options-pc.gui    the hub: options.gui's layout, one item per PCP page (seven), titled PC Settings
+  options-pc.gui    the hub: options.gui's layout, one item per PCP page (eight), titled PC Settings
   options-pc*.gui   one page per PCP line, made from options-controls.gui: its rows replaced by one row
                     per setting or key binding (two columns of four), the header titled by PcTitle<n>
   wreckreatioz.gui, wreckreation-lan.gui, wreckreation-lanfind.gui
@@ -233,7 +233,7 @@ def read_pages(port):
     for f, t, first, rows, label, info in pages:
         assert first == nxt and 1 <= rows <= 8, (f, first, rows)
         nxt += rows
-    assert len(pages) == 7, 'the hub has seven items (make_hub places seven)'
+    assert len(pages) == 8, 'the hub has eight items (make_hub places eight)'
     return pages, n_settings
 
 
@@ -292,8 +292,8 @@ def make_options(gui, out):
 
 
 def make_hub(gui, out, pages):
-    """options-pc.gui: the Options page's layout with one item per PC page (seven slots: the four
-    retail items, then three more below LANGUAGE)."""
+    """options-pc.gui: the Options page's layout with one item per PC page (eight slots: the four
+    retail items, then four more below LANGUAGE)."""
     src = os.path.join(gui, 'gui_options.gui')
     p = Page(src); ed = Ed(p)
     menu = find(p, 'Options_menu')
@@ -303,9 +303,9 @@ def make_hub(gui, out, pages):
     gy = lambda r: p.f(p.u(r) + 4)
     gx = lambda r: p.f(p.u(r))
     step = gy(lang) - gy(ctrl)
-    ys = [gy(r) for r in items] + [gy(lang) + k * step for k in (1, 2, 3)]   # seven slots: four retail rows + three more
-    xs = [gx(r) for r in items] + [gx(lang), gx(lang), gx(lang)]
-    assert len(pages) <= len(ys), 'the hub has six item slots'
+    ys = [gy(r) for r in items] + [gy(lang) + k * step for k in (1, 2, 3, 4)]   # eight slots: four retail rows + four more
+    xs = [gx(r) for r in items] + [gx(lang)] * 4
+    assert len(pages) <= len(ys), 'the hub has eight item slots'
     new = []
     for i, (fname, title, first, rows, label, info) in enumerate(pages):
         w = ed.widget(ctrl, name=f'PCHUB{i}', y=ys[i], x=xs[i])

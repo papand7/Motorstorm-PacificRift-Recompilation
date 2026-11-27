@@ -62,6 +62,15 @@ EDITS_V103 = [
      'ctx->lr = 0x0006A150; ps3_indirect_call(ctx); DRAIN_TRAMPOLINE(ctx); PPU_TR_RET(ctx, 0x0006A150u, 0x00000000u);',
      'if (mspr_patch_on(64u) && mspr_audio_kick(ctx)) { /* MSPR_PATCH=audiothread: 1.03 0x0006A14C */ } else { ctx->lr = 0x0006A150; ps3_indirect_call(ctx); DRAIN_TRAMPOLINE(ctx); PPU_TR_RET(ctx, 0x0006A150u, 0x00000000u); }', 1),
 ]
+# audiothread (bit 64), 1.00: the same call as 1.03's 0x0006A14C (func_00069C38). In 1.00 it is in the frame function
+# func_00082358: lwz r21,0x44(r26); lwz r12,0(r21); lwz r7,0x20(r12) (vtable slot +0x20); bctrl at 0x000829D4, return
+# 0x000829D8 (generated/analysis/cpu_placement/tools/align.py, find100b.py). The return address is unique to this call,
+# so every lifted copy is changed wherever it is (the 1.00 lift also has the call in 9 linear copies of the function's
+# tail; their file split depends on the lift, hence no per-file count). After the call only r2 (reloaded), and
+# registers and CR fields written before they are read, are used: the result and the volatile registers are dead.
+AUDIO_100 = ('ctx->lr = 0x000829D8; ps3_indirect_call(ctx); DRAIN_TRAMPOLINE(ctx); PPU_TR_RET(ctx, 0x000829D8u, 0x00000000u);',
+             'if (mspr_patch_on(64u) && mspr_audio_kick(ctx)) { /* MSPR_PATCH=audiothread: 1.00 0x000829D4 */ } else { '
+             'ctx->lr = 0x000829D8; ps3_indirect_call(ctx); DRAIN_TRAMPOLINE(ctx); PPU_TR_RET(ctx, 0x000829D8u, 0x00000000u); }')
 if 'v103' in ST.name:
     EDITS = EDITS_V103
 SUBSTR = 'promo' in ST.name
@@ -119,3 +128,40 @@ def patch(name, edits):
 
 for f in sorted({e[0] for e in EDITS}):
     patch(f, [e for e in EDITS if e[0] == f])
+
+
+def patch_everywhere(old, new):
+    """Every lifted line that is exactly old becomes new, in any ppu_recomp_*.cpp; returns (patched, already)."""
+    done = already = 0
+    for path in sorted(ST.glob('ppu_recomp_*.cpp')):
+        b = path.read_bytes().decode('latin-1')
+        if old not in b:
+            already += b.count(new)
+            continue
+        if os.stat(path).st_nlink > 1:
+            tmp = path.with_suffix('.cpp.mspr-tmp')
+            shutil.copyfile(path, tmp)
+            os.replace(tmp, path)
+        lines = b.split('\n')
+        n = 0
+        for i, raw in enumerate(lines):
+            if raw.strip() == old:
+                lines[i] = raw.replace(old, new)
+                n += 1
+            elif raw.strip() == new:
+                already += 1
+        eol = '\r' if lines[1].endswith('\r') else ''
+        if n and DECL_AUDIO not in lines[1] + lines[2] + lines[3]:
+            lines.insert(2, DECL_AUDIO + eol)
+        if n and DECL not in ''.join(lines[1:5]):
+            lines.insert(2, DECL + eol)
+        path.write_bytes('\n'.join(lines).encode('latin-1'))
+        print(f'{path.name}: {n} audiothread call site(s) patched')
+        done += n
+    return done, already
+
+
+if 'v103' not in ST.name:
+    got = patch_everywhere(*AUDIO_100)
+    assert sum(got) >= 1, 'audiothread: the 1.00 call at 0x000829D4 was not found'
+    print(f'audiothread 1.00: {got[0]} patched, {got[1]} already patched')

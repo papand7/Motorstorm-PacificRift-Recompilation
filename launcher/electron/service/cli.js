@@ -1,6 +1,7 @@
 // The install service from a terminal (tests, developers): starts service.js, sends the commands, prints its events.
 //   node cli.js --root <work folder> [--meta <dir>] [--source <dir>] [--disc <iso|folder>]
 //               [--elf100 <EBOOT.elf of 1.00>] [--agree] [--install [--until <step>]]
+//               [--autodecrypt]   (downloads RPCS3, decrypts the disc's EBOOT.BIN, removes RPCS3: the flag is the consent)
 // Without --install it only checks (scan) and prints the state.
 'use strict';
 const { spawn } = require('child_process');
@@ -30,7 +31,8 @@ readline.createInterface({ input: svc.stdout }).on('line', line => {
                         steps: ev.steps.map(s => `${s.id}${s.done ? '+' : ''}`).join(' ') };
         console.log('STATE ' + JSON.stringify(brief));
         if (phase === 'scanned' && ev.after === 'set') {
-            if (has('install')) { phase = 'installing'; send({ cmd: 'install', agreed: has('agree'), until: a('until') }); }
+            if (has('autodecrypt')) { phase = 'decrypting'; send({ cmd: 'autodecrypt', confirmed: true }); }
+            else if (has('install')) { phase = 'installing'; send({ cmd: 'install', agreed: has('agree'), until: a('until') }); }
             else { phase = 'end'; send({ cmd: 'quit' }); }
         }
     }

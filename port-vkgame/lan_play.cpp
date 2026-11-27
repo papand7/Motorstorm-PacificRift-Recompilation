@@ -45,6 +45,33 @@ static void set_env(const char* name, const char* value)
     _putenv_s(name, value);
 }
 
+/* The game's online service names, answered with the LAN server's address (sysNet.c
+ * PS3_NET_HOST_MAP) so the game's own online flow reaches the LAN server instead of DNS.
+ * MotorStorm: Pacific Rift resolves its Medius server name (EBOOT string table,
+ * 'motorstorm2ps3.online.scee.com'); the wildcard covers the other SCEE online names. */
+#define LAN_GAME_HOSTS "motorstorm2ps3.online.scee.com,*.online.scee.com"
+
+/* Sets PS3_NET_HOST_MAP to name=ip for every LAN_GAME_HOSTS name. server is "ip:port". */
+static void set_host_map(const char* server)
+{
+    char ip[64];
+    snprintf(ip, sizeof ip, "%s", server);
+    char* colon = strchr(ip, ':');
+    if (colon) *colon = 0;
+    char map[256];
+    size_t n = 0;
+    map[0] = 0;
+    const char* names = LAN_GAME_HOSTS;
+    while (*names) {
+        const char* end = strchr(names, ',');
+        size_t len = end ? (size_t)(end - names) : strlen(names);
+        n += (size_t)snprintf(map + n, sizeof map - n, "%s%.*s=%s", n ? "," : "", (int)len, names, ip);
+        if (n >= sizeof map) break;
+        names += len + (end ? 1 : 0);
+    }
+    set_env("PS3_NET_HOST_MAP", map);
+}
+
 /* The answer this PC gives to queries: the room's size when a room exists. */
 static lanb_answer host_answer(void)
 {
@@ -81,6 +108,7 @@ static void stop_hosting_locked(void)
     if (s_set_env) {
         set_env("PSNR_SERVER", "");
         set_env("PS3_NET_ONLINE", "");
+        set_env("PS3_NET_HOST_MAP", "");
         s_set_env = 0;
     }
 }
@@ -136,7 +164,11 @@ void lan_play_init(void)
     char host[MAX_COMPUTERNAME_LENGTH + 1];
     DWORD n = sizeof host;
     if (!GetComputerNameA(host, &n)) host[0] = 0;
-    lanb_host_name(host, s_name);
+    /* The name other players see in their LAN browser: the player name (settings.ini playername ->
+     * PS3_NP_ONLINE_ID, as np_psnr.c checks it), else the computer name as before. */
+    const char* pn = getenv("PS3_NP_ONLINE_ID");
+    const char* id = pn && *pn ? np_psnr_identity() : NULL;
+    lanb_host_name(id ? id : host, s_name);
     lanb_reset(&s_list, 1);
     s_host_sock = s_qry_sock = INVALID_SOCKET;
     snprintf(s_msg, sizeof s_msg, "%s", "Not hosting.");
@@ -184,6 +216,7 @@ int lan_play_set_host(int on)
                 s_hosting = 1;
                 s_set_env = 1;
                 set_env("PSNR_SERVER", "127.0.0.1:36100");
+                set_host_map("127.0.0.1");
                 set_env("PS3_NET_ONLINE", "1");
                 np_psnr_disconnect();          /* a connection to another game, if any, goes */
                 np_psnr_retry_on(1);           /* the game connects to this room server at its next Matching2 start */
@@ -267,6 +300,7 @@ int lan_play_join(int i, char* msg, size_t cap)
         char addr[64];
         lanb_server(&s_list.e[i], addr, sizeof addr);
         set_env("PSNR_SERVER", addr);
+        set_host_map(addr);
         set_env("PS3_NET_ONLINE", "1");
         s_set_env = 1;
         np_psnr_disconnect();          /* a game joined earlier in this run lets go of its server */

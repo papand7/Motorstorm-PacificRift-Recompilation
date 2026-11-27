@@ -105,6 +105,16 @@
       "install": { "to": ".", "files": ["amd_fidelityfx_upscaler_vk.dll"] }
     },
     {
+      "id": "fsr3-framegen",
+      "title": "AMD FidelityFX FSR 3.1 frame generation (SDK v2.4.0)",
+      "kind": "file",
+      "save_as": "amd_fidelityfx_framegeneration_vk.dll",
+      "url": "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/v2.4.0/Kits/FidelityFX/signedbin/amd_fidelityfx_framegeneration_vk.dll",
+      "sha256": "d002dabff8c5e71eaa715fc99438cd4dc81230262a7897b16bc402efec3498b4",
+      "size": 36806928,
+      "install": { "to": ".", "files": ["amd_fidelityfx_framegeneration_vk.dll"] }
+    },
+    {
       "id": "fsr3-license",
       "title": "AMD FidelityFX SDK license",
       "kind": "file",
@@ -115,6 +125,50 @@
       "install": { "to": "licenses", "files": ["LICENSE-FidelityFX.md"] }
     }
   ],
+  "textures": {
+    "about": "What the HD textures page runs (texpack.py, texcollect.py), fetched the first time it is used, into MotorStorm\\tools (service/texdeps.js). The wheels are PyPI's cp314 win_amd64 builds for the Python above, SHA-256 and size as PyPI's JSON API lists them; they are unpacked (a wheel is a zip) into tools\\pydeps, which the launcher puts on PYTHONPATH. Real-ESRGAN's release asset has no digest in GitHub's API: it and its LICENSE were downloaded and hashed on 2026-11-27 (the same SHA-256 as the copy the developer build used).",
+    "tools": [
+      {
+        "id": "pydeps",
+        "title": "Python packages numpy 2.5.4 and Pillow 13.0.0",
+        "kind": "zip",
+        "python": "3.14",
+        "imports": ["numpy", "PIL"],
+        "files": [
+          {
+            "name": "numpy-2.5.4-cp314-cp314-win_amd64.whl",
+            "url": "https://files.pythonhosted.org/packages/52/9a/e1e512ebc948d5b9dd33b08736760f0ebbed2848fd4eda1f553088a6dcee/numpy-2.5.4-cp314-cp314-win_amd64.whl",
+            "sha256": "2ca144f15135b6212a5c47b1e2aeca6e412f102f95a2d5d88d8aec77eb255de3",
+            "size": 12703552
+          },
+          {
+            "name": "pillow-13.0.0-cp314-cp314-win_amd64.whl",
+            "url": "https://files.pythonhosted.org/packages/50/e2/7ad17747517e4c813dca78257d6bb593466f8231baf1384bc98d92745edb/pillow-13.0.0-cp314-cp314-win_amd64.whl",
+            "sha256": "f7cbb7a64e7ec664775195e4f81923bc8a93d9451b963f844e59118f63147a7a",
+            "size": 7281830
+          }
+        ]
+      },
+      {
+        "id": "realesrgan",
+        "title": "Real-ESRGAN ncnn Vulkan 0.2.5.0 (20220424)",
+        "kind": "zip",
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
+        "sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",
+        "size": 45474481,
+        "include": ["realesrgan-ncnn-vulkan.exe", "vcomp140.dll", "vcomp140d.dll", "README_windows.md", "models/*"]
+      },
+      {
+        "id": "realesrgan-license",
+        "title": "Real-ESRGAN license",
+        "kind": "file",
+        "save_as": "LICENSE-Real-ESRGAN.txt",
+        "url": "https://raw.githubusercontent.com/xinntao/Real-ESRGAN/v0.2.5.0/LICENSE",
+        "sha256": "4a699ec4863d96a91fc265948a0c90033f7e8735d515524dcf3444736406e0c2",
+        "size": 1519
+      }
+    ]
+  },
   "vulkan": {
     "stamp": "vulkan-sdk-1.4.341.0 glslang 16.2.0 SPIRV-Tools SPIRV-Headers Vulkan-Headers"
   },

@@ -36,6 +36,8 @@ const settings = require('./settings');   // settings.ini (the player's) and mot
 const bench = require('./bench');         // the Benchmark page: start environment, the race config, the result
 const os = require('os');
 const BENCH_DIR = path.join(PLAY, 'benchmark');   // the game's result files, <mode>.json
+const saves = require('./service/saves');   // Import save: the player's PS3 / RPCS3 saves into the port's save folder
+const SAVE_BACKUPS = path.join(PLAY, 'saves', 'backups');
 
 let win = null;
 let svc = null;        // the install service
@@ -134,8 +136,11 @@ function play(which = 'stable') {
 }
 
 // ---- benchmarks: the stable build started as Play starts it, plus bench.BENCH_KEYS. The game measures, writes
-// BENCH_DIR\<mode>.json and quits by itself; the page then shows that file. Nothing of the player's settings changes.
+// its result file and quits by itself; the page then shows BENCH_DIR\<mode>.json (fly: two runs, Happy Jungle then
+// Wildfire, combined by bench.runSteps). Nothing of the player's settings changes.
 let benchMode = null;   // the benchmark running now
+let benchStep = null;   // its run now: { index, count, map: the fly map's name, retry }
+let benchStopped = false;   // Stop pressed during a benchmark: the run now ends, the next ones do not start
 function benchResults() {
     const out = {};
     for (const m of Object.keys(bench.MODES)) {
@@ -146,7 +151,7 @@ function benchResults() {
     return out;
 }
 function benchInfo() {
-    return { installed: installed(), playing: !!(game || dumper), running: benchMode, modes: bench.MODES, results: benchResults(),
+    return { installed: installed(), playing: !!(game || dumper || benchMode), running: benchMode, step: benchStep, modes: bench.MODES, results: benchResults(),
              host: { cpu: (os.cpus()[0] || {}).model || '', ram_bytes: os.totalmem() } };   // fallbacks when the game names none
 }
 function runBench(mode) {
@@ -154,54 +159,89 @@ function runBench(mode) {
     if (game || dumper || collector) return { ok: false, message: 'The game is already running: close it first.' };
     if (svcState && svcState.busy) return { ok: false, message: 'The install is running: wait for it to finish.' };
     if (!buildOf('stable')) return { ok: false, message: 'Install the game first (Install page).' };
+    if (benchMode) return { ok: false, message: 'A benchmark is already running.' };
+    // the steps (bench.benchSteps: fly = one game run per map, one after the other; race = one run), each run's result
+    // in BENCH_DIR\<step file>, the benchmark's own (fly: the maps combined) in BENCH_DIR\<mode>.json
     const out = path.join(BENCH_DIR, `${mode}.json`);
+    const steps = bench.benchSteps(mode);
     try {
         fs.mkdirSync(BENCH_DIR, { recursive: true });
         fs.rmSync(out, { force: true });
+        for (const s of steps) fs.rmSync(path.join(BENCH_DIR, s.file), { force: true });
         if (mode === 'race') {
             const files = gameFiles();
             if (!files || !fs.existsSync(files)) return { ok: false, message: 'The game files are not set: install the game first.' };
             bench.prepareRace(files, bench.overlayDir(startEnv('stable'), readCfg(), PLAY));
         }
     } catch (e) { return { ok: false, message: e.message }; }
-    const started = Date.now();
-    game = startGame('stable', bench.benchEnv(mode, out));
-    benchMode = mode;
-    const done = (code, why) => {
-        game = null; benchMode = null;
-        let r = bench.readResult(out);
-        if (!r) {   // the game closed without a result (stopped, or it failed before it could write one)
-            r = { version: 1, benchmark: mode, ok: false, error: why || `The game closed without a result (exit code ${code}).`, settings: [] };
-            try { fs.writeFileSync(out, JSON.stringify(r, null, 2)); } catch { /* read-only folder */ }
-        }
-        r.duration_s = Math.round((Date.now() - started) / 1000);
+    benchMode = mode; benchStopped = false; benchStep = null;
+    // one game run: resolves when the game has closed, with its result file (or null) and its log (bench.runSteps
+    // retries a run whose log shows the start-up Present() Timeout once)
+    const runOne = step => new Promise(resolve => {
+        const file = path.join(BENCH_DIR, step.file);
+        fs.rmSync(file, { force: true });
+        let settled = false;
+        const done = (code, why) => {
+            if (settled) return;
+            settled = true;
+            game = null;
+            let log = '';
+            try { log = fs.readFileSync(path.join(PLAY, 'game.log'), 'latin1'); } catch { /* no log */ }
+            send('game', { running: false, code });
+            resolve({ result: bench.readResult(file), code, why, log });
+        };
+        try { game = startGame('stable', bench.benchEnv(mode, file, step.boot)); } catch (e) { done(-1, e.message); return; }
+        game.on('exit', code => done(code));
+        game.on('error', e => done(-1, e.message));
+        send('game', { running: true });
+    });
+    bench.runSteps(mode, {
+        runOne,
+        cancelled: () => benchStopped,
+        onStep: s => { benchStep = { index: s.index, count: s.count, map: s.map && s.map.name, retry: s.retry }; send('bench', { running: mode, step: benchStep }); },
+        onResult: (step, r) => {   // each run's own result file (written by the game, or the failure) for the record
+            if (step.file !== `${mode}.json`) try { fs.writeFileSync(path.join(BENCH_DIR, step.file), JSON.stringify(r, null, 2)); } catch { /* read-only */ }
+        },
+    }).catch(e => ({ version: 1, benchmark: mode, ok: false, error: e.message, settings: [] })).then(r => {
         r.at = new Date().toISOString();
-        send('game', { running: false, code });
+        try { fs.writeFileSync(out, JSON.stringify(r, null, 2)); } catch { /* read-only folder */ }
+        benchMode = null; benchStep = null;
         send('bench', { running: null, mode, result: r });
-    };
-    game.on('exit', code => done(code));
-    game.on('error', e => done(-1, e.message));
-    send('game', { running: true });
-    send('bench', { running: mode });
+    });
     return { ok: true };
 }
 
 // ---- textures: the game saves each distinct texture it draws (RSX_TEX_DUMP); texpack.py upscales them
-function pythonCommand() {
-    // the build's own Python (the launcher's tools folder), else the system's
-    const own = path.join(ROOT, 'tools', 'python', 'python.exe');
-    if (WIN && fs.existsSync(own)) return { cmd: own, pre: [] };
-    return WIN ? { cmd: 'py', pre: ['-3'] } : { cmd: 'python3', pre: [] };
+// The scripts run in the launcher's own Python with the pinned numpy and Pillow and Real-ESRGAN, each fetched the
+// first time (service/texdeps.js, toolchain.json "textures"); never a system Python. Off Windows: the system's python3.
+const texdeps = require('./service/texdeps');
+const TOOLS = path.join(ROOT, 'tools');
+function prepareTextures(need, onReady, onFail) {
+    // a stand-in for the job while its tools download: Stop aborts the download, the page shows it as running
+    const ac = new AbortController();
+    const job = { kill: () => ac.abort() };
+    if (!WIN) {
+        setImmediate(() => onReady({ python: 'python3', esrgan: null, env: { ...process.env, PYTHONUTF8: '1', PYTHONUNBUFFERED: '1' } }));
+        return job;
+    }
+    const toolchain = JSON.parse(fs.readFileSync(path.join(RES || path.resolve(__dirname, '..'), 'toolchain.json'), 'utf8'));
+    texdeps.ensure({ toolchain, toolsDir: TOOLS, downloadsDir: path.join(ROOT, 'downloads'), need, signal: ac.signal,
+                     say: line => send('pack', { line }), log: () => {} })
+        .then(t => (ac.signal.aborted ? onFail('Stopped.') : onReady(t)), e => onFail(e.message));
+    return job;
 }
 function runPacker(args) {
     if (packer) return { ok: false, message: 'The HD pack is already being made.' };
-    const py = pythonCommand();
-    packer = spawn(py.cmd, [...py.pre, TEXPACK, ...args], { cwd: PLAY, windowsHide: true, env: { ...process.env, PYTHONUTF8: '1', PYTHONUNBUFFERED: '1' } });
-    const out = line => send('pack', { line });
-    readline.createInterface({ input: packer.stdout }).on('line', out);
-    readline.createInterface({ input: packer.stderr }).on('line', out);
-    packer.on('exit', code => { packer = null; send('pack', { done: true, code }); });
-    packer.on('error', e => { packer = null; send('pack', { done: true, code: -1, line: `${e.message} (Python with numpy and Pillow is needed)` }); });
+    const fail = line => { packer = null; send('pack', { done: true, code: -1, line }); };
+    packer = prepareTextures('all', t => {
+        const esrgan = t.esrgan ? ['--esrgan', t.esrgan] : [];
+        packer = spawn(t.python, [TEXPACK, ...args, ...esrgan], { cwd: PLAY, windowsHide: true, env: t.env });
+        const out = line => send('pack', { line });
+        readline.createInterface({ input: packer.stdout }).on('line', out);
+        readline.createInterface({ input: packer.stderr }).on('line', out);
+        packer.on('exit', code => { packer = null; send('pack', { done: true, code }); });
+        packer.on('error', e => fail(e.message));
+    }, fail);
     return { ok: true };
 }
 function texturesInfo() {
@@ -215,22 +255,40 @@ function gameFiles() {
     return readCfg().PS3_VFS_ROOT || (p && p.vfs_root) || '';
 }
 // "Collect all textures": texcollect.py on the player's own MS2.PSARC (the game does not start); the launcher's
-// Python runs it (it uses the standard library only). It prints its totals when it ends.
+// Python runs it, with numpy (its 32-bit colour textures need it; without it they were skipped). It prints its totals.
 function runCollectAll() {
     if (collector) return { ok: false, message: 'Already collecting.' };
     if (game || dumper) return { ok: false, message: 'Close the game first.' };
     const files = gameFiles();
     if (!files || !fs.existsSync(files)) return { ok: false, message: 'The game files are not set: install the game first (or set the disc files folder on the Settings page).' };
-    const py = pythonCommand();
     fs.mkdirSync(DUMP, { recursive: true });
-    collector = spawn(py.cmd, [...py.pre, TEXCOLLECT, '--play', PLAY, '--game', files], { cwd: PLAY, windowsHide: true, env: { ...process.env, PYTHONUTF8: '1' } });
-    const out = line => send('pack', { line });
-    readline.createInterface({ input: collector.stdout }).on('line', out);
-    readline.createInterface({ input: collector.stderr }).on('line', out);
-    collector.on('exit', code => { collector = null; send('pack', { done: true, code, line: code === 0 ? 'Done: the textures are in the dump folder.' : `The collection stopped (exit ${code}).` }); });
-    collector.on('error', e => { collector = null; send('pack', { done: true, code: -1, line: `${e.message}` }); });
+    const fail = line => { collector = null; send('pack', { done: true, code: -1, line }); };
+    collector = prepareTextures('python', t => {
+        collector = spawn(t.python, [TEXCOLLECT, '--play', PLAY, '--game', files], { cwd: PLAY, windowsHide: true, env: t.env });
+        const out = line => send('pack', { line });
+        readline.createInterface({ input: collector.stdout }).on('line', out);
+        readline.createInterface({ input: collector.stderr }).on('line', out);
+        collector.on('exit', code => { collector = null; send('pack', { done: true, code, line: code === 0 ? 'Done: the textures are in the dump folder.' : `The collection stopped (exit ${code}).` }); });
+        collector.on('error', e => fail(e.message));
+    }, fail);
     send('pack', { line: 'Reading your game archive: this takes about a minute (the game is not started).' });
     return { ok: true };
+}
+
+// ---- saves: the folder the game keeps them in is the one its start environment names (PS3_GAMEDATA_ROOT, bench.js
+// gameEnv), so an import lands where Play's game looks. The last scan stays here: the page names a save by its index.
+let saveScan = [];
+let saveKeys = null;   // the player's save-tool keys (readKeyFolder), for this session only; never written anywhere
+const gamedataRoot = () => startEnv('stable').PS3_GAMEDATA_ROOT;
+function savesInfo() {
+    const root = gamedataRoot();
+    return { folder: saves.savedataDir(root), current: saves.currentSaves(root).map(saves.summary), keys: !!saveKeys,
+             backups: saves.listBackups(SAVE_BACKUPS).map(b => ({ name: b.name, dir: b.dir, at: b.at, reason: b.reason, save: b.info && saves.summary(b.info) })),
+             found: saveScan.map(saves.summary), playing: !!(game || dumper) };
+}
+function saveGuard() {
+    if (game || dumper) return 'Close the game first: it reads and writes its save while it runs.';
+    return null;
 }
 
 function createWindow() {
@@ -254,6 +312,20 @@ function createWindow() {
                 await wait(900);
                 const img = await win.webContents.capturePage();
                 fs.writeFileSync(path.join(process.env.MS_SHOT, `launcher_${page}.png`), img.toPNG());
+            }
+            // Import save, driven: MS_SHOT_SAVES=<folder> stands in for the folder dialog, MS_SHOT_SAVES_IMPORT=<n> imports
+            // the n-th save found (its confirmation answered yes)
+            if (process.env.MS_SHOT_SAVES) {
+                const step = async (js, name) => {
+                    await win.webContents.executeJavaScript(js);
+                    await wait(1500);
+                    fs.writeFileSync(path.join(process.env.MS_SHOT, `launcher_${name}.png`), (await win.webContents.capturePage()).toPNG());
+                };
+                await win.webContents.executeJavaScript(`show('play'); window.confirm = () => true; 0`);
+                await wait(900);
+                await step(`document.querySelector('#save-import').click()`, 'saves_found');
+                if (process.env.MS_SHOT_SAVES_IMPORT)
+                    await step(`document.querySelector('[data-import="${Number(process.env.MS_SHOT_SAVES_IMPORT)}"]').click()`, 'saves_imported');
             }
             app.quit();
         });
@@ -296,7 +368,7 @@ ipcMain.handle('settings:load', () => settingsState());
 ipcMain.handle('settings:save', (_, patch) => {
     if (game || dumper) return { ok: false, message: 'Close the game first: it reads these settings when it starts.' };
     // the player's settings into settings.ini (labels; the game's own PC Settings page edits the same file)
-    const err = settings.save(PLAY, patch.values || {}, patch.keys || {});
+    const err = settings.save(PLAY, patch.values || {}, patch.keys || {}, patch.playerName);   // playerName: undefined = unchanged
     if (err) return { ok: false, message: err };
     // paths stay in motorstorm.cfg
     const cfg = {};
@@ -306,10 +378,42 @@ ipcMain.handle('settings:save', (_, patch) => {
     return { ok: true, ...settingsState() };
 });
 ipcMain.handle('game:play', (_, which) => play('stable'));
-ipcMain.handle('game:stop', () => { if (game) game.kill(); return { ok: true }; });
+ipcMain.handle('game:stop', () => { if (benchMode) benchStopped = true; if (game) game.kill(); return { ok: true }; });
 ipcMain.handle('bench:info', () => benchInfo());
 ipcMain.handle('bench:run', (_, mode) => runBench(mode));
 ipcMain.handle('textures:info', () => texturesInfo());
+ipcMain.handle('saves:info', () => savesInfo());
+ipcMain.handle('saves:scan', async () => {
+    const shot = !app.isPackaged && process.env.MS_SHOT && process.env.MS_SHOT_SAVES;   // a test's pictures (createWindow)
+    const r = shot ? { canceled: false, filePaths: [shot] }
+                   : await dialog.showOpenDialog(win, { title: 'Choose a save: its folder, or a folder above it (USB PS3\\SAVEDATA, RPCS3 dev_hdd0)', properties: ['openDirectory'] });
+    if (r.canceled) return { ok: false, message: '' };
+    saveScan = saves.findSaves(r.filePaths[0]);
+    return { ok: true, picked: r.filePaths[0], ...savesInfo() };
+});
+ipcMain.handle('saves:keys', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Choose your save tool folder (pfdtool or Bruteforce Save Data: global.conf and games.conf)', properties: ['openDirectory'] });
+    if (r.canceled) return { ok: false, message: '' };
+    try { saveKeys = saves.readKeyFolder(r.filePaths[0]); } catch (e) { return { ok: false, message: e.message }; }
+    return { ok: true, ...savesInfo() };
+});
+ipcMain.handle('saves:import', (_, index) => {
+    const busy = saveGuard();
+    if (busy) return { ok: false, message: busy };
+    const found = saveScan[index];
+    if (!found) return { ok: false, message: 'Choose the save again.' };
+    try {
+        const fresh = saves.inspectSave(found.path);   // as it is now (it may have changed since the scan)
+        const r = saves.importSave(fresh, { gamedataRoot: gamedataRoot(), backupsRoot: SAVE_BACKUPS, keys: saveKeys });
+        return { ok: true, result: r, ...savesInfo() };
+    } catch (e) { return { ok: false, message: e.message }; }
+});
+ipcMain.handle('saves:restore', (_, name) => {
+    const busy = saveGuard();
+    if (busy) return { ok: false, message: busy };
+    try { return { ok: true, result: saves.restoreBackup(String(name), { gamedataRoot: gamedataRoot(), backupsRoot: SAVE_BACKUPS }), ...savesInfo() }; }
+    catch (e) { return { ok: false, message: e.message }; }
+});
 ipcMain.handle('textures:collect', () => {
     if (game || dumper) return { ok: false, message: 'Close the game first.' };
     if (!installed()) return { ok: false, message: 'Install the game first.' };
@@ -337,7 +441,7 @@ ipcMain.handle('textures:stop', () => {
     return { ok: true };
 });
 ipcMain.handle('open', (_, what) => shell.openPath(
-    what === 'textures' ? path.join(PLAY, 'textures') : what === 'log' ? path.join(ROOT, 'launcher.log') : what === 'root' ? ROOT : PLAY));
+    what === 'textures' ? path.join(PLAY, 'textures') : what === 'saves' ? saves.savedataDir(gamedataRoot()) : what === 'log' ? path.join(ROOT, 'launcher.log') : what === 'root' ? ROOT : PLAY));
 
 app.whenReady().then(() => { fs.mkdirSync(ROOT, { recursive: true }); createWindow(); startService(); });
 app.on('before-quit', () => {

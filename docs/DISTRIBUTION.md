@@ -4,6 +4,8 @@ Only independently written source, configuration, scripts, documentation, and li
 
 Keep user inputs in `original/` or `private/`, analysis and lifted code in `generated/`, and binaries in `build/`. These paths are Git-ignored. The build scripts read local user inputs and regenerate their outputs locally. Do not send proprietary inputs or outputs to public CI, cloud builds, third-party APIs, or release artifacts.
 
+The launcher's "Decrypt automatically" (`docs/LAUNCHER.md`) downloads the official RPCS3 Windows build (GPL-2.0) on the player's PC, at the player's request, into a temporary folder and deletes it after one decryption. RPCS3 is not redistributed: never commit, bundle or upload its binaries, and never stage the `EBOOT.elf` it produces (`MotorStorm\decrypted\`, a launcher data folder, is never part of the repository).
+
 RPCS3's installed firmware under `build/rpcs3/dev_flash/`, its PPU cache under `build/rpcs3/cache/`, and local PPU-debug dumps under `build/rpcs3/ppu_progs/` are private `build/` artifacts. `tools/inspect_local_spurs_firmware.py` reads these paths and writes only a local metadata inventory in ignored `generated/firmware_analysis/`. Never stage that inventory, firmware dump, cache objects, disassembly, or traces from a diagnostic run. Public compatibility code must describe independently verified behavior; do not copy or translate the firmware routine.
 
 Before the first commit in a newly initialized public repository, configure the hook:

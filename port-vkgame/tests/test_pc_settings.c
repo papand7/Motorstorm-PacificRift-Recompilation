@@ -37,12 +37,13 @@ static const char* set_value(const char* name)
 static void reset_env(void) { memset(s_preset, 0, sizeof s_preset); s_nset = 0; }
 
 /* What is missing: the texture pack and the FSR 3 runtime. */
-static int s_missing_pack, s_missing_fsr3;
+static int s_missing_pack, s_missing_fsr3, s_missing_fg;
 static const char* fake_avail(const char* key, int choice)
 {
     if (choice <= 0) return NULL;
     if (s_missing_pack && (!strcmp(key, "textures") || !strcmp(key, "pbr"))) return "No pack";
     if (s_missing_fsr3 && !strcmp(key, "fsrmode") && choice == 1) return "No FSR3 DLL";
+    if (s_missing_fg && !strcmp(key, "framegen") && choice == 2) return "No FSR3 FG DLL";
     return NULL;
 }
 
@@ -60,7 +61,7 @@ static const char* env_for(int i, int c, const char* base)
 int main(void)
 {
     pcs_state s;
-    char buf[1024];
+    char buf[4096];   /* the whole settings.ini text (35 settings: over 1 KB) */
 
     /* The table itself: every row has what the page needs. */
     for (int i = 0; i < PCS_COUNT; i++) {
@@ -72,7 +73,7 @@ int main(void)
         for (int j = i + 1; j < PCS_COUNT; j++) CHECK(strcmp(d->key, k_pcs_defs[j].key));
         CHECK(pcs_find(d->key) == i);
     }
-    CHECK(PCS_COUNT <= 31);   /* explicit_mask */
+    CHECK(PCS_COUNT <= 63);   /* explicit_mask (64 bits) */
     CHECK(pcs_find("bloom") < 0);   /* the bloom is fixed at half (rsx_bloom.h default 0.5): no setting */
 
     /* Defaults: every setting but the upscaler, the frame rate, the lighting and the extra particles sets nothing; the
@@ -106,6 +107,8 @@ int main(void)
             if (d->env) {
                 /* hidden under the default Fidelity (Enhanced): sets nothing; the Original case is tested below */
                 if (!strcmp(d->key, "shadows")) { CHECK(!got); continue; }
+                /* used only with Dynamic Resolution On (Off by default): sets nothing; tested below */
+                if (!strcmp(d->key, "drsfloor")) { CHECK(!got); continue; }
                 if (c == d->def && !d->always) CHECK(!got);
                 else {
                     char want[1100];
@@ -153,7 +156,8 @@ int main(void)
     pcs_defaults(&s);
     CHECK(pcs_parse(&s, "rtshadow = On\n") == 0 && s.explicit_mask == 0 && !pcs_owns_env(&s, "RSX_RT_SHADOW"));
     /* World-fixed sun shadows are a default of the executable (k_defaults), not a setting: no row owns or sets
-     * RSX_SHADOW_TILES, in either lighting (RSX_SHADOW_TILES=0 stays an environment-only switch for testing). */
+     * RSX_SHADOW_TILES, in either lighting (RSX_SHADOW_TILES=0 stays an environment-only switch for testing). The
+     * stored layer is only turned off by Shadow Quality Low (its third variable, tested below). */
     for (int i = 0; i < PCS_COUNT; i++)
         CHECK(!k_pcs_defs[i].env || (strcmp(k_pcs_defs[i].env, "RSX_SHADOW_TILES") && strcmp(k_pcs_defs[i].env, "RSX_SHADOW_TILES_STATIC")));
     pcs_defaults(&s);
@@ -163,14 +167,14 @@ int main(void)
     pcs_defaults(&s);
     CHECK(pcs_parse(&s, "# c\nresolution = 1080P\r\nvsync=off\n aniso =16\nbogus = 1\nframerate = 45\n"
                         "motionblur = Off\ntextures = On\ndisplay\nfsr = ultra quality\nhdr = 1\n") == 8);
-    CHECK(s.idx[pcs_find("resolution")] == 1);
+    CHECK(s.idx[pcs_find("resolution")] == 2);   /* 480p, 720p, 1080p, ... */
     CHECK(s.idx[pcs_find("vsync")] == 1);
     CHECK(s.idx[pcs_find("aniso")] == 4);
     CHECK(s.idx[pcs_find("framerate")] == 1);   /* "45" is the middle choice */
     CHECK(s.idx[pcs_find("display")] == 0);
     CHECK(s.idx[pcs_find("motionblur")] == 1);
     CHECK(s.idx[pcs_find("fsr")] == 1 && s.idx[pcs_find("hdr")] == 1);
-    CHECK((s.explicit_mask & (1u << pcs_find("fsr"))) && !(s.explicit_mask & (1u << pcs_find("display"))));
+    CHECK((s.explicit_mask & (1ull << pcs_find("fsr"))) && !(s.explicit_mask & (1ull << pcs_find("display"))));
 
     /* Their variables. */
     reset_env();
@@ -263,10 +267,13 @@ int main(void)
     /* Stepping clamps at both ends. */
     pcs_defaults(&s);
     const int r = pcs_find("resolution");
-    CHECK(pcs_step(&s, r, -1) == 0);
+    CHECK(s.idx[r] == 1);                 /* 720p, the default */
+    CHECK(pcs_step(&s, r, -1) == 0);      /* 480p */
+    CHECK(pcs_step(&s, r, -1) == 0);      /* clamped */
     CHECK(pcs_step(&s, r, 1) == 1);
     for (int k = 0; k < 9; k++) pcs_step(&s, r, 1);
-    CHECK(s.idx[r] == 3);
+    CHECK(s.idx[r] == 4);
+    CHECK(!strcmp(k_pcs_defs[r].labels[0], "480p") && !strcmp(k_pcs_defs[r].values[0], "0.667"));
 
     /* The written file reads back to the same choices. */
     pcs_state t;
@@ -277,7 +284,7 @@ int main(void)
     pcs_defaults(&t);
     CHECK(pcs_parse(&t, buf) == PCS_COUNT);
     CHECK(!memcmp(s.idx, t.idx, sizeof s.idx));
-    CHECK(t.explicit_mask == (1u << PCS_COUNT) - 1);
+    CHECK(t.explicit_mask == (1ull << PCS_COUNT) - 1);
 
     /* The page table: consecutive rows from 0, at most 8 a page, every setting
      * and every key row on exactly one page. */
@@ -293,7 +300,7 @@ int main(void)
         next += g->rows;
     }
     CHECK(next == PCP_ROWS);
-    CHECK(PCP_COUNT == 7);   /* the hub: seven items (four Options slots and three more) */
+    CHECK(PCP_COUNT == 8);   /* the hub: eight items (four Options slots and four more) */
     CHECK(k_pcp_pages[PCP_COUNT - 1].first == PCS_COUNT + 13 && k_pcp_pages[PCP_COUNT - 1].rows == 4);   /* arrows: UP..RIGHT */
     CHECK(PCP_ROWS == PCS_COUNT + PCK_COUNT);
 
@@ -405,7 +412,7 @@ int main(void)
      * Original it is unused (kept, not applied, shown as needing Enhanced); with Enhanced it sets RSX_FX_VOLFOG. */
     {
         const int vf = pcs_find("volfog"), lf = pcs_find("lighting");
-        CHECK(vf >= 0 && vf == PCS_COUNT - 4 && lf >= 0 && lf != vf);
+        CHECK(vf >= 0 && vf == pcs_find("particles") - 3 && lf >= 0 && lf != vf);
         CHECK(!strcmp(k_pcs_defs[vf].env, "RSX_FX_VOLFOG") && k_pcs_defs[vf].def == 0 && k_pcs_defs[vf].count == 2);
         CHECK(k_pcs_defs[vf].restart == 1 && k_pcs_defs[vf].env2 == NULL && !k_pcs_defs[vf].folder);
         CHECK(!strcmp(k_pcs_defs[vf].values[0], "0") && !strcmp(k_pcs_defs[vf].values[1], "1"));
@@ -418,7 +425,8 @@ int main(void)
         pcs_defaults(&t);
         CHECK(t.idx[lf] == 1 && t.idx[vf] == 0 && !pcs_row_unused(&t, vf));   /* Enhanced, off by default */
         CHECK(!pcs_row_hidden(&t, vf));                                        /* shown on its page always */
-        for (int i = 0; i < PCS_COUNT; i++) CHECK(!pcs_row_unused(&t, i));   /* Enhanced: every row applies */
+        for (int i = 0; i < PCS_COUNT; i++)   /* Enhanced: every row applies (but the floor, Dynamic Resolution is Off) */
+            CHECK(!pcs_row_unused(&t, i) == !!strcmp(k_pcs_defs[i].key, "drsfloor"));
         reset_env();
         pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
         CHECK(!set_value("RSX_FX_VOLFOG"));                                    /* off: nothing set */
@@ -432,14 +440,14 @@ int main(void)
         pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
         CHECK(!set_value("RSX_FX_VOLFOG"));
         pcs_defaults(&t);
-        CHECK(pcs_parse(&t, "volfog = On\n") == 1 && t.idx[vf] == 1 && (t.explicit_mask & (1u << vf)));
+        CHECK(pcs_parse(&t, "volfog = On\n") == 1 && t.idx[vf] == 1 && (t.explicit_mask & (1ull << vf)));
         CHECK(pcs_parse(&t, "volfog = 0\n") == 1 && t.idx[vf] == 0);
         CHECK(pcs_owns_env(&t, "RSX_FX_VOLFOG") && !pcs_owns_env(&t, "RSX_FX_FOG"));
     }
     /* Wheel Ruts: the second Effects row, the last setting; as Volumetric Fog: restart, Enhanced only, off by default */
     {
         const int ru = pcs_find("ruts"), lf = pcs_find("lighting");
-        CHECK(ru == PCS_COUNT - 3 && !strcmp(k_pcs_defs[ru].env, "RSX_FX_RUTS") && k_pcs_defs[ru].def == 0);
+        CHECK(ru == pcs_find("particles") - 2 && !strcmp(k_pcs_defs[ru].env, "RSX_FX_RUTS") && k_pcs_defs[ru].def == 0);
         CHECK(k_pcs_defs[ru].count == 2 && k_pcs_defs[ru].restart == 1 && k_pcs_defs[ru].env2 == NULL);
         pcs_state t;
         pcs_defaults(&t);
@@ -456,13 +464,13 @@ int main(void)
         pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
         CHECK(!set_value("RSX_FX_RUTS"));
         pcs_defaults(&t);
-        CHECK(pcs_parse(&t, "ruts = On\n") == 1 && t.idx[ru] == 1 && (t.explicit_mask & (1u << ru)));
+        CHECK(pcs_parse(&t, "ruts = On\n") == 1 && t.idx[ru] == 1 && (t.explicit_mask & (1ull << ru)));
         CHECK(pcs_owns_env(&t, "RSX_FX_RUTS"));
     }
     /* Effects Quality: the third Effects row, Enhanced only; Light sets RSX_FX_QUALITY=1, Full sets nothing */
     {
         const int fq = pcs_find("fxquality"), lf = pcs_find("lighting");
-        CHECK(fq == PCS_COUNT - 2 && !strcmp(k_pcs_defs[fq].env, "RSX_FX_QUALITY") && k_pcs_defs[fq].def == 0 && k_pcs_defs[fq].count == 3);
+        CHECK(fq == pcs_find("particles") - 1 && !strcmp(k_pcs_defs[fq].env, "RSX_FX_QUALITY") && k_pcs_defs[fq].def == 0 && k_pcs_defs[fq].count == 3);
         pcs_state t;
         pcs_defaults(&t);
         reset_env();
@@ -482,7 +490,7 @@ int main(void)
      * (the port draws none with the variable unset), so Off sets 0; with Fidelity Original nothing is set (kept, unused). */
     {
         const int pt = pcs_find("particles"), lf = pcs_find("lighting");
-        CHECK(pt == PCS_COUNT - 1 && !strcmp(k_pcs_defs[pt].env, "RSX_FX_PARTICLES") && k_pcs_defs[pt].count == 3);
+        CHECK(pt == pcs_find("shadowq") - 1 && !strcmp(k_pcs_defs[pt].env, "RSX_FX_PARTICLES") && k_pcs_defs[pt].count == 3);
         CHECK(k_pcs_defs[pt].def == 2 && !strcmp(k_pcs_defs[pt].labels[2], "High") && k_pcs_defs[pt].always == 1);
         CHECK(k_pcs_defs[pt].restart == 1 && k_pcs_defs[pt].env2 == NULL && !k_pcs_defs[pt].folder);
         CHECK(!strcmp(k_pcs_defs[pt].labels[0], "Off") && !strcmp(k_pcs_defs[pt].values[0], "0"));
@@ -518,25 +526,224 @@ int main(void)
         CHECK(!set_value("RSX_FX_PARTICLES"));
         s_preset[0] = NULL;
         pcs_defaults(&t);
-        CHECK(pcs_parse(&t, "particles = Low\n") == 1 && t.idx[pt] == 1 && (t.explicit_mask & (1u << pt)));
+        CHECK(pcs_parse(&t, "particles = Low\n") == 1 && t.idx[pt] == 1 && (t.explicit_mask & (1ull << pt)));
         CHECK(pcs_parse(&t, "particles = 0\n") == 1 && t.idx[pt] == 0);
         CHECK(pcs_owns_env(&t, "RSX_FX_PARTICLES"));
     }
-    /* Level of Detail Low: bias +1 and cull x1.5; Original (the default, now the second choice) sets nothing */
+    /* Level of Detail Lowest: bias +2, cull x2.5, shadow range 120; Low: bias +1 and cull x1.5; Original (the default,
+     * now the third choice) sets nothing */
     {
         const int ld = pcs_find("lod");
-        CHECK(ld >= 0 && k_pcs_defs[ld].count == 4 && k_pcs_defs[ld].def == 1 && !strcmp(k_pcs_defs[ld].labels[1], "Original"));
+        CHECK(ld >= 0 && k_pcs_defs[ld].count == 5 && k_pcs_defs[ld].def == 2 && !strcmp(k_pcs_defs[ld].labels[2], "Original"));
         pcs_state t;
         pcs_defaults(&t);
         reset_env();
         pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
-        CHECK(!set_value("MSPR_LOD_BIAS") && !set_value("MSPR_CULL_SCALE"));
-        CHECK(pcs_parse(&t, "lod = Low\n") == 1 && t.idx[ld] == 0);
+        CHECK(!set_value("MSPR_LOD_BIAS") && !set_value("MSPR_CULL_SCALE") && !set_value("MSPR_SHADOW_RANGE"));
+        CHECK(pcs_parse(&t, "lod = Lowest\n") == 1 && t.idx[ld] == 0);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("MSPR_LOD_BIAS") && !strcmp(set_value("MSPR_LOD_BIAS"), "2"));
+        CHECK(set_value("MSPR_CULL_SCALE") && !strcmp(set_value("MSPR_CULL_SCALE"), "2.5"));
+        CHECK(set_value("MSPR_SHADOW_RANGE") && !strcmp(set_value("MSPR_SHADOW_RANGE"), "120"));
+        CHECK(pcs_owns_env(&t, "MSPR_SHADOW_RANGE"));
+        CHECK(pcs_parse(&t, "lod = Low\n") == 1 && t.idx[ld] == 1);
         reset_env();
         pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
         CHECK(set_value("MSPR_LOD_BIAS") && !strcmp(set_value("MSPR_LOD_BIAS"), "1"));
         CHECK(set_value("MSPR_CULL_SCALE") && !strcmp(set_value("MSPR_CULL_SCALE"), "1.5"));
-        CHECK(pcs_parse(&t, "lod = Ultra\n") == 1 && t.idx[ld] == 3);
+        CHECK(!set_value("MSPR_SHADOW_RANGE") || !*set_value("MSPR_SHADOW_RANGE"));   /* Low keeps the game's range */
+        CHECK(pcs_parse(&t, "lod = Ultra\n") == 1 && t.idx[ld] == 4);
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "lod = 1\n") == 1 && t.idx[ld] == 1);   /* an old file's value "1" is still Low */
+    }
+    /* The Performance page: seven rows after Effects, each off (today's look, nothing set) by default, each a restart
+     * setting, its variables as the renderer and main.cpp read them; a set variable wins for each of the three. */
+    {
+        static const char* const keys[7] = { "shadowq", "texq", "fxdensity", "oppdetail", "drsfloor", "debris", "boostblur" };
+        const int p0 = pcs_find("shadowq");
+        int pp = -1;
+        for (int p = 0; p < PCP_COUNT; p++)
+            if (!strcmp(k_pcp_pages[p].file, "options-pcp")) pp = p;
+        CHECK(pp == 4 && k_pcp_pages[pp].first == p0 && k_pcp_pages[pp].rows == 8 && !strcmp(k_pcp_pages[pp].label, "PERFORMANCE"));   /* + Frame Generation */
+        CHECK(p0 == pcs_find("particles") + 1);
+        for (int i = 0; i < 7; i++) {
+            const int k = pcs_find(keys[i]);
+            CHECK(k == p0 + i && k_pcs_defs[k].env && k_pcs_defs[k].restart == 1 && k_pcs_defs[k].def == 0);
+            CHECK(!k_pcs_defs[k].always && !*k_pcs_defs[k].values[0]);
+        }
+        pcs_state t;
+        pcs_defaults(&t);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        static const char* const vars[] = { "RSX_SHADOW_TILES_RES", "RSX_SHADOW_TILES_PCF", "RSX_SHADOW_TILES_STATIC",
+                                            "RSX_TEX_DROP_MIPS", "MSPR_FX_SCALE", "MSPR_FX_RAIN2", "MSPR_FX_WHEEL",
+                                            "MSPR_VEH_LOD_BIAS", "MSPR_VEH_CULL_SCALE", "MSPR_DRS_MIN", "MSPR_DEBRIS",
+                                            "MSPR_BOOST_BLUR" };
+        for (int i = 0; i < 12; i++) CHECK(!set_value(vars[i]));   /* defaults: nothing */
+        /* Shadow Quality Low: 3072, hard edges, no stored layer; Medium only the size; a set variable wins */
+        CHECK(pcs_parse(&t, "shadowq = Low\n") == 1);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!strcmp(set_value("RSX_SHADOW_TILES_RES"), "3072") && !strcmp(set_value("RSX_SHADOW_TILES_PCF"), "0") &&
+              !strcmp(set_value("RSX_SHADOW_TILES_STATIC"), "0"));
+        CHECK(pcs_owns_env(&t, "RSX_SHADOW_TILES_RES") && pcs_owns_env(&t, "RSX_SHADOW_TILES_PCF") &&
+              pcs_owns_env(&t, "RSX_SHADOW_TILES_STATIC") && !pcs_owns_env(&t, "RSX_SHADOW_TILES"));
+        reset_env();
+        s_preset[0] = "RSX_SHADOW_TILES_STATIC";
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_SHADOW_TILES_STATIC") && !strcmp(set_value("RSX_SHADOW_TILES_RES"), "3072"));
+        CHECK(pcs_parse(&t, "shadowq = Medium\n") == 1);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!strcmp(set_value("RSX_SHADOW_TILES_RES"), "4096"));
+        CHECK(!set_value("RSX_SHADOW_TILES_PCF") || !*set_value("RSX_SHADOW_TILES_PCF"));
+        CHECK(!set_value("RSX_SHADOW_TILES_STATIC") || !*set_value("RSX_SHADOW_TILES_STATIC"));
+        /* Effects Density: scale, then the rain layer (Low), then the wheel particles (Minimal) */
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "fxdensity = Minimal\ntexq = Quarter\noppdetail = Low\ndebris = Off\nboostblur = Off\n") == 5);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!strcmp(set_value("MSPR_FX_SCALE"), "0.3") && !strcmp(set_value("MSPR_FX_RAIN2"), "0") &&
+              !strcmp(set_value("MSPR_FX_WHEEL"), "0"));
+        CHECK(!strcmp(set_value("RSX_TEX_DROP_MIPS"), "2") && !strcmp(set_value("MSPR_VEH_LOD_BIAS"), "2.7") &&
+              !strcmp(set_value("MSPR_VEH_CULL_SCALE"), "1.33") && !strcmp(set_value("MSPR_DEBRIS"), "0") &&
+              !strcmp(set_value("MSPR_BOOST_BLUR"), "0"));
+        CHECK(pcs_parse(&t, "fxdensity = Reduced\n") == 1);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!strcmp(set_value("MSPR_FX_SCALE"), "0.6"));
+        CHECK(!set_value("MSPR_FX_RAIN2") || !*set_value("MSPR_FX_RAIN2"));
+        /* the floor: kept but not applied while Dynamic Resolution is Off (the default); applied with it On */
+        const int df = pcs_find("drsfloor"), dr = pcs_find("dynres");
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "drsfloor = 33%\n") == 1 && t.idx[df] == 2 && pcs_row_unused(&t, df));
+        CHECK(!strcmp(pcs_unused_why(df), "needs Dynamic Resolution On") && !strcmp(pcs_unused_why(pcs_find("volfog")), "needs Fidelity Enhanced"));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("MSPR_DRS_MIN"));
+        CHECK(pcs_parse(&t, "dynres = On\n") == 1 && t.idx[dr] == 0 && !pcs_row_unused(&t, df));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("MSPR_DRS_MIN") && !strcmp(set_value("MSPR_DRS_MIN"), "0.33"));
+        CHECK(pcs_parse(&t, "drsfloor = 50% (Original)\n") == 1 && t.idx[df] == 0);
+    }
+    /* Frame Generation: the last setting (eighth Performance row), restart, Off by default (sets nothing); Light and On
+     * set RSX_FRAMEGEN (light / 1) whatever the upscaler (nothing else is changed for it: the renderer says when it
+     * cannot generate); On is not applied without AMD's frame generation DLL; a set variable wins; read back by label
+     * and value, and old files without the key keep it Off. */
+    {
+        const int fg = pcs_find("framegen");
+        CHECK(fg == PCS_COUNT - 1 && fg == pcs_find("boostblur") + 1);
+        int pp = -1;
+        for (int p = 0; p < PCP_COUNT; p++)
+            if (!strcmp(k_pcp_pages[p].file, "options-pcp")) pp = p;
+        CHECK(pp >= 0 && k_pcp_pages[pp].first + k_pcp_pages[pp].rows - 1 == fg && k_pcp_pages[pp].rows <= PCP_ROWS_MAX);
+        CHECK(!strcmp(k_pcs_defs[fg].env, "RSX_FRAMEGEN") && k_pcs_defs[fg].count == 3 && k_pcs_defs[fg].def == 0);
+        CHECK(k_pcs_defs[fg].restart == 1 && !k_pcs_defs[fg].always && !k_pcs_defs[fg].folder && k_pcs_defs[fg].env2 == NULL);
+        CHECK(!strcmp(k_pcs_defs[fg].labels[0], "Off") && !strcmp(k_pcs_defs[fg].labels[1], "Light") &&
+              !strcmp(k_pcs_defs[fg].labels[2], "On"));
+        pcs_state t;
+        pcs_defaults(&t);
+        CHECK(t.idx[fg] == 0 && !pcs_row_unused(&t, fg) && !pcs_row_hidden(&t, fg));
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FRAMEGEN"));                                     /* Off: nothing set */
+        CHECK(pcs_parse(&t, "framegen = Light\n") == 1 && t.idx[fg] == 1);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FRAMEGEN") && !strcmp(set_value("RSX_FRAMEGEN"), "light"));
+        CHECK(!set_value("RSX_FSR_MODE") || !strcmp(set_value("RSX_FSR_MODE"), "1"));   /* the upscaler is not changed */
+        CHECK(!set_value("RSX_FSR") && !set_value("RSX_HDR") && !set_value("RSX_PRESENT_INTERVAL"));
+        CHECK(pcs_parse(&t, "framegen = On\n") == 1 && t.idx[fg] == 2);
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FRAMEGEN") && !strcmp(set_value("RSX_FRAMEGEN"), "1"));
+        CHECK(pcs_owns_env(&t, "RSX_FRAMEGEN"));
+        CHECK(pcs_parse(&t, "framegen = light\n") == 1 && t.idx[fg] == 1);   /* by value */
+        CHECK(pcs_parse(&t, "framegen = 1\n") == 1 && t.idx[fg] == 2);
+        CHECK(pcs_parse(&t, "framegen = Quality\n") == 0 && t.idx[fg] == 2);  /* unknown: kept */
+        s_missing_fg = 1;                                                      /* On without the DLL: not applied */
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FRAMEGEN"));
+        t.idx[fg] = 1;                                                         /* Light needs no DLL */
+        reset_env();
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(set_value("RSX_FRAMEGEN") && !strcmp(set_value("RSX_FRAMEGEN"), "light"));
+        s_missing_fg = 0;
+        reset_env();
+        s_preset[0] = "RSX_FRAMEGEN";                                          /* a set variable wins */
+        pcs_apply(&t, ".", fake_get, fake_set, fake_avail);
+        CHECK(!set_value("RSX_FRAMEGEN"));
+        reset_env();
+        char out[8192];
+        pcs_format(&t, out, sizeof out);
+        CHECK(strstr(out, "framegen = Light\n") != NULL);
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "display = Fullscreen\n") == 1 && t.idx[fg] == 0);   /* an old file: Off */
+    }
+    /* Player name (playername, a launcher setting): PSN online ID rules, the last line wins, and the variables it gives */
+    {
+        char n[PCS_NAME_MAX + 1];
+        CHECK(pcs_name_valid("Abc") && pcs_name_valid("Racer_01") && pcs_name_valid("a-b_c") && pcs_name_valid("abcdefghijklmnop"));
+        CHECK(!pcs_name_valid(NULL) && !pcs_name_valid("") && !pcs_name_valid("ab") && !pcs_name_valid("abcdefghijklmnopq"));
+        CHECK(!pcs_name_valid("1abc") && !pcs_name_valid("_abc") && !pcs_name_valid("ab c") && !pcs_name_valid("abc!") && !pcs_name_valid("\xC3" "\xA9" "abc"));
+        CHECK(!pcs_player_name(NULL, n) && !n[0] && !pcs_player_name("", n) && !n[0]);
+        CHECK(pcs_player_name("playername = Racer_01\r\n", n) && !strcmp(n, "Racer_01"));
+        CHECK(pcs_player_name("PlayerName=Mud-Pig\n", n) && !strcmp(n, "Mud-Pig"));               /* any case, no spaces */
+        CHECK(pcs_player_name("display = Fullscreen\nplayername = First\nfsr = Off\nplayername = Second\n", n) && !strcmp(n, "Second"));
+        CHECK(!pcs_player_name("playername = Good\nplayername = 1bad\n", n) && !n[0]);           /* the last line decides */
+        CHECK(!pcs_player_name("playername =\n", n) && !pcs_player_name("playername = ab\n", n));
+        CHECK(!pcs_player_name("# playername = Racer\n; playername = Racer\n", n));                  /* comments */
+        CHECK(!pcs_player_name("playernames = Racer\nplayername2 = Racer\n", n));                   /* other keys */
+        CHECK(pcs_find("playername") < 0);   /* not a page row: pcs_parse / pcs_format leave the line alone */
+        /* the variables: both set from the name, a set variable wins, nothing without a valid name */
+        reset_env();
+        CHECK(pcs_player_env("Racer_01", fake_get, fake_set) == 2);
+        CHECK(set_value("PS3_NP_ONLINE_ID") && !strcmp(set_value("PS3_NP_ONLINE_ID"), "Racer_01"));
+        CHECK(set_value("PS3_USER_NAME") && !strcmp(set_value("PS3_USER_NAME"), "Racer_01"));
+        reset_env();
+        s_preset[0] = "PS3_NP_ONLINE_ID";
+        CHECK(pcs_player_env("Racer_01", fake_get, fake_set) == 1);
+        CHECK(!set_value("PS3_NP_ONLINE_ID") && set_value("PS3_USER_NAME"));
+        reset_env();
+        CHECK(pcs_player_env("", fake_get, fake_set) == 0 && pcs_player_env("1abc", fake_get, fake_set) == 0 && s_nset == 0);
+        /* a file with a player name sets nothing else through pcs_apply */
+        pcs_state t;
+        pcs_defaults(&t);
+        CHECK(pcs_parse(&t, "playername = Racer_01\n") == 0);
+    }
+    {   /* Audio thread (launcher switch "audiothread", On by default): Off takes the patch out of the list */
+        CHECK(pcs_audio_thread("") == 1 && pcs_audio_thread(NULL) == 1);
+        CHECK(pcs_audio_thread("audiothread = Off\n") == 0 && pcs_audio_thread("audiothread = On\r\n") == 1);
+        CHECK(pcs_audio_thread("audiothread = Off\naudiothread = On\n") == 1);   /* the last line wins */
+        CHECK(pcs_find("audiothread") < 0);   /* not a page row */
+        char sp[256];
+        snprintf(sp, sizeof sp, "%s", PCS_MSPR_DEFAULT);
+        pcs_mspr_drop(sp, sizeof sp, "audiothread");
+        CHECK(!strcmp(sp, "drs,vfps"));
+        snprintf(sp, sizeof sp, "audiothread,drs,mblur");
+        pcs_mspr_drop(sp, sizeof sp, "audiothread");
+        CHECK(!strcmp(sp, "drs,mblur"));
+        snprintf(sp, sizeof sp, "vfps,audiothread:ab");
+        pcs_mspr_drop(sp, sizeof sp, "audiothread");
+        CHECK(!strcmp(sp, "vfps"));
+        snprintf(sp, sizeof sp, "audiothread");
+        pcs_mspr_drop(sp, sizeof sp, "audiothread");
+        CHECK(!strcmp(sp, "none"));
+        snprintf(sp, sizeof sp, "audiothreadx,drs");   /* only the whole name */
+        pcs_mspr_drop(sp, sizeof sp, "audiothread");
+        CHECK(!strcmp(sp, "audiothreadx,drs"));
+        CHECK(strstr(MSPR_PATCH_DEFAULT, "audiothread") != NULL && strstr(PCS_MSPR_DEFAULT, "audiothread") != NULL);
+    }
+    {   /* CPU Thread Placement (launcher switch "threadplace", Off by default) */
+        CHECK(pcs_thread_place("") == 0 && pcs_thread_place(NULL) == 0);
+        CHECK(pcs_thread_place("threadplace = Auto\n") == 1 && pcs_thread_place("threadplace=auto\r\n") == 1);
+        CHECK(pcs_thread_place("threadplace = Off\n") == 0 && pcs_thread_place("threadplace = Maybe\n") == 0);
+        CHECK(pcs_thread_place("threadplace = Auto\nthreadplace = Off\n") == 0);   /* the last line wins */
+        CHECK(pcs_thread_place("threadplacex = Auto\n") == 0);
+        CHECK(pcs_find("threadplace") < 0);   /* not a page row */
     }
     printf("test_pc_settings: %d failure(s)\n", fails);
     return fails ? 1 : 0;

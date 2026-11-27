@@ -142,5 +142,106 @@ assert.ok(S.save(dir, { wheelrange: '1000 deg' }));
     fs.rmSync(sd, { recursive: true, force: true });
 }
 
+// Player name: PSN online ID rules (3-16 letters, digits, - or _, starting with a letter), saved as "playername = <name>",
+// read back, removed when emptied, untouched when not posted; invalid names are refused and the file is not changed.
+// The port reads the same key with the same rules (pc_settings.h pcs_player_name / pcs_name_valid).
+{
+    const pd = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-player-'));
+    const pini = path.join(pd, 'settings.ini');
+    for (const ok of ['Abc', 'Racer_01', 'Mud-Pig', 'abcdefghijklmnop', '  Padded  '])
+        assert.ok(!S.checkPlayerName(ok).error, ok);
+    assert.strictEqual(S.checkPlayerName('  Padded  ').name, 'Padded');
+    assert.strictEqual(S.checkPlayerName('').name, '');
+    for (const [bad, why] of [['ab', '3 characters'], ['abcdefghijklmnopq', '16 characters'], ['1abc', 'start with a letter'],
+                              ['_abc', 'start with a letter'], ['ab c', 'only letters'], ['abc!', 'only letters'], ['Jörg', 'only letters']])
+        assert.ok(S.checkPlayerName(bad).error && S.checkPlayerName(bad).error.includes(why), bad);
+    // unset: no line, empty in load, no error
+    let p = S.load(pd);
+    assert.deepStrictEqual([p.playerName, p.playerNameError], ['', null]);
+    // set, beside other settings and lines the launcher does not know
+    fs.writeFileSync(pini, '; the game\r\nfsr = Off\r\nfuture_key = 7\r\n');
+    assert.strictEqual(S.save(pd, { fsr: 'Quality' }, {}, 'Racer_01'), null);
+    let text = fs.readFileSync(pini, 'utf8');
+    assert.ok(/^playername = Racer_01\r$/m.test(text) && text.includes('fsr = Quality') && text.includes('future_key = 7'));
+    p = S.load(pd);
+    assert.deepStrictEqual([p.playerName, p.playerNameError], ['Racer_01', null]);
+    // not posted (the Cheats page saves without it): kept
+    assert.strictEqual(S.save(pd, { unlocktracks: 'On' }, {}), null);
+    assert.strictEqual(S.load(pd).playerName, 'Racer_01');
+    // changed in place (one line), any case of the key read
+    assert.strictEqual(S.save(pd, {}, {}, 'Mud-Pig'), null);
+    text = fs.readFileSync(pini, 'utf8');
+    assert.strictEqual((text.match(/^playername = /gm) || []).length, 1);
+    assert.strictEqual(S.load(pd).playerName, 'Mud-Pig');
+    // invalid: refused with a message, nothing written (the other settings in the same save are not written either)
+    const before = fs.readFileSync(pini, 'utf8');
+    const err = S.save(pd, { fsr: 'Performance' }, {}, 'no spaces');
+    assert.ok(err && /Player name "no spaces"/.test(err));
+    assert.strictEqual(fs.readFileSync(pini, 'utf8'), before);
+    // emptied: every playername line removed, the rest kept
+    fs.appendFileSync(pini, 'PlayerName = Old\r\n');
+    assert.strictEqual(S.save(pd, {}, {}, '  '), null);
+    text = fs.readFileSync(pini, 'utf8');
+    assert.ok(!/playername/i.test(text) && text.includes('future_key = 7') && text.includes('unlocktracks = On'));
+    assert.strictEqual(S.load(pd).playerName, '');
+    // a bad line written by hand: shown with its error (the game ignores it)
+    fs.appendFileSync(pini, 'playername = 9lives\r\n');
+    p = S.load(pd);
+    assert.ok(p.playerName === '9lives' && /start with a letter/.test(p.playerNameError));
+    // the port: same key, same rules, and the two variables it sets
+    const ps = fs.readFileSync(path.join(__dirname, '..', '..', 'port-vkgame', 'pc_settings.h'), 'utf8');
+    assert.ok(ps.includes('"playername"') && ps.includes('#define PCS_NAME_MAX 16'));
+    assert.ok(ps.includes('"PS3_NP_ONLINE_ID"') && ps.includes('"PS3_USER_NAME"'));
+    fs.rmSync(pd, { recursive: true, force: true });
+}
+
 fs.rmSync(dir, { recursive: true, force: true });
 console.log('settings: all checks passed');
+
+// Frame generation (port RSX_FRAMEGEN): Off by default and written as a label; Light and On read back by label and by
+// value; On's DLL is reported missing on its own, Light needs none; nothing else changes with it.
+{
+    const fs2 = require('fs'), os2 = require('os'), path2 = require('path');
+    const d = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'fg-'));
+    const fg = S.SCHEMA.find(x => x.key === 'framegen');
+    assert.ok(fg && fg.def === 'Off' && fg.group === 'Upscaling');
+    assert.deepStrictEqual(fg.choices, ['Off', 'Light', 'On']);
+    assert.deepStrictEqual(fg.values, ['', 'light', '1']);
+    let l = S.load(d);
+    assert.strictEqual(l.values.framegen, 'Off');
+    assert.ok(l.missing.framegen && /frame generation DLL/.test(l.missing.framegen));
+    assert.strictEqual(S.save(d, { framegen: 'Light' }, {}), null);
+    const t = fs2.readFileSync(path2.join(d, 'settings.ini'), 'utf8');
+    assert.ok(/^framegen = Light$/m.test(t));
+    l = S.load(d);
+    assert.strictEqual(l.values.framegen, 'Light');
+    assert.strictEqual(l.values.fsrmode, 'FSR 1');          // not changed for it
+    assert.strictEqual(l.values.hdr, 'Off');
+    fs2.writeFileSync(path2.join(d, 'settings.ini'), 'framegen = 1\n');
+    assert.strictEqual(S.load(d).values.framegen, 'On');   // by value
+    fs2.writeFileSync(path2.join(d, 'amd_fidelityfx_framegeneration_vk.dll'), '');
+    assert.strictEqual(S.load(d).missing.framegen, null);
+    console.log('framegen settings ok');
+}
+// Audio thread: a Performance switch, On by default, written as its label; the port reads the same key
+// (pc_settings.h pcs_audio_thread, pcs_mspr_drop) and only Off changes anything
+{
+    const ad = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-audiothread-'));
+    const aini = path.join(ad, 'settings.ini');
+    const at = S.SCHEMA.find(x => x.key === 'audiothread');
+    assert.ok(at && at.group === 'Performance' && at.def === 'On', 'audiothread switch');
+    assert.strictEqual(S.load(ad).values.audiothread, 'On');
+    assert.strictEqual(S.save(ad, { audiothread: 'Off' }), null);
+    assert.ok(/^audiothread = Off$/m.test(fs.readFileSync(aini, 'utf8')));
+    assert.strictEqual(S.load(ad).values.audiothread, 'Off');
+    const ps = fs.readFileSync(path.join(__dirname, '..', '..', 'port-vkgame', 'pc_settings.h'), 'utf8');
+    assert.ok(ps.includes('"audiothread"') && ps.includes('pcs_mspr_drop'), 'pc_settings.h reads audiothread');
+    const tp = S.SCHEMA.find(x => x.key === 'threadplace');
+    assert.ok(tp && tp.group === 'Performance' && tp.def === 'Off', 'threadplace switch');
+    assert.strictEqual(S.save(ad, { threadplace: 'Auto' }), null);
+    assert.ok(/^threadplace = Auto$/m.test(fs.readFileSync(aini, 'utf8')));
+    assert.strictEqual(S.load(ad).values.threadplace, 'Auto');
+    assert.ok(ps.includes('"threadplace"') && ps.includes('pcs_thread_place'), 'pc_settings.h reads threadplace');
+    fs.rmSync(ad, { recursive: true, force: true });
+    console.log('audiothread settings ok');
+}

@@ -54,6 +54,8 @@ typedef struct pcs_def {
     const char* env2;                        /* a second variable the same choice sets (NULL: none); its own
                                               * "a set variable wins" test, ownership and default rule */
     const char* values2[PCS_MAX_CHOICES];
+    const char* env3;                        /* a third one, the same rules (Shadow Quality, Effects Density) */
+    const char* values3[PCS_MAX_CHOICES];
 } pcs_def;
 
 /* In page order (pc_pages.h): Display, Upscaling, Graphics. The patch settings
@@ -64,9 +66,9 @@ static const pcs_def k_pcs_defs[] = {
     { "display", "Display Mode", "PS3RECOMP_VK_FULLSCREEN", 2, 0, 1, 0,
       { "Windowed", "Fullscreen" }, { "0", "1" },
       "Play in a window or fullscreen." },
-    { "resolution", "Resolution", "RSX_RES_SCALE", 4, 0, 1, 0,
-      { "720p", "1080p", "1440p", "2160p" }, { "1", "1.5", "2", "3" },
-      "The resolution the game draws at. 720p is the original. With the upscaler on, leave it at 720p." },
+    { "resolution", "Resolution", "RSX_RES_SCALE", 5, 1, 1, 0,
+      { "480p", "720p", "1080p", "1440p", "2160p" }, { "0.667", "1", "1.5", "2", "3" },
+      "The resolution the game draws at. 720p is the original; 480p for very slow PCs, with the upscaler." },
     /* Off is the default: the port's default present is non-blocking (main.cpp k_defaults
      * RSX_PRESENT_INTERVAL=0, tear-free mailbox mode); On sets 1, the blocking FIFO present. */
     { "vsync", "V-Sync", "RSX_PRESENT_INTERVAL", 2, 1, 1, 0,
@@ -114,10 +116,13 @@ static const pcs_def k_pcs_defs[] = {
      * sites patched by vksync/tools/dist_patch_lifted.py (1.00 addresses). */
     /* Low (for small GPUs and handhelds): the other way, coarser models sooner and more culling (bias +1, cull x1.5);
      * more pop-in, less CPU and GPU time. */
-    { "lod", "Level of Detail", "MSPR_LOD_BIAS", 4, 1, 1, 0,
-      { "Low", "Original", "High", "Ultra" }, { "1", "", "-1", "-2" },
-      "Low: less detail and more pop-in, faster. High/Ultra: detail farther out, more CPU and GPU time.", 0,
-      "MSPR_CULL_SCALE", { "1.5", "", "0.5", "0.25" } },
+    /* Lowest (the draw distance choice for small GPUs, Performance work 2026-11-27): bias +2, cull x2.5 and the game's
+     * shadow range 200 -> 120 m (MSPR_SHADOW_RANGE, main.cpp mspr_dist_f kind 0): scenery and trees go sooner. */
+    { "lod", "Level of Detail", "MSPR_LOD_BIAS", 5, 2, 1, 0,
+      { "Lowest", "Low", "Original", "High", "Ultra" }, { "2", "1", "", "-1", "-2" },
+      "Lowest/Low: shorter draw distance, more pop-in, faster. High/Ultra: detail farther out, slower.", 0,
+      "MSPR_CULL_SCALE", { "2.5", "1.5", "", "0.5", "0.25" },
+      "MSPR_SHADOW_RANGE", { "120", "", "", "", "" } },
     /* Enhanced: the lit-program rewrite, tone curve, ground toe, AO and screen-space shadows (RSX_LIGHTING,
      * rsx_light.h / rsx_vk_scenefx.h); pc_menu.cpp adds the world-fixed shadow tiles it uses. */
     { "lighting", "Fidelity", "RSX_LIGHTING", 2, 1, 1, 0,
@@ -189,12 +194,70 @@ static const pcs_def k_pcs_defs[] = {
     { "particles", "Extra Particles", "RSX_FX_PARTICLES", 3, 2, 1, 0,
       { "Off", "Low", "High" }, { "0", "1", "2" },
       "Dust, mud clods and spray from the wheels. Enhanced only; a little GPU time.", 1, NULL, { NULL } },
+    /* Performance page (pc_pages.h): opt-in savings for small GPUs and handhelds; every row's default is today's look
+     * and sets nothing. Restart settings: each is read at start (or at the game's own data reads). The measured effect
+     * of each is in generated/analysis/lowend_opts/RESULTS.md. */
+    /* The world-fixed sun shadow map (rsx_shadow_tiles.h): its size in host texels (RSX_SHADOW_TILES_RES, 6144 by default:
+     * 768 m of 0.125 m texels; 4096 = 512 m, 3072 = 384 m, past the game's own 300 m fade), the soft edge taps
+     * (RSX_SHADOW_TILES_PCF 0 = one compare) and the stored layer (RSX_SHADOW_TILES_STATIC=0, 288 MB of video memory). */
+    { "shadowq", "Shadow Quality", "RSX_SHADOW_TILES_RES", 3, 0, 1, 0,
+      { "High", "Medium", "Low" }, { "", "4096", "3072" },
+      "Sun shadow map size and soft edges. Low: hard edges, no stored layer (288 MB less video memory).", 0,
+      "RSX_SHADOW_TILES_PCF", { "", "", "0" },
+      "RSX_SHADOW_TILES_STATIC", { "", "", "0" } },
+    /* RSX_TEX_DROP_MIPS (rsx_draw_engine.c): mipmapped game textures of 128 texels or more are made without their 1 or 2
+     * finest levels (a quarter or a sixteenth of the memory). Texture pack replacements are not changed. */
+    { "texq", "Texture Quality", "RSX_TEX_DROP_MIPS", 3, 0, 1, 0,
+      { "Full", "Half", "Quarter" }, { "", "1", "2" },
+      "Half or Quarter: blurrier game textures, much less video memory. HD Textures are not changed." },
+    /* The game's own particle levels (lowend_patch_lifted.py, main.cpp mspr_vq_f / mspr_gopt): MSPR_FX_SCALE multiplies
+     * viewportquality.xml's Particles LodScale and EmissionRate, ScreenRush ParticleLimitScalar and the options'
+     * particleEmissionScale (0.6 and 0.35 are about the game's own 2- and 4-player values); Low and Minimal also turn
+     * the screen rain layer off (MSPR_FX_RAIN2=0, off in the game's 2- and 4-player entries), Minimal the wheel dust and
+     * mud (MSPR_FX_WHEEL=0, enableWheelParticles). */
+    { "fxdensity", "Effects Density", "MSPR_FX_SCALE", 4, 0, 1, 0,
+      { "Full", "Reduced", "Low", "Minimal" }, { "", "0.6", "0.35", "0.3" },
+      "Fewer of the game's particles: smoke, dust, spray. Minimal: no dust or mud from the wheels.", 0,
+      "MSPR_FX_RAIN2", { "", "", "0", "0" },
+      "MSPR_FX_WHEEL", { "", "", "", "0" } },
+    /* The other cars' and wrecks' LOD (main.cpp mspr_dist_f, viewportquality.xml group "vehicle"; the player's car is the
+     * "player" group, unchanged): Reduced is the game's own 2-player bias (+1.5), Low its 4-player one (+2.7) and cull. */
+    { "oppdetail", "Opponent Detail", "MSPR_VEH_LOD_BIAS", 3, 0, 1, 0,
+      { "Full", "Reduced", "Low" }, { "", "1.5", "2.7" },
+      "Simpler models for the other cars and wrecks sooner (the game's split-screen values).", 0,
+      "MSPR_VEH_CULL_SCALE", { "", "", "1.33" } },
+    /* viewportquality.xml ViewportScaling variableScalingMin (0.5 for one player), the lowest scale the game's own
+     * dynamic resolution may go to (MSPR_DRS_MIN, main.cpp mspr_vq_f). Used only with Dynamic Resolution On
+     * (pcs_row_unused). */
+    { "drsfloor", "Dyn. Resolution Floor", "MSPR_DRS_MIN", 3, 0, 1, 0,
+      { "50% (Original)", "40%", "33%" }, { "", "0.4", "0.33" },
+      "How low Dynamic Resolution may go when the frame rate falls. Needs Dynamic Resolution On." },
+    /* viewportquality.xml Debris Enabled (MSPR_DEBRIS=0, main.cpp mspr_vq_b): the loose parts that fly off wrecks (bolts,
+     * panels: the game's debris_ms2 set), simulated by the physics. Off in the game's own 4-player entry. A gameplay-feel
+     * change: no parts to hit or drive over. */
+    { "debris", "Wreck Debris", "MSPR_DEBRIS", 2, 0, 1, 0,
+      { "On", "Off" }, { "", "0" },
+      "Off: no loose parts fly off wrecks; less physics work. Changes gameplay feel." },
+    /* ms2_GameOptions.cfg enableBoostBlur (MSPR_BOOST_BLUR=0, main.cpp mspr_gopt): the radial blur while boosting. The
+     * motion blur itself is the Graphics page's Motion Blur row. */
+    { "boostblur", "Boost Blur", "MSPR_BOOST_BLUR", 2, 0, 1, 0,
+      { "On", "Off" }, { "", "0" },
+      "The game's radial blur while boosting. The motion blur is on the Graphics page." },
+    /* Frame Generation (ps3recomp-vkgame libs/video rsx_vk_framegen.h, RSX_FRAMEGEN, read at start): one generated frame
+     * between two real ones, so twice the frames are shown (30 -> 60). Light: the port's own motion-vector pass (cheap,
+     * more ghosting); On: AMD FSR 3.1 frame generation (amd_fidelityfx_framegeneration_vk.dll beside the exe, pcmenu_avail).
+     * Both need the FSR 3.1 upscaler (Upscaler FSR 3.1 with a Quality, not Off) and HDR off; without them the renderer
+     * presents as before and logs why (the row is still written: nothing else is changed for it). Off sets nothing.
+     * The real frame is shown half a real frame later (about 17 ms at 30 FPS). */
+    { "framegen", "Frame Generation", "RSX_FRAMEGEN", 3, 0, 1, 0,
+      { "Off", "Light", "On" }, { "", "light", "1" },
+      "Twice the frames shown, ~17 ms more delay. Needs FSR 3.1 upscaling on, HDR off. On: AMD FSR 3." },
 };
 #define PCS_COUNT ((int)(sizeof k_pcs_defs / sizeof k_pcs_defs[0]))
 
 typedef struct pcs_state {
     int idx[PCS_COUNT];
-    unsigned explicit_mask;   /* bit i: the file named setting i (pcs_parse) */
+    unsigned long long explicit_mask;   /* bit i: the file named setting i (pcs_parse); 64 settings at most */
 } pcs_state;
 
 static inline void pcs_defaults(pcs_state* s)
@@ -220,14 +283,25 @@ static inline int pcs_row_hidden(const pcs_state* s, int i)
 }
 
 /* The Volumetric Fog, Wheel Ruts, Effects Quality and Extra Particles rows are shown always but have no effect unless Fidelity
- * is Enhanced: the choice is kept and not applied (pcs_apply), and the page says why. Other rows: 0. */
+ * is Enhanced, and Dyn. Resolution Floor none unless Dynamic Resolution is On: the choice is kept and not applied
+ * (pcs_apply), and the page says why (pcs_unused_why). Other rows: 0. */
 static inline int pcs_row_unused(const pcs_state* s, int i)
 {
+    if (!strcmp(k_pcs_defs[i].key, "drsfloor")) {   /* the floor only matters while the game scales (Dynamic Resolution On) */
+        const int df = pcs_find("dynres");
+        return df >= 0 && s->idx[df] != 0;
+    }
     if (strcmp(k_pcs_defs[i].key, "volfog") && strcmp(k_pcs_defs[i].key, "ruts") && strcmp(k_pcs_defs[i].key, "fxquality") &&
         strcmp(k_pcs_defs[i].key, "particles"))
         return 0;
     const int lf = pcs_find("lighting");
     return lf >= 0 && s->idx[lf] != 1;
+}
+
+/* Why an unused row has no effect, as the page shows it after the value. */
+static inline const char* pcs_unused_why(int i)
+{
+    return strcmp(k_pcs_defs[i].key, "drsfloor") ? "needs Fidelity Enhanced" : "needs Dynamic Resolution On";
 }
 
 static inline int pcs_ieq(const char* a, const char* b)
@@ -275,7 +349,7 @@ static inline int pcs_parse(pcs_state* s, const char* text)
         for (char* p = v + strlen(v); p > v && (p[-1] == ' ' || p[-1] == '\t' || p[-1] == '\r'); ) *--p = 0;
         const int i = pcs_find(k);
         const int c = i < 0 ? -1 : pcs_choice(i, v);
-        if (c >= 0) { s->idx[i] = c; s->explicit_mask |= 1u << i; got++; }
+        if (c >= 0) { s->idx[i] = c; s->explicit_mask |= 1ull << i; got++; }
     }
     return got;
 }
@@ -322,10 +396,11 @@ static inline void pcs_mspr_spec(const pcs_state* s, char* out, size_t n)
 static inline int pcs_owns_env(const pcs_state* s, const char* name)
 {
     for (int i = 0; i < PCS_COUNT; i++) {
-        if (!(s->explicit_mask & (1u << i))) continue;
+        if (!(s->explicit_mask & (1ull << i))) continue;
         const char* e = k_pcs_defs[i].env ? k_pcs_defs[i].env : "MSPR_PATCH";
         if (!strcmp(e, name)) return 1;
         if (k_pcs_defs[i].env2 && !strcmp(k_pcs_defs[i].env2, name)) return 1;
+        if (k_pcs_defs[i].env3 && !strcmp(k_pcs_defs[i].env3, name)) return 1;
     }
     return 0;
 }
@@ -349,6 +424,7 @@ static inline int pcs_apply(const pcs_state* s, const char* base, pcs_get_fn get
         if (!d->env || (s->idx[i] == d->def && !d->always) || pcs_row_hidden(s, i) || pcs_row_unused(s, i)) continue;
         if (avail && avail(d->key, s->idx[i])) continue;
         if (d->env2 && !get(d->env2)) { set(d->env2, d->values2[s->idx[i]]); done++; }
+        if (d->env3 && !get(d->env3)) { set(d->env3, d->values3[s->idx[i]]); done++; }
         if (get(d->env)) continue;
         const char* v = d->values[s->idx[i]];
         char path[1024];
@@ -420,6 +496,65 @@ static inline int pcs_unlock_tracks(const char* text)
     return pcs_ini_switch(text, "unlocktracks") > 0;
 }
 
+/* Audio thread: "audiothread = On|Off" (launcher Performance; not a page row, the Performance page is full). On, the
+ * default, keeps the audiothread patch (the game's audio update on its own guest thread, audio_thread.cpp) in the
+ * MSPR_PATCH list; Off takes it out (pcs_mspr_drop). Written back by pcmenu_save while Off. 1 on, 0 off. */
+static inline int pcs_audio_thread(const char* text)
+{
+    return pcs_ini_switch(text, "audiothread") != 0;
+}
+
+/* CPU Thread Placement: "threadplace = Auto|Off" (launcher Performance; not a page row). Auto sets PS3_CPU_PLACEMENT=auto
+ * (cpu_placement.h: on a CPU with fast and slow cores, the main and render threads on the fast ones, background
+ * threads on the slow ones); Off, the default, sets nothing. Written back by pcmenu_save while Auto. 1 Auto, 0 Off. */
+static inline int pcs_thread_place(const char* text)
+{
+    int on = -1;
+    while (text && *text) {
+        const char* e = strchr(text, '\n');
+        size_t n = e ? (size_t)(e - text) : strlen(text);
+        char line[96];
+        if (n >= sizeof line) n = sizeof line - 1;
+        memcpy(line, text, n);
+        line[n] = 0;
+        text = e ? e + 1 : NULL;
+        char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, "threadplace", 11) != 0) continue;
+        p += 11;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p++ != '=') continue;
+        while (*p == ' ' || *p == '\t') p++;
+        char* v = p + strlen(p);
+        while (v > p && (v[-1] == ' ' || v[-1] == '\t' || v[-1] == '\r')) *--v = 0;
+        if (pcs_ieq(p, "Auto") || pcs_ieq(p, "On") || !strcmp(p, "1")) on = 1;
+        else if (pcs_ieq(p, "Off") || !strcmp(p, "0")) on = 0;
+    }
+    return on > 0;
+}
+
+/* spec (an MSPR_PATCH list, edited in place) without the patch name; "none" when nothing is left. */
+static inline void pcs_mspr_drop(char* spec, size_t n, const char* name)
+{
+    char out[256];
+    size_t w = 0;
+    const size_t nl = strlen(name);
+    out[0] = 0;
+    for (const char* t = spec; *t;) {
+        const char* e = strchr(t, ',');
+        const size_t len = e ? (size_t)(e - t) : strlen(t);
+        const int same = len >= nl && !strncmp(t, name, nl) && (len == nl || t[nl] == ':');
+        if (len && !same && !(len == 4 && !strncmp(t, "none", 4)) && w + len + 2 < sizeof out) {
+            if (w) out[w++] = ',';
+            memcpy(out + w, t, len);
+            w += len;
+            out[w] = 0;
+        }
+        t = e ? e + 1 : t + len;
+    }
+    snprintf(spec, n, "%s", w ? out : "none");
+}
+
 /* A Cheats variable (MSPR_UNLOCK_VEHICLES, MSPR_UNLOCK_TRACKS, MSPR_UNLOCK_ALL): -1 unset or empty, else 1 for
  * 1/On/on, 0 otherwise. A set variable wins over settings.ini. */
 static inline int pcs_env_switch(const char* v)
@@ -464,6 +599,83 @@ static inline int pcs_screens(const char* text)
 static inline const char* pcs_screens_env(int n)
 {
     return n == 2 ? "2" : n == 3 ? "3" : NULL;
+}
+
+/* The first n characters of a are b, any case, and the next is not part of a longer key. */
+static inline int pcs_ieq_n(const char* a, const char* b, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        char x = a[i], y = b[i];
+        if (x >= 'A' && x <= 'Z') x = (char)(x - 'A' + 'a');
+        if (y >= 'A' && y <= 'Z') y = (char)(y - 'A' + 'a');
+        if (!x || x != y) return 0;
+    }
+    return a[n] == ' ' || a[n] == '\t' || a[n] == '=';
+}
+
+/* Player name: "playername = <name>", the name other players see (a launcher setting, not a page row: the
+ * page has choice rows only). The game took it from the PSN account; here it becomes PS3_NP_ONLINE_ID (sceNp
+ * GetNpId / GetOnlineName, the LAN room server's member list, libs/network np_psnr.c) and PS3_USER_NAME (the
+ * system user, libs/system cellUserInfo.c), each unless already set. A PSN online ID's rules: 3 to 16 letters,
+ * digits, '-' or '_', starting with a letter (np_psnr.c clean_online_id; the launcher's settings.js checks the
+ * same). The last line naming the key decides; an empty or invalid value means no name (today's defaults).
+ * pcmenu_save writes it back while it is set, so the in-game page keeps it. */
+#define PCS_NAME_MAX 16
+
+static inline int pcs_name_valid(const char* s)
+{
+    int n = 0;
+    if (!s) return 0;
+    for (; s[n]; n++) {
+        const char c = s[n];
+        const int alpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        if (n >= PCS_NAME_MAX || !(alpha || (c >= '0' && c <= '9') || c == '-' || c == '_')) return 0;
+        if (n == 0 && !alpha) return 0;
+    }
+    return n >= 3;
+}
+
+/* The player name settings.ini gives into out ("" for none); 1 if there is one. */
+static inline int pcs_player_name(const char* text, char out[PCS_NAME_MAX + 1])
+{
+    out[0] = 0;
+    while (text && *text) {
+        const char* e = strchr(text, '\n');
+        size_t len = e ? (size_t)(e - text) : strlen(text);
+        char line[96];
+        if (len >= sizeof line) len = sizeof line - 1;
+        memcpy(line, text, len);
+        line[len] = 0;
+        text = e ? e + 1 : NULL;
+        char* p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == ';' || !pcs_ieq_n(p, "playername", 10)) continue;
+        p += 10;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p++ != '=') continue;
+        while (*p == ' ' || *p == '\t') p++;
+        char* v = p + strlen(p);
+        while (v > p && (v[-1] == ' ' || v[-1] == '\t' || v[-1] == '\r')) *--v = 0;
+        if (pcs_name_valid(p)) snprintf(out, PCS_NAME_MAX + 1, "%s", p);
+        else out[0] = 0;
+    }
+    return out[0] != 0;
+}
+
+/* The variables a player name gives: PS3_NP_ONLINE_ID and PS3_USER_NAME, each only if not already set (a set
+ * variable wins, as for every setting). Nothing without a name. Returns how many were set. */
+static inline int pcs_player_env(const char* name, pcs_get_fn get, pcs_set_fn set)
+{
+    static const char* const k_vars[2] = { "PS3_NP_ONLINE_ID", "PS3_USER_NAME" };
+    int n = 0;
+    if (!pcs_name_valid(name)) return 0;
+    for (int i = 0; i < 2; i++) {
+        const char* cur = get(k_vars[i]);
+        if (cur && *cur) continue;
+        set(k_vars[i], name);
+        n++;
+    }
+    return n;
 }
 
 #endif

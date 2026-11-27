@@ -39,6 +39,7 @@ PATCHES_100 = [
     'fly_pause_patch_lifted.py',      # debug fly camera: the sim step is held while F3 is on (MSPR_DEBUG_FLY)
     'screens_patch_lifted.py',        # Screens (dual / triple monitors): Hor+ lens film width (PS3RECOMP_VK_SPAN)
     'bench_patch_lifted.py',          # Benchmark page: AI-driven race car, end of the fly-through (MSPR_BENCH)
+    'lowend_patch_lifted.py',         # Performance page: the game's own particle, debris, DRS floor and option values
 ]
 
 

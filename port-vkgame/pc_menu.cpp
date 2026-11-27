@@ -81,8 +81,8 @@ static void pcmenu_drain(ppu_context* ctx)
 #define PCMENU_FUNCTOR (PCMENU_EA + 0x0000u)   /* 8 bytes each */
 #define PCMENU_OPD     (PCMENU_EA + 0x1000u)   /* 8 bytes each */
 #define PCMENU_TEXT    (PCMENU_EA + 0x2000u)   /* 128 bytes each */
-#define PCMENU_CODE    (PCMENU_EA + 0xD000u)   /* 4 bytes each, never run as guest code (moved up: more rows, more text;
-                                                  0xD000 since the Extra Particles row; audio_thread.cpp uses +0xF000) */
+#define PCMENU_CODE    (PCMENU_EA + 0xE000u)   /* 4 bytes each, never run as guest code (moved up: more rows, more text;
+                                                  0xE000 since the Performance page; audio_thread.cpp uses +0xF000) */
 #define PCMENU_TOC     0x0109FBF0u
 #define PCMENU_MISS    666u                    /* the lookup's "no such function" signature */
 #define PCMENU_SIG_VOID 0u                     /* void() */
@@ -104,7 +104,7 @@ enum {
     PCF_COUNT = PCF_LAN + LMF_COUNT
 };
 static_assert(PCF_COUNT * 128 <= PCMENU_CODE - PCMENU_TEXT, "text buffers must fit between the text and the code addresses");
-static_assert(PCF_COUNT * 4 <= 0x2000, "code addresses must fit in their 8 KB window (ends at PCMENU_EA + 0xF000, audio_thread.cpp's OPD)");
+static_assert(PCF_COUNT * 4 <= 0xF000u - (PCMENU_CODE - PCMENU_EA), "code addresses must fit below PCMENU_EA + 0xF000 (audio_thread.cpp's OPD)");
 static_assert(PCF_COUNT * 8 <= 0x1000, "functors must fit below the OPDs");
 
 extern "C" int lanmenu_call(int fn, char* out, size_t cap);   /* lan_menu.cpp */
@@ -119,6 +119,9 @@ static int s_ready, s_alias;
 static int s_unlock_vehicles;         /* settings.ini unlockvehicles (Cheats tab) or MSPR_UNLOCK_VEHICLES */
 static int s_unlock_tracks;           /* settings.ini unlocktracks (Cheats tab) or MSPR_UNLOCK_TRACKS */
 static int s_screens = 1;             /* settings.ini screens (launcher Display): 1, 2 or 3 monitors (pcs_screens) */
+static int s_audio_thread = 1;        /* settings.ini audiothread (launcher Performance): On by default (pcs_audio_thread) */
+static int s_thread_place;           /* settings.ini threadplace (launcher Performance): Off by default (pcs_thread_place) */
+static char s_player[PCS_NAME_MAX + 1];   /* settings.ini playername (launcher), "" for none (pcs_player_name) */
 static int s_cap_act = -1;            /* the key row waiting for a key, or -1 */
 static int s_dxc_ok = -1;             /* a dxc.exe (with its dll) was found */
 
@@ -150,6 +153,11 @@ static const char* pcmenu_avail(const char* key, int choice)
         snprintf(p, sizeof p, "%s/amd_fidelityfx_loader_vk.dll", d && *d ? d : s_dir);
         return pcmenu_exists(p) ? NULL : "No FSR3 DLL";
     }
+    if (!strcmp(key, "framegen") && choice == 2) {   /* On: AMD FSR 3.1 frame generation (Light needs no DLL) */
+        const char* d = getenv("RSX_FSR3_DIR");
+        snprintf(p, sizeof p, "%s/amd_fidelityfx_framegeneration_vk.dll", d && *d ? d : s_dir);
+        return pcmenu_exists(p) ? NULL : "No FSR3 FG DLL";
+    }
     return NULL;
 }
 
@@ -180,6 +188,9 @@ static void pcmenu_save(void)
     if (s_unlock_vehicles) fputs("unlockvehicles = On\n", f);   /* Cheats: not page rows, kept while on */
     if (s_unlock_tracks) fputs("unlocktracks = On\n", f);
     if (s_screens > 1) fprintf(f, "screens = %s\n", k_pcs_screens[s_screens - 1]);   /* launcher only: kept */
+    if (!s_audio_thread) fputs("audiothread = Off\n", f);   /* launcher only: kept while Off */
+    if (s_thread_place) fputs("threadplace = Auto\n", f);   /* launcher only: kept while Auto */
+    if (s_player[0]) fprintf(f, "playername = %s\n", s_player);   /* launcher only: kept */
     fclose(f);
 #ifdef _WIN32
     if (!MoveFileExA(tmp, s_ini, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
@@ -350,7 +361,7 @@ static void pcmenu_call(int k, ppu_context* ctx)
                 const pcs_def* d = &k_pcs_defs[row];
                 const char* why = pcmenu_avail(d->key, s_pcs.idx[row]);
                 /* a row with no effect at this Fidelity (Volumetric Fog with Original) shows that, the choice kept */
-                if (!why && pcs_row_unused(&s_pcs, row)) why = "needs Fidelity Enhanced";
+                if (!why && pcs_row_unused(&s_pcs, row)) why = pcs_unused_why(row);
                 if (why) snprintf(t, sizeof t, "%s (%s)", d->labels[s_pcs.idx[row]], why);
                 else snprintf(t, sizeof t, "%s", d->labels[s_pcs.idx[row]]);
             }
@@ -472,7 +483,8 @@ static void pcmenu_answer(ppu_context* ctx, uint32_t out, uint32_t name)
     for (; i < sizeof n - 1 && vm_base[name + i]; i++) n[i] = (char)vm_base[name + i];
     n[i] = 0;
     uint32_t sig;
-    const int k = n[0] == 'P' && n[1] == 'c' ? pcmenu_find(n, &sig) : -1;
+    /* Pc* (the PC Settings pages) and Lan* (the LAN screen, lan_menu.h): the only names this answers */
+    const int k = (n[0] == 'P' && n[1] == 'c') || (n[0] == 'L' && n[1] == 'a' && n[2] == 'n') ? pcmenu_find(n, &sig) : -1;
     if (k < 0) return;
     vm_write32(out, PCMENU_FUNCTOR + 8u * (uint32_t)k);
     vm_write32(out + 4, sig);
@@ -631,12 +643,28 @@ extern "C" void pcmenu_boot(const char* argv0)
         s_unlock_vehicles = pcs_unlock_vehicles(text);
         s_unlock_tracks = pcs_unlock_tracks(text);
         s_screens = pcs_screens(text);
+        s_audio_thread = pcs_audio_thread(text);
+        s_thread_place = pcs_thread_place(text);
+        pcs_player_name(text, s_player);
         const int nk = pck_parse(&s_layout, text);
         pcw_parse(&s_wcfg, text);
 #ifdef _WIN32
         pad_wheel_set_ini(text);
 #endif
+        const int mspr_env = getenv("MSPR_PATCH") != NULL;   /* a set variable wins over audiothread = Off */
         pcs_apply(&s_pcs, s_dir, pcmenu_getenv, pcmenu_setenv, pcmenu_avail);
+        if (s_thread_place && !getenv("PS3_CPU_PLACEMENT")) {   /* CPU Thread Placement Auto (main.cpp main_core_setup) */
+            pcmenu_setenv("PS3_CPU_PLACEMENT", "auto");
+            fprintf(stderr, "[pc-menu] CPU thread placement: auto\n");
+        }
+        if (!s_audio_thread && !mspr_env) {   /* Audio thread Off: the patch list without audiothread */
+            char spec[256];
+            const char* cur = getenv("MSPR_PATCH");
+            snprintf(spec, sizeof spec, "%s", cur ? cur : PCS_MSPR_DEFAULT);
+            pcs_mspr_drop(spec, sizeof spec, "audiothread");
+            pcmenu_setenv("MSPR_PATCH", spec);
+            fprintf(stderr, "[pc-menu] audio thread: off (MSPR_PATCH=%s)\n", spec);
+        }
         if (nk) fprintf(stderr, "[pc-menu] settings.ini: %d key binding(s)\n", nk);
     }
     {   /* Cheats: MSPR_UNLOCK_VEHICLES (alias MSPR_UNLOCK_ALL) and MSPR_UNLOCK_TRACKS; a set variable wins */
@@ -653,6 +681,11 @@ extern "C" void pcmenu_boot(const char* argv0)
         if (span && !getenv("PS3RECOMP_VK_SPAN")) pcmenu_setenv("PS3RECOMP_VK_SPAN", span);
         if (span) fprintf(stderr, "[pc-menu] screens: %s (PS3RECOMP_VK_SPAN=%s)\n", k_pcs_screens[s_screens - 1],
                           getenv("PS3RECOMP_VK_SPAN"));
+    }
+    if (s_player[0]) {   /* Player name: the NP online ID and the system user name, unless set (pcs_player_env) */
+        pcs_player_env(s_player, pcmenu_getenv, pcmenu_setenv);
+        fprintf(stderr, "[pc-menu] player name: %s (PS3_NP_ONLINE_ID=%s, PS3_USER_NAME=%s)\n", s_player,
+                getenv("PS3_NP_ONLINE_ID"), getenv("PS3_USER_NAME"));
     }
     pcmenu_apply_layout();
     /* Button prompts: MSPR_PROMPTS (set by the file's "prompts" line unless the environment had it), Keyboard by default */

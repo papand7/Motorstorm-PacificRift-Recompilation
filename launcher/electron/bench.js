@@ -1,7 +1,9 @@
 // The Benchmark page's launcher side. The game runs each benchmark itself (port-vkgame/bench_run.h, MSPR_BENCH): it
 // measures, writes a JSON result and quits. The launcher only starts it the way Play does, plus the benchmark's own
 // variables, and reads the result.
-//   fly   the disc's own benchmark config (configs/benchmark_happyJungle.cfg): a camera flight over Kanaloa Bay, no cars
+//   fly   the disc's own benchmark configs, one game run each, one after the other (FLY_MAPS): a camera flight over
+//         Happy Jungle (configs/benchmark_happyJungle.cfg), then one over the lava track Wildfire
+//         (configs/benchmark_Wildfire.cfg), no cars. The launcher combines the two results (combineFly).
 //   race  a 16-car race on Kanaloa Bay with the game's AI driving every car, yours included. Its config is made here at
 //         run time from the player's own disc (MS2.PSARC configs/aggression_race.cfg and benchmark_happyJungle.cfg),
 //         by a few edits whose result is checked against the SHA-256 of the tested config (raceCfgFromDisc); nothing
@@ -22,10 +24,23 @@ const GUEST_STR = '0109AD4C:configs/ms2_config.cfg:';
 const RACE_CFG = 'configs/mspr_bench_race.cfg';
 // SHA-256 of the race config this makes (line ends as LF): the config the race benchmark was tested with
 const RACE_CFG_SHA256 = 'ad53497b0901ee9f2956f00e16ad68adcdeafdd6eb148be1e0706851eefe6a85';
+// fly: the maps, in the order they run; each run's result is BENCH_DIR\fly_<id>.json, the combined one fly.json
+const FLY_MAPS = [
+    { id: 'happyJungle', name: 'Happy Jungle', boot: 'configs/benchmark_happyJungle.cfg' },
+    { id: 'wildfire', name: 'Wildfire', boot: 'configs/benchmark_Wildfire.cfg' },
+];
 const MODES = {
-    fly: { title: 'Fly-through', boot: 'configs/benchmark_happyJungle.cfg' },
+    fly: { title: 'Fly-through', maps: FLY_MAPS },
     race: { title: 'Race with AI racers', boot: RACE_CFG },
 };
+// the game runs a benchmark makes, in order: [{ map: null | a FLY_MAPS entry, boot, file: the run's result file name }]
+function benchSteps(mode) {
+    if (!MODES[mode]) throw new Error(`unknown benchmark ${mode}`);
+    if (MODES[mode].maps) return MODES[mode].maps.map(m => ({ map: m, boot: m.boot, file: `${mode}_${m.id}.json` }));
+    return [{ map: null, boot: MODES[mode].boot, file: `${mode}.json` }];
+}
+// the start-up failure a run is retried once for: the game closed without a result and its log has this line
+const BOOT_TIMEOUT_LINE = 'GcKernel::Present() Timeout';
 
 // ---- a PSARC (zlib blocks; entry 0 lists the member names; members are found by the MD5 of the upper-case name)
 function readPsarcMembers(file, names) {
@@ -115,10 +130,72 @@ function gameEnv({ processEnv, build, cfg, play, playDir }, extra = {}) {
     return env;
 }
 
-// the benchmark's own variables (BENCH_KEYS, nothing else)
-function benchEnv(mode, outFile) {
-    if (!MODES[mode]) throw new Error(`unknown benchmark ${mode}`);
-    return { MSPR_BENCH: mode, MSPR_BENCH_OUT: outFile, PS3_DEV_GUEST_STR: GUEST_STR + MODES[mode].boot };
+// the benchmark's own variables (BENCH_KEYS, nothing else); boot: the step's config (benchSteps), default the first
+function benchEnv(mode, outFile, boot) {
+    const steps = benchSteps(mode);
+    const b = boot || steps[0].boot;
+    if (!steps.some(s => s.boot === b)) throw new Error(`${b} is not a config of the ${mode} benchmark`);
+    return { MSPR_BENCH: mode, MSPR_BENCH_OUT: outFile, PS3_DEV_GUEST_STR: GUEST_STR + b };
+}
+
+// ---- running a benchmark: its steps one after the other. runOne(step, try) starts the game for the step (main.js
+// runBench) and resolves when it has closed: { result: readResult's or null, code, why, log: the game's log text }.
+// A step whose game closed without a result while its log shows the start-up Present() Timeout runs once more.
+// cancelled(): Stop was pressed; the step running ends "Stopped." and the steps not run yet are not started.
+// onStep({ index, count, map, retry }) before each game start. Returns the race's own result, or for fly the maps'
+// combined one (combineFly); the result of each step also goes to onResult(step, result) as it ends.
+async function runSteps(mode, { runOne, cancelled = () => false, onStep = () => {}, onResult = () => {} }) {
+    const steps = benchSteps(mode);
+    const results = [];
+    for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        const t0 = Date.now();
+        let r = null, tries = 0;
+        while (!r) {
+            if (cancelled()) { r = failed(mode, 'Stopped.'); break; }
+            onStep({ index: i, count: steps.length, map: step.map, retry: tries > 0 });
+            const got = (await runOne(step, tries)) || {};
+            tries++;
+            r = got.result || null;
+            if (r) break;
+            const boot = typeof got.log === 'string' && got.log.includes(BOOT_TIMEOUT_LINE);
+            if (cancelled()) r = failed(mode, 'Stopped.');
+            else if (boot && tries < 2) continue;   // the known occasional start-up timeout: once more
+            else r = failed(mode, got.why || (boot
+                ? `The game stopped at start-up (Present() Timeout), ${tries} times (exit code ${got.code}).`
+                : `The game closed without a result (exit code ${got.code}).`));
+        }
+        r.duration_s = Math.round((Date.now() - t0) / 1000);
+        r.tries = tries;
+        if (step.map) { r.map = step.map.id; r.map_name = step.map.name; }
+        onResult(step, r);
+        results.push(r);
+    }
+    return MODES[mode].maps ? combineFly(results) : results[0];
+}
+function failed(mode, error) { return { version: 1, benchmark: mode, ok: false, error, settings: [] }; }
+
+// the fly maps' results (in FLY_MAPS order, each with map and map_name) as one: each map's own result under maps and,
+// when every map has one, the combined numbers: the average over all measured frames of all maps (frames / seconds),
+// min = the lowest map min, max = the highest map max. GPU, CPU, RAM and settings: the first map's that names them.
+function combineFly(maps) {
+    const pick = k => (maps.find(m => m[k] && (!Array.isArray(m[k]) || m[k].length)) || {})[k];
+    const ok = maps.length > 0 && maps.every(m => m.ok);
+    const r = { version: 1, benchmark: 'fly', ok,
+                error: ok ? null : maps.filter(m => !m.ok).map(m => `${m.map_name || m.map}: ${m.error || 'no result'}`).join(' '),
+                gpu: pick('gpu') || '', cpu: pick('cpu') || '', ram_bytes: pick('ram_bytes') || 0, settings: pick('settings') || [],
+                maps };
+    if (ok) {
+        const frames = maps.reduce((a, m) => a + (m.frames || 0), 0);
+        const seconds = maps.reduce((a, m) => a + (m.seconds || 0), 0);
+        r.frames = frames;
+        r.seconds = Math.round(seconds * 100) / 100;
+        r.fps = { min: Math.min(...maps.map(m => m.fps.min)), max: Math.max(...maps.map(m => m.fps.max)),
+                  avg: frames > 0 && seconds > 0 ? frames / seconds : maps.reduce((a, m) => a + m.fps.avg, 0) / maps.length };
+        r.pipelines_built = maps.reduce((a, m) => a + (m.pipelines_built || 0), 0);
+        r.pipelines_ms = maps.reduce((a, m) => a + (m.pipelines_ms || 0), 0);
+    }
+    return r;
 }
 
 // the overlay folder the game will read, the way it picks it (pc_menu.cpp pcmenu_boot, then motorstorm.cfg):
@@ -143,16 +220,24 @@ function prepareRace(gameFiles, overlay) {
 }
 
 // the game's result file (bench_run.h bench_write_json), checked; null when missing or unreadable
+// (the combined fly result: each of its maps checked the same way)
 function readResult(file) {
     let r;
     try { r = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+    return checkResult(r, true);
+}
+function checkResult(r, top) {
     if (!r || typeof r !== 'object' || !MODES[r.benchmark]) return null;
     if (r.ok) {
         const f = r.fps || {};
         if (![f.min, f.max, f.avg].every(x => typeof x === 'number' && isFinite(x))) return null;
     }
+    if (r.maps !== undefined) {
+        if (!top || !Array.isArray(r.maps) || !r.maps.length || !r.maps.every(m => checkResult(m, false))) return null;
+        if (!!r.ok !== r.maps.every(m => m.ok)) return null;
+    }
     if (!Array.isArray(r.settings)) r.settings = [];
     return r;
 }
 
-module.exports = { BENCH_KEYS, MODES, RACE_CFG, RACE_CFG_SHA256, readPsarcMembers, raceCfgEdit, raceCfgFromDisc, gameEnv, benchEnv, overlayDir, prepareRace, readResult };
+module.exports = { BENCH_KEYS, MODES, FLY_MAPS, BOOT_TIMEOUT_LINE, RACE_CFG, benchSteps, runSteps, combineFly, RACE_CFG_SHA256, readPsarcMembers, raceCfgEdit, raceCfgFromDisc, gameEnv, benchEnv, overlayDir, prepareRace, readResult };

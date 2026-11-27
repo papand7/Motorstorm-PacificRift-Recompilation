@@ -4,6 +4,8 @@
 //     (PLAY_ENV), so the game applies the player's settings exactly as on Play;
 //   - an inherited benchmark variable never reaches Play;
 //   - the race config edits (on a made-up config), the PSARC reader (on a made-up archive), the result file check;
+//   - the steps: fly runs Happy Jungle then Wildfire, one start-up Present() Timeout retried once, the combined numbers
+//     (average over all frames, lower min, higher max), one map failed (its error and the other's result), Stop;
 //   - with the developer's private disc files present (never in the public tree), the race config made from them is
 //     the tested one, from the extracted files and from MS2.PSARC itself.
 // Every input here is synthetic unless a private file exists; nothing from the game is in this file.
@@ -26,19 +28,25 @@ const ctx = { processEnv, build: { env: { ...PLAY_ENV, RSX_RT_DXC: 'C:\\x\\dxc.e
               play: { vfs_root: 'D:\\game' }, playDir };
 const play = B.gameEnv(ctx);
 for (const k of B.BENCH_KEYS) assert.ok(!(k in play), `Play never inherits ${k}`);
-for (const mode of Object.keys(B.MODES)) {
-    const out = path.join(playDir, 'benchmark', `${mode}.json`);
-    const be = B.gameEnv(ctx, B.benchEnv(mode, out));
+for (const mode of Object.keys(B.MODES)) for (const step of B.benchSteps(mode)) {
+    const out = path.join(playDir, 'benchmark', step.file);
+    const be = B.gameEnv(ctx, B.benchEnv(mode, out, step.boot));
     const added = Object.keys(be).filter(k => !(k in play)).sort();
     assert.deepStrictEqual(added, [...B.BENCH_KEYS].sort(), `${mode}: only the benchmark keys are added`);
     assert.deepStrictEqual(Object.keys(play).filter(k => !(k in be)), [], `${mode}: nothing of Play's is removed`);
     for (const k of Object.keys(play)) assert.strictEqual(be[k], play[k], `${mode}: ${k} as on Play`);
     assert.strictEqual(be.MSPR_BENCH, mode);
     assert.strictEqual(be.MSPR_BENCH_OUT, out);
-    assert.strictEqual(be.PS3_DEV_GUEST_STR, `0109AD4C:configs/ms2_config.cfg:${B.MODES[mode].boot}`);
+    assert.strictEqual(be.PS3_DEV_GUEST_STR, `0109AD4C:configs/ms2_config.cfg:${step.boot}`);
 }
-assert.ok(B.MODES.race.boot === B.RACE_CFG && B.MODES.fly.boot === 'configs/benchmark_happyJungle.cfg');
+// fly: Happy Jungle, then Wildfire, each its own result file; race: one run, its own boot config
+assert.deepStrictEqual(B.benchSteps('fly').map(s => [s.map.name, s.boot, s.file]),
+    [['Happy Jungle', 'configs/benchmark_happyJungle.cfg', 'fly_happyJungle.json'],
+     ['Wildfire', 'configs/benchmark_Wildfire.cfg', 'fly_wildfire.json']]);
+assert.deepStrictEqual(B.benchSteps('race').map(s => [s.map, s.boot, s.file]), [[null, B.RACE_CFG, 'race.json']]);
+assert.strictEqual(B.benchEnv('fly', 'x').PS3_DEV_GUEST_STR, '0109AD4C:configs/ms2_config.cfg:configs/benchmark_happyJungle.cfg');
 assert.throws(() => B.benchEnv('lap', 'x'));
+assert.throws(() => B.benchEnv('race', 'x', 'configs/benchmark_Wildfire.cfg'), /not a config/);
 
 // ---- no benchmark key is owned by settings.ini or set by the build's start environment
 for (const k of B.BENCH_KEYS) assert.ok(!(k in PLAY_ENV), `${k} is not in PLAY_ENV`);
@@ -133,7 +141,97 @@ fs.writeFileSync(res, '{ broken');
 assert.strictEqual(B.readResult(res), null);
 assert.strictEqual(B.readResult(path.join(tmp, 'missing.json')), null);
 
+// ---- running the steps (bench.runSteps) with a stand-in for the game: sequence, retry, combine, a failed map, Stop
+const mapRes = (min, max, frames, seconds, extra = {}) => ({ version: 1, benchmark: 'fly', ok: true, error: null, gpu: 'GPU X',
+    cpu: 'CPU Y', ram_bytes: 17179869184, fps: { min, max, avg: frames / seconds, low1: min / 2, low01: min / 3 },
+    frames, seconds, settings: [{ key: 'framerate', name: 'Frame Rate', value: '60 FPS', applied: true }], ...extra });
+const TIMEOUT_LOG = 'boot...\nGc ERROR: GcKernel::Present() Timeout!\n';
+async function runFake(mode, script, cancelAfter = Infinity) {
+    const calls = [], stepsSeen = [], perStep = [];
+    let n = 0;
+    const r = await B.runSteps(mode, {
+        runOne: async (step, attempt) => { calls.push([step.boot, attempt]); n++; return script[n - 1]; },
+        cancelled: () => n >= cancelAfter,
+        onStep: s => stepsSeen.push(`${s.index + 1}/${s.count}${s.map ? ' ' + s.map.name : ''}${s.retry ? ' retry' : ''}`),
+        onResult: (step, res) => perStep.push([step.file, res.ok]),
+    });
+    return { r, calls, stepsSeen, perStep };
+}
+const HJ = 'configs/benchmark_happyJungle.cfg', WF = 'configs/benchmark_Wildfire.cfg';
+const fileOf = (f, x) => { const p = path.join(tmp, f); fs.writeFileSync(p, JSON.stringify(x)); return p; };
+(async () => {
+    // both maps: Happy Jungle first, then Wildfire; combined avg = all frames / all seconds, min the lower, max the higher
+    let t = await runFake('fly', [{ result: mapRes(28, 33, 900, 30), code: 0 },
+                                  { result: mapRes(22, 40, 1500, 60, { pipelines_built: 3, pipelines_ms: 1200 }), code: 0 }]);
+    assert.deepStrictEqual(t.calls, [[HJ, 0], [WF, 0]]);
+    assert.deepStrictEqual(t.stepsSeen, ['1/2 Happy Jungle', '2/2 Wildfire']);
+    assert.deepStrictEqual(t.perStep, [['fly_happyJungle.json', true], ['fly_wildfire.json', true]]);
+    assert.ok(t.r.ok && t.r.benchmark === 'fly' && t.r.error === null);
+    assert.deepStrictEqual(t.r.maps.map(m => [m.map, m.map_name, m.fps.min, m.fps.max, m.tries]),
+                           [['happyJungle', 'Happy Jungle', 28, 33, 1], ['wildfire', 'Wildfire', 22, 40, 1]]);
+    assert.strictEqual(t.r.frames, 2400);
+    assert.strictEqual(t.r.seconds, 90);
+    assert.strictEqual(t.r.fps.min, 22);
+    assert.strictEqual(t.r.fps.max, 40);
+    assert.ok(Math.abs(t.r.fps.avg - 2400 / 90) < 1e-9, 'the average over all frames, not the mean of the two averages');
+    assert.ok(Math.abs(t.r.fps.avg - (30 + 25) / 2) > 0.1);
+    assert.ok(t.r.gpu === 'GPU X' && t.r.settings.length === 1 && t.r.pipelines_built === 3);
+    assert.ok(B.readResult(fileOf('c.json', t.r)) && B.readResult(fileOf('c.json', t.r)).maps.length === 2, 'the combined file reads back');
+
+    // Happy Jungle hits the start-up Present() Timeout once: run again, then Wildfire
+    t = await runFake('fly', [{ result: null, code: 1, log: TIMEOUT_LOG }, { result: mapRes(30, 31, 900, 30), code: 0 },
+                              { result: mapRes(29, 31, 870, 30), code: 0 }]);
+    assert.deepStrictEqual(t.calls, [[HJ, 0], [HJ, 1], [WF, 0]]);
+    assert.deepStrictEqual(t.stepsSeen, ['1/2 Happy Jungle', '1/2 Happy Jungle retry', '2/2 Wildfire']);
+    assert.ok(t.r.ok && t.r.maps[0].tries === 2 && t.r.maps[1].tries === 1 && t.r.frames === 1770);
+
+    // retried only once: two timeouts on Wildfire -> Wildfire's error, Happy Jungle's result kept, no combined numbers
+    t = await runFake('fly', [{ result: mapRes(30, 31, 900, 30), code: 0 }, { result: null, code: 1, log: TIMEOUT_LOG },
+                              { result: null, code: 1, log: TIMEOUT_LOG }]);
+    assert.deepStrictEqual(t.calls, [[HJ, 0], [WF, 0], [WF, 1]]);
+    assert.ok(!t.r.ok && t.r.maps[0].ok && !t.r.maps[1].ok && !t.r.fps && t.r.frames === undefined);
+    assert.match(t.r.maps[1].error, /Present\(\) Timeout\), 2 times/);
+    assert.match(t.r.error, /^Wildfire: /);
+    assert.ok(t.r.gpu === 'GPU X', 'GPU from the map that ran');
+    let back = B.readResult(fileOf('p.json', t.r));
+    assert.ok(back && !back.ok && back.maps[0].fps.avg === 30, 'a partial result reads back with the good map');
+
+    // a map failing another way (the game's own error file, or no file without the timeout line): not retried
+    const own = { version: 1, benchmark: 'fly', ok: false, error: 'the camera flight did not end', gpu: '', cpu: '', ram_bytes: 0, settings: [] };
+    t = await runFake('fly', [{ result: own, code: 3 }, { result: mapRes(25, 35, 1200, 40), code: 0 }]);
+    assert.deepStrictEqual(t.calls, [[HJ, 0], [WF, 0]]);
+    assert.ok(!t.r.ok && t.r.maps[0].error === 'the camera flight did not end' && t.r.maps[1].ok && t.r.maps[1].fps.max === 35);
+    assert.match(t.r.error, /^Happy Jungle: the camera flight did not end$/);
+    t = await runFake('fly', [{ result: null, code: 5, log: 'crash' }, { result: mapRes(25, 35, 1200, 40), code: 0 }]);
+    assert.deepStrictEqual(t.calls, [[HJ, 0], [WF, 0]]);
+    assert.match(t.r.maps[0].error, /without a result \(exit code 5\)/);
+
+    // Stop during the first map: Wildfire never starts, both "Stopped.", no retry even with the timeout line
+    t = await runFake('fly', [{ result: null, code: 1, log: TIMEOUT_LOG }], 1);
+    assert.deepStrictEqual(t.calls, [[HJ, 0]]);
+    assert.ok(!t.r.ok && t.r.maps.length === 2 && t.r.maps.every(m => m.error === 'Stopped.'));
+    // Stop during Wildfire: Happy Jungle's result kept
+    t = await runFake('fly', [{ result: mapRes(30, 31, 900, 30), code: 0 }, { result: null, code: 1 }], 2);
+    assert.ok(!t.r.ok && t.r.maps[0].ok && t.r.maps[1].error === 'Stopped.');
+
+    // race: one run, its own result (no maps), retried on the start-up timeout like fly
+    const race = { ...mapRes(28, 31, 2700, 90), benchmark: 'race' };
+    t = await runFake('race', [{ result: null, code: 1, log: TIMEOUT_LOG }, { result: race, code: 0 }]);
+    assert.deepStrictEqual(t.calls, [[B.RACE_CFG, 0], [B.RACE_CFG, 1]]);
+    assert.ok(t.r.ok && t.r.benchmark === 'race' && t.r.maps === undefined && t.r.map === undefined && t.r.frames === 2700);
+
+    // combined results that do not hold together are refused
+    back = JSON.parse(JSON.stringify(B.combineFly([{ ...mapRes(1, 2, 10, 5), map: 'happyJungle', map_name: 'Happy Jungle' }])));
+    assert.ok(B.readResult(fileOf('k.json', back)));
+    assert.strictEqual(B.readResult(fileOf('k.json', { ...back, ok: false })), null, 'ok must match the maps');
+    assert.strictEqual(B.readResult(fileOf('k.json', { ...back, maps: [] })), null);
+    assert.strictEqual(B.readResult(fileOf('k.json', { ...back, maps: [{ ...back.maps[0], fps: {} }] })), null);
+    assert.strictEqual(B.readResult(fileOf('k.json', { ...back, maps: [{ ...back.maps[0], maps: [] }] })), null, 'no nesting');
+    privateFiles();
+})().catch(e => { console.error(e); process.exit(1); });
+
 // ---- private only: the developer's disc files (never in the public tree)
+function privateFiles() {
 const ROOT = path.join(__dirname, '..', '..');
 const xa = path.join(ROOT, 'generated', 'analysis', 'distance', 'x', 'Configs_aggression_race.cfg');
 const xb = path.join(ROOT, 'generated', 'analysis', 'distance', 'x', 'Configs_benchmark_happyJungle.cfg');
@@ -149,3 +247,4 @@ if (fs.existsSync(path.join(disc, 'PS3_GAME', 'USRDIR', 'MS2.PSARC'))) {
 }
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('test_bench: ok');
+}

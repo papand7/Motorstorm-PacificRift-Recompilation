@@ -235,6 +235,10 @@ function buildEnv(toolsDir, sdkVersion) {
         env.WindowsSDKVersion = ver + '\\';
     }
     delete env.CC; delete env.CXX;
+    // the build's Python scripts (lift, overlays, PC menu, cockpit, CMake's) use the standard library only: nothing from
+    // the user's own site-packages (or a PYTHONHOME/PYTHONPATH set for another Python) may change what they import
+    env.PYTHONNOUSERSITE = '1';
+    delete env.PYTHONHOME; delete env.PYTHONPATH;
     return { env, llvmBin: llvm, cmake: path.join(t('cmake'), 'bin', 'cmake.exe'), ninja: path.join(t('ninja'), 'ninja.exe'),
              python: path.join(t('python'), 'python.exe') };
 }

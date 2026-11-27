@@ -45,6 +45,7 @@
 #include "mspr_patch.h"            /* MSPR_PATCH: default patch list (drs) */
 extern "C" void pcmenu_boot(const char* argv0);   /* pc_menu.cpp: settings.ini, PC Settings page */
 extern "C" void pcmenu_init(void);
+extern "C" void ps3_net_set_switchable(int on);   /* libs/network/sysNet.h */
 #include "lan_play.h"              /* Host / Join (LAN): no socket until a page asks; atexit closes them */
 extern "C" int pcmenu_owns_env(const char* name);   /* settings.ini names the setting behind this variable */
 
@@ -210,6 +211,7 @@ static void fly_frame(void);   /* MSPR_DEBUG_FLY: F3, the mouse and the keys, on
 static void frame_log(char kind);   /* MSPR_FRAME_LOG: one line a present (below) */
 static void bench_frame(void);      /* MSPR_BENCH: the benchmark's guest frames, window and result (below) */
 static void present_clock_start(void);   /* the first present: the frame log's and the benchmark's ms origin */
+static void mspr_gopt_tick(void);   /* Performance page: the game option fields held (below) */
 static void present_guest_frame(void)
 {
     rsx_backend_present();
@@ -220,6 +222,7 @@ static void present_guest_frame(void)
      * than a volatile ++, which on arm64 is neither atomic nor a fence. */
     InterlockedIncrement(&g_frames_presented);
     fly_frame();
+    mspr_gopt_tick();   /* Performance page: the game option fields held (mspr_gopt) */
 }
 
 /* One vblank beat (ps3emu/frame_beat.h): present the flip the drain completed,
@@ -251,6 +254,8 @@ static void beat_drain(void* u)
 #include <powerbase.h>   /* CallNtPowerInformation: per-processor maximum clock (PS3_MAIN_CORE) */
 #pragma comment(lib, "powrprof.lib")
 #include "main_core_pick.h"
+#include "cpu_placement.h"      /* PS3_CPU_PLACEMENT (settings.ini threadplace): fast and slow cores */
+#include "ps3emu/ps3_thread_role.h"
 static HANDLE s_main_thread;   /* PS3_MAIN_CYCLES: the thread ppu_run runs the guest main thread on */
 
 /* MSPR_FRAME_LOG=<file> (benchmark, off by default): one text line per backend present, written by the thread that
@@ -540,10 +545,63 @@ static void bench_frame(void)
  * threads that spin-wait, the RSX drain, the audio worker) gets the process default CPU set, which leaves that core
  * out, so nothing shares it with the main thread, not even through SMT; the main thread is also raised to
  * above-normal priority. Windows CPU sets (Windows 10 1709+); without them nothing changes. */
+/* CPU Thread Placement (cpu_placement.h): the role sets main_core_setup made, applied by each thread itself when it
+ * starts (ps3_thread_role, from the runtime: guest PPU threads by name, the backend, audio mixing, shader compiles;
+ * and the frame clock below). */
+static ULONG s_cpl_ids[CPL_ROLES][CPL_MAX];
+static ULONG s_cpl_n[CPL_ROLES];
+static volatile LONG s_cpl_logged;
+
+static void cpl_role_hook(int role, const char* name)
+{
+    const int r = role == PS3_TR_RENDER ? CPL_ROLE_RENDER : role == PS3_TR_BACKGROUND ? CPL_ROLE_BACKGROUND
+                : role == PS3_TR_GUEST ? cpl_guest_role(name) : -1;
+    if (r != CPL_ROLE_RENDER && r != CPL_ROLE_BACKGROUND) return;   /* workers keep the process default */
+    if (!s_cpl_n[r]) return;
+    const BOOL ok = SetThreadSelectedCpuSets(GetCurrentThread(), s_cpl_ids[r], s_cpl_n[r]);
+    if (InterlockedIncrement(&s_cpl_logged) <= 64)
+        fprintf(stderr, "[cpu-place] %s thread \"%s\" (host %lu): %s cores, %lu CPU sets %s\n",
+                role == PS3_TR_GUEST ? "guest" : "host", name ? name : "", (unsigned long)GetCurrentThreadId(),
+                r == CPL_ROLE_RENDER ? "render (fast)" : "background (slow)", (unsigned long)s_cpl_n[r], ok ? "ok" : "FAIL");
+}
+
+/* CPUID core type of every logical processor (cpl_core_type): the calling thread visits each one. */
+static void cpl_probe_types(const SYSTEM_CPU_SET_INFORMATION* const* sets, cpl_lp* lp, int n)
+{
+    int r[4];
+    __cpuid(r, 0);
+    const unsigned max_std = (unsigned)r[0];
+    const int amd = r[1] == 0x68747541 && r[3] == 0x69746E65 && r[2] == 0x444D4163;   /* "AuthenticAMD" */
+    __cpuid(r, (int)0x80000000);
+    const unsigned max_ext = (unsigned)r[0];
+    for (int i = 0; i < n; i++) {
+        ULONG id = sets[i]->CpuSet.Id;
+        if (!SetThreadSelectedCpuSets(GetCurrentThread(), &id, 1)) continue;
+        PROCESSOR_NUMBER pn;
+        int there = 0;
+        for (int k = 0; k < 200 && !there; k++) {
+            SwitchToThread();
+            GetCurrentProcessorNumberEx(&pn);
+            there = pn.Group == sets[i]->CpuSet.Group && pn.Number == sets[i]->CpuSet.LogicalProcessorIndex;
+            if (!there) Sleep(0);
+        }
+        if (!there) continue;
+        unsigned l1a[4] = { 0, 0, 0, 0 }, l26[4] = { 0, 0, 0, 0 }, l7d = 0;
+        if (max_std >= 7) { __cpuidex(r, 7, 0); l7d = (unsigned)r[3]; }
+        if (max_std >= 0x1A) { __cpuidex(r, 0x1A, 0); for (int k = 0; k < 4; k++) l1a[k] = (unsigned)r[k]; }
+        if (amd && max_ext >= 0x80000026u) { __cpuidex(r, (int)0x80000026u, 0); for (int k = 0; k < 4; k++) l26[k] = (unsigned)r[k]; }
+        lp[i].ctype = cpl_core_type(amd, max_std, max_ext, l1a, l26, l7d);
+    }
+    SetThreadSelectedCpuSets(GetCurrentThread(), NULL, 0);
+}
+
 static void main_core_setup(void)
 {
     const char* e = getenv("PS3_MAIN_CORE");
-    if (!e || !*e || !strcmp(e, "0")) return;
+    const int main_on = e && *e && strcmp(e, "0") != 0;
+    const int place_on = cpl_mode_on(getenv("PS3_CPU_PLACEMENT"));
+    if (!place_on) fprintf(stderr, "[cpu-place] off\n");
+    if (!main_on && !place_on) return;
     ULONG len = 0;
     GetSystemCpuSetInformation(NULL, 0, &len, GetCurrentProcess(), 0);
     if (!len) { fprintf(stderr, "[main-core] no CPU set information\n"); return; }
@@ -552,7 +610,60 @@ static void main_core_setup(void)
         free(buf); fprintf(stderr, "[main-core] GetSystemCpuSetInformation failed\n"); return;
     }
     int target = -1;
-    if (e[0] == 'c') target = atoi(e + 1);
+    if (place_on) {   /* CPU Thread Placement: fast and slow cores, the main core among the fast ones, the role sets */
+        static cpl_lp clp[CPL_MAX];
+        static const SYSTEM_CPU_SET_INFORMATION* cset[CPL_MAX];
+        static unsigned char fast[CPL_MAX], slow_cores[CPL_MAX];
+        static cpl_plan_t s_plan;
+        struct { ULONG Number, MaxMhz, CurrentMhz, MhzLimit, MaxIdleState, CurrentIdleState; } ppi[256];
+        const DWORD nlp = GetActiveProcessorCount(0);
+        const int have_mhz = nlp && nlp <= 256 &&
+            CallNtPowerInformation(ProcessorInformation, NULL, 0, ppi, (ULONG)(sizeof ppi[0] * nlp)) == 0;
+        int n = 0;
+        for (ULONG off = 0; off < len && n < CPL_MAX;) {
+            const SYSTEM_CPU_SET_INFORMATION* c = (const SYSTEM_CPU_SET_INFORMATION*)(buf + off);
+            if (c->Type == CpuSetInformation) {
+                const unsigned li = c->CpuSet.LogicalProcessorIndex;
+                cset[n] = c;
+                clp[n].core = c->CpuSet.CoreIndex;
+                clp[n].eff = c->CpuSet.EfficiencyClass;
+                clp[n].mhz = have_mhz && c->CpuSet.Group == 0 && li < nlp ? (unsigned)ppi[li].MaxMhz : 0u;
+                clp[n].ctype = 0;
+                n++;
+            }
+            off += c->Size;
+        }
+        cpl_probe_types(cset, clp, n);
+        const char* sl = getenv("PS3_CPU_SLOW_CORES");
+        const int nsl = sl && *sl ? cpl_parse_cores(sl, slow_cores, CPL_MAX) : 0;
+        const int method = cpl_classify(clp, n, nsl ? slow_cores : NULL, fast);
+        int nfast = 0;
+        for (int i = 0; i < n; i++) nfast += fast[i];
+        for (int i = 0; i < n; i++)
+            fprintf(stderr, "[cpu-place] cpu %d: core %d, efficiency class %d, max %u MHz, CPUID type %s -> %s\n", i,
+                    clp[i].core, clp[i].eff, clp[i].mhz,
+                    clp[i].ctype == 1 ? "performance" : clp[i].ctype == 2 ? "efficiency" : "unknown",
+                    method == CPL_UNIFORM ? "uniform" : fast[i] ? "FAST" : "slow");
+        if (main_on) target = e[0] == 'c' ? atoi(e + 1) : cpl_pick_main(clp, n, fast);
+        cpl_plan(clp, n, fast, method, main_on ? target : -1, &s_plan);
+        for (int r = 0; r < CPL_ROLES; r++) {
+            s_cpl_n[r] = 0;
+            if (s_plan.count[r])
+                for (int i = 0; i < n; i++) if (s_plan.in[r][i]) s_cpl_ids[r][s_cpl_n[r]++] = cset[i]->CpuSet.Id;
+        }
+        fprintf(stderr, "[cpu-place] auto: %s (%d fast of %d logical processors); main core %d; sets: main %lu, render %lu, "
+                "workers %lu, background %lu (0 = process default)\n", cpl_method_name(method), nfast, n, target,
+                (unsigned long)s_cpl_n[CPL_ROLE_MAIN], (unsigned long)s_cpl_n[CPL_ROLE_RENDER],
+                (unsigned long)s_cpl_n[CPL_ROLE_WORKER], (unsigned long)s_cpl_n[CPL_ROLE_BACKGROUND]);
+        g_ps3_thread_role_hook = cpl_role_hook;
+        if (!main_on) {   /* no reserved core: only the main thread on the fast cores */
+            if (s_cpl_n[CPL_ROLE_MAIN]) SetThreadSelectedCpuSets(GetCurrentThread(), s_cpl_ids[CPL_ROLE_MAIN], s_cpl_n[CPL_ROLE_MAIN]);
+            free(buf);
+            return;
+        }
+    }
+    if (target >= 0) {}
+    else if (e[0] == 'c') target = atoi(e + 1);
     else {   /* default: the fastest core (main_core_pick.h) */
         struct { ULONG Number, MaxMhz, CurrentMhz, MhzLimit, MaxIdleState, CurrentIdleState; } ppi[256];
         const DWORD nlp = GetActiveProcessorCount(0);   /* group 0: the processors CallNtPowerInformation reports */
@@ -612,6 +723,7 @@ extern "C" void __llvm_profile_reset_counters(void);
 
 static DWORD WINAPI frame_clock(LPVOID)
 {
+    ps3_thread_role(PS3_TR_RENDER, "frame-clock");   /* CPU Thread Placement: the fast cores (cpu_placement.h) */
     const char* title = getenv("PS3_TITLE");
     if (!title || !*title) title = "Motorstorm: Pacific Rift";
 
@@ -931,6 +1043,19 @@ extern "C" float mspr_dist_f(int kind, float v)
     static int group = -1;
     if (kind < 0 || kind > 4) return v;
     if (kind == 1) group = (int)(n_group++ % 5);
+    /* Opponent Detail (Performance page): MSPR_VEH_LOD_BIAS is added to the "vehicle" group's lodBias (group 3: the other
+     * cars and their wrecks; the player's own car is the "player" group) and MSPR_VEH_CULL_SCALE multiplies its two
+     * cull thresholds. The game's own 2- and 4-viewport entries raise that bias to 1.5 and 2.7 and its cull to 0.02. */
+    if (group == 3 && kind >= 1 && kind <= 3) {
+        const char* ve = getenv(kind == 1 ? "MSPR_VEH_LOD_BIAS" : "MSPR_VEH_CULL_SCALE");
+        if (ve && *ve) {
+            const float x = (float)atof(ve);
+            const float r = kind == 1 ? v + x : v * x;
+            fprintf(stderr, "[mspr-dist] %s kind %d group 3 (vehicle): %g -> %g\n",
+                    kind == 1 ? "MSPR_VEH_LOD_BIAS" : "MSPR_VEH_CULL_SCALE", kind, v, r);
+            return r;
+        }
+    }
     const char* e = getenv(name[kind]);
     if (!e || !*e) return v;
     if (kind >= 1 && kind <= 3 && !mspr_dist_group_on(group)) {
@@ -943,6 +1068,124 @@ extern "C" float mspr_dist_f(int kind, float v)
     if (logged[kind]++ < 16)
         fprintf(stderr, "[mspr-dist] %s kind %d group %d: %g -> %g\n", name[kind], kind, group, v, r);
     return r;
+}
+
+/* Performance page: the game's own quality values (launcher/pipeline/lowend_patch_lifted.py; docs/SETTINGS.md).
+ * Each is the game's unless its variable is set, so with none set the game runs as read from its data.
+ * scripts/viewportquality.xml GlobalConfig, through mspr_vq_f / mspr_vq_b at the parser's stores:
+ *   10 variableScalingMin       MSPR_DRS_MIN=<f>    the dynamic resolution floor (0.5 for one player), replaced
+ *   11-14 Particles LodScaleMin/Max, EmissionRateMin/Max   MSPR_FX_SCALE=<f> multiplies (effects density)
+ *   15 ScreenRush ParticleLimitScalar                      MSPR_FX_SCALE multiplies
+ *   16 ScreenRush Rain2Enabled  MSPR_FX_RAIN2=0     off
+ *   17 Debris Enabled           MSPR_DEBRIS=0       the wrecks' loose parts off (the game's own 4-viewport choice)
+ * Configs ms2_GameOptions.cfg, through mspr_gopt (the field each option getter fills; enforced at every present too,
+ * in case the document is read into the fields after the getter registered them):
+ *   particleEmissionScale (float)  MSPR_FX_SCALE multiplies
+ *   enableWheelParticles           MSPR_FX_WHEEL=0 off
+ *   enablePostProcessing           MSPR_POSTFX=0 off
+ *   enableBoostBlur                MSPR_BOOST_BLUR=0 off */
+static float mspr_envf(const char* name, float def)
+{
+    const char* e = getenv(name);
+    return e && *e ? (float)atof(e) : def;
+}
+static int mspr_env_off(const char* name)
+{
+    const char* e = getenv(name);
+    return e && e[0] == '0' && !e[1];
+}
+
+extern "C" float mspr_vq_f(int kind, float v)
+{
+    static const char* const nm[] = { "variableScalingMin", "LodScaleMin", "LodScaleMax", "EmissionRateMin",
+                                      "EmissionRateMax", "ParticleLimitScalar" };
+    static int logged[6];
+    if (kind < 10 || kind > 15) return v;
+    float r = v;
+    if (kind == 10) {
+        const float x = mspr_envf("MSPR_DRS_MIN", -1.0f);
+        if (x > 0.0f) r = x < 0.1f ? 0.1f : x > 1.0f ? 1.0f : x;
+    } else {
+        const float k = mspr_envf("MSPR_FX_SCALE", 1.0f);
+        if (k >= 0.0f && k != 1.0f) r = v * (k > 1.0f ? 1.0f : k);
+    }
+    if (r != v && logged[kind - 10]++ < 6)
+        fprintf(stderr, "[mspr-vq] %s: %g -> %g\n", nm[kind - 10], v, r);
+    return r;
+}
+
+extern "C" uint32_t mspr_vq_b(int kind, uint32_t v)
+{
+    static int logged[2];
+    if (kind != 16 && kind != 17) return v;
+    const int off = mspr_env_off(kind == 16 ? "MSPR_FX_RAIN2" : "MSPR_DEBRIS");
+    if (!off || (v & 0xFFu) == 0) return v;
+    if (logged[kind - 16]++ < 6)
+        fprintf(stderr, "[mspr-vq] %s: %u -> 0\n", kind == 16 ? "Rain2Enabled" : "Debris Enabled", v & 0xFFu);
+    return 0;
+}
+
+/* The game option fields mspr_gopt saw, by call site, and what each is held at (enforced: -1 none). */
+static struct { uint32_t lr; const char* name; int is_float; uint32_t field; int want_b; float want_f; } s_gopt[] = {
+    { 0x001BD424u, "particleEmissionScale", 1, 0, -1, -1.0f },
+    { 0x001BF924u, "enableWheelParticles", 0, 0, -1, -1.0f }, { 0x001C0564u, "enableWheelParticles", 0, 0, -1, -1.0f },
+    { 0x001BF614u, "enablePostProcessing", 0, 0, -1, -1.0f }, { 0x001C0254u, "enablePostProcessing", 0, 0, -1, -1.0f },
+    { 0x001BFA74u, "enableBoostBlur", 0, 0, -1, -1.0f },      { 0x001C06B4u, "enableBoostBlur", 0, 0, -1, -1.0f },
+};
+static volatile int s_gopt_any;
+static int s_gopt_relog;   /* corrections logged after registration */
+
+static uint32_t mspr_be32(uint32_t ea) { const uint8_t* p = vm_base + ea; return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
+static void mspr_wbe32(uint32_t ea, uint32_t x) { uint8_t* p = vm_base + ea; p[0] = (uint8_t)(x >> 24); p[1] = (uint8_t)(x >> 16); p[2] = (uint8_t)(x >> 8); p[3] = (uint8_t)x; }
+
+/* Hold each overridden option field at its value; log a change the game made (once per field). */
+static void mspr_gopt_enforce(int log_all)
+{
+    for (auto& o : s_gopt) {
+        if (!o.field) continue;
+        if (o.is_float) {
+            if (o.want_f < 0.0f) continue;
+            uint32_t bits; memcpy(&bits, &o.want_f, 4);
+            const uint32_t cur = mspr_be32(o.field);
+            if (cur != bits) {
+                float was; memcpy(&was, &cur, 4);
+                if (log_all || s_gopt_relog < 8) { s_gopt_relog += !log_all; fprintf(stderr, "[mspr-gopt] %s at 0x%08X: %g -> %g%s\n", o.name, o.field, was, o.want_f, log_all ? "" : " (the game wrote it again)"); }
+                mspr_wbe32(o.field, bits);
+            }
+        } else if (o.want_b >= 0 && vm_base[o.field] != (uint8_t)o.want_b) {
+            if (log_all || s_gopt_relog < 8) { s_gopt_relog += !log_all; fprintf(stderr, "[mspr-gopt] %s at 0x%08X: %u -> %d%s\n", o.name, o.field, vm_base[o.field], o.want_b, log_all ? "" : " (the game wrote it again)"); }
+            vm_base[o.field] = (uint8_t)o.want_b;
+        }
+    }
+}
+
+static void mspr_gopt_tick(void)
+{
+    if (s_gopt_any) mspr_gopt_enforce(0);
+}
+
+extern "C" void mspr_gopt(uint32_t lr, uint32_t field)
+{
+    for (auto& o : s_gopt) {
+        if (o.lr != lr) continue;
+        o.field = field;
+        if (o.is_float) {
+            const uint32_t cur = mspr_be32(field);
+            float v; memcpy(&v, &cur, 4);
+            const float k = mspr_envf("MSPR_FX_SCALE", 1.0f);
+            if (k >= 0.0f && k < 1.0f) o.want_f = (v > 0.0f && v < 100.0f ? v : 1.0f) * k;
+            fprintf(stderr, "[mspr-gopt] %s at 0x%08X (lr 0x%08X): read %g%s\n", o.name, field, lr, v,
+                    o.want_f >= 0.0f ? ", held lower" : "");
+        } else {
+            const char* var = !strcmp(o.name, "enableWheelParticles") ? "MSPR_FX_WHEEL"
+                            : !strcmp(o.name, "enablePostProcessing") ? "MSPR_POSTFX" : "MSPR_BOOST_BLUR";
+            if (mspr_env_off(var)) o.want_b = 0;
+            fprintf(stderr, "[mspr-gopt] %s at 0x%08X (lr 0x%08X): read %u%s\n", o.name, field, lr, vm_base[field],
+                    o.want_b == 0 ? ", held off" : "");
+        }
+        if (o.want_b >= 0 || o.want_f >= 0.0f) { s_gopt_any = 1; mspr_gopt_enforce(1); }
+        return;
+    }
 }
 
 /* Screens (settings.ini "screens", PS3RECOMP_VK_SPAN=2|3; libs/video rsx_multiscreen.h): Hor+ for a window
@@ -1992,6 +2235,9 @@ int main(int argc, char** argv)
     ppu_recomp_register();   /* lifted function table -> address map */
     ps3_load_prx_modules();  /* this game's lifted system PRX, if it has any */
     ppu_hle_init();          /* firmware import NID -> HLE handlers */
+    /* LAN play goes online after boot (the LAN page sets PS3_NET_ONLINE): the host sockets are
+     * registered now and answer as the offline model until then (sysNet.h). */
+    ps3_net_set_switchable(1);
     ppu_sysprx_register();   /* boot-critical CRT */
     ppu_fs_register();       /* cellFs over the game directory */
     dev_skip_intro();        /* PS3_DEV_SKIP_INTRO=1 only */

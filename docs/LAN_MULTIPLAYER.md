@@ -153,3 +153,41 @@ Milestone prerequisites (**BLOCKED** today): the original game must reach a titl
 - `ps3recomp/libs/network/np_psnr.h` (psnr stand-in, PS3_NET_ONLINE/PSNR_SERVER) [existing]
 - `generated/analysis/c38/rv/symbols.txt` (evo::network symbols; provenance unconfirmed) [new]
 - Reference only, not our project: `generated/analysis/t122/src/ps3recomp-c/docs/ONLINE.md` (ideas only; no code copied)
+
+## 7. Update 2026-11-27: what the online flow really needs, and two PCs
+
+Details, runs and proofs: `generated/analysis/lan_menu/RESULTS.md` (private notes).
+
+- **The game's online server is Medius (SCE-RT 3.03), reached before any Matching2 call.** VERIFIED in the game:
+  after the LAN page's HOST, the original flow signs in to NP, gets a ticket, resolves `motorstorm2ps3.online.scee.com`
+  with its own DNS client (UDP to the DNS server cellNetCtl reports) and connects TCP 10071, where it sends an
+  SCE-RT hello carrying the title's X.509 certificate. Matching2 rooms are only the party room after that login.
+  The psnr room server the LAN host starts is unused by this game. A Medius stand-in is the remaining blocker for
+  host/join/race; see the decision in the notes (option D in section 4 excluded PSN emulation; Medius is not PSN).
+- **Fixed on the way** (framework): host sockets switchable at run time (`ps3_net_set_switchable`), cellNetCtl
+  following `PS3_NET_ONLINE`, `PS3_NET_HOST_MAP` (gethostbyname and the title's own DNS queries answered locally
+  for listed names), NP account region, tickets, entitlements, custom-invitation count. (Port) the LAN page's
+  `Lan*` functions are now answered; one browser row per host.
+- **Two instances on one PC:** VERIFIED for the browser: B's FIND A GAME lists A (`HostRacer  Lobby 0/8  0 ms`);
+  Back works. Only one instance per PC can host (TCP 36100 and UDP 36101 are fixed). A joiner needs no fixed port.
+  If a later stage binds P2P sockets in both, give the second instance `PS3_NET_P2P_PORT` (default 3658).
+
+### Two PCs (not run yet)
+
+1. Same subnet (discovery is a UDP broadcast: 255.255.255.255 and each adapter's directed broadcast), and the
+   Windows network profile **Private** on both (Settings > Network > Properties).
+2. Host PC, inbound rules for the game exe (or accept the Windows Firewall prompt for *Private* networks the first
+   time it hosts):
+   ```
+   netsh advfirewall firewall add rule name="MotorStorm LAN discovery" dir=in action=allow protocol=UDP localport=36101 profile=private program="<path>\MotorStormPacificRiftRecomp.exe"
+   netsh advfirewall firewall add rule name="MotorStorm LAN room"      dir=in action=allow protocol=TCP localport=36100 profile=private program="<path>\MotorStormPacificRiftRecomp.exe"
+   netsh advfirewall firewall add rule name="MotorStorm LAN server"    dir=in action=allow protocol=TCP localport=10071 profile=private program="<path>\MotorStormPacificRiftRecomp.exe"
+   ```
+   (10071: the game's own server port, needed once a Medius stand-in listens there; the race transport's ports are
+   not known yet.)
+3. Joining PC: no inbound rule for the browser (answers come back to the query's port). FIND A GAME lists hosts that
+   answered in the last 3.5 s, refreshed every second while the page is open; ping is the round trip of that query.
+4. Each PC its own `playername` (launcher Settings > Multiplayer, or `playername = <name>` in settings.ini): the
+   browser row and the game's NP name. Two PCs with the same name are two players with the same name.
+5. Join sets the game's server name to the host's LAN address (`PS3_NET_HOST_MAP`), so nothing else is configured.
+   A host behind another router (different subnet) is not found by the browser; that case is out of scope.

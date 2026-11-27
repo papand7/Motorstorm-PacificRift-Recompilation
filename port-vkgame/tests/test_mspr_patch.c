@@ -1,4 +1,4 @@
-/* mspr_patch_spec(): unset gives the default list (drs), "none" and an empty
+/* mspr_patch_spec(): unset gives the default list (drs,audiothread), "none" and an empty
  * value give no patches, any other value is used as given.
  *   clang-cl /O2 /I port-vkgame port-vkgame\tests\test_mspr_patch.c && test_mspr_patch.exe */
 #include <stdio.h>
@@ -10,8 +10,8 @@ static int fails;
 
 int main(void)
 {
-    CHECK(!strcmp(MSPR_PATCH_DEFAULT, "drs"));
-    CHECK(!strcmp(mspr_patch_spec(NULL), "drs"));
+    CHECK(!strcmp(MSPR_PATCH_DEFAULT, "drs,audiothread"));
+    CHECK(!strcmp(mspr_patch_spec(NULL), "drs,audiothread"));
     CHECK(!strcmp(mspr_patch_spec("none"), ""));
     CHECK(!strcmp(mspr_patch_spec(""), ""));
     CHECK(!strcmp(mspr_patch_spec("drs:ab"), "drs:ab"));

@@ -11,7 +11,7 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | key | page | choices (default marked *) | what it drives |
 |---|---|---|---|
 | `display` | Display | Windowed*, Fullscreen | `PS3RECOMP_VK_FULLSCREEN` 0 / 1 |
-| `resolution` | Display | 720p*, 1080p, 1440p, 2160p | `RSX_RES_SCALE` 1, 1.5, 2, 3 |
+| `resolution` | Display | 480p, 720p*, 1080p, 1440p, 2160p | `RSX_RES_SCALE` 0.667, 1, 1.5, 2, 3 (480p: the video-out reports a 480p widescreen TV and the game renders at 720x480; use it with the upscaler) |
 | `vsync` | Display | On (1), Off* (0) | `RSX_PRESENT_INTERVAL`. The port's default is 0 (`k_defaults`): a non-blocking, tear-free present (Vulkan MAILBOX; FIFO on a surface without it). On sets 1, the blocking FIFO present |
 | `dynres` | Display | On, Off* | MSPR patch `drs` when Off (the game's own resolution drops are suppressed) |
 | `screens` | launcher Display (no in-game row: the Display page is full) | Single*, Dual, Triple (or 1, 2, 3) | `PS3RECOMP_VK_SPAN` 2 / 3 (nothing at Single), read at start (restart). One borderless window over two or three side-by-side monitors of the same height and top, or over one NVIDIA Surround / AMD Eyefinity display that wide (`libs/video/rsx_multiscreen.h`). The view is widened by the window's aspect over 16:9 (Hor+, same vertical field; 1.00 lens hook `screens_patch_lifted.py` in `PATCHES_100`); HUD and menus stay 16:9 on the middle monitor (of two: the one the cursor is on at start); frames without a 3D scene (menus, loading, movies) are pillarboxed there. Overrides `display` (the span window is always borderless). The in-game page keeps the line when it rewrites the file. Experimental: see `generated/analysis/multiscreen/RESULTS.md` |
@@ -23,13 +23,21 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | `aniso` | Graphics | Original*, 2x, 4x, 8x, 16x | `PS3_ANISO` |
 | `textures` | Graphics | Off*, On | `RSX_TEX_PACK` = `<exe folder>/textures/pack` (not applied when that folder is missing) |
 | `pbr` | Graphics | Off*, On | `RSX_TEX_PBR` = 1 (needs a pack with PBR maps) |
-| `lod` | Graphics | Low, Original*, High, Ultra | `MSPR_LOD_BIAS` +1 / -1 / -2 and `MSPR_CULL_SCALE` 1.5 / 0.5 / 0.25 (Low: coarser and more culling, faster, more pop-in) (1.00: needs `dist_patch_lifted.py` on the lifted tree; the launcher's lift applies it, with the other hook patches in `launcher/pipeline/lift_motorstorm.py` `PATCHES_100`) |
+| `lod` | Graphics | Lowest, Low, Original*, High, Ultra | `MSPR_LOD_BIAS` +2 / +1 / -1 / -2 and `MSPR_CULL_SCALE` 2.5 / 1.5 / 0.5 / 0.25, and for Lowest `MSPR_SHADOW_RANGE` 120 (the game's 200 m shadow range; `main.cpp` `mspr_dist_f` kind 0) (Lowest and Low: coarser and more culling, a shorter draw distance for scenery and trees, faster, more pop-in; this row is the draw distance setting) (1.00: needs `dist_patch_lifted.py` on the lifted tree; the launcher's lift applies it, with the other hook patches in `launcher/pipeline/lift_motorstorm.py` `PATCHES_100`) |
 | `lighting` | Graphics | Original, Enhanced* | `RSX_LIGHTING` 0 / 1, always set. Enhanced (experimental): new lighting, ambient occlusion, screen-space reflections and tone mapping. Both lightings draw the sun shadows world-fixed (below) |
 | `shadows` | Graphics | On*, Off | `MSPR_NO_SHADOWS` 0 / 1. Off skips the game's own shadow casters (depth-only draws into the 1024x2048 shadow atlas, `rsx_shadow_off.h`), so no shadow map is built (the world-fixed one included). Reflections are not changed. Shown only with Fidelity Original; with Enhanced it is hidden and its value is kept (not written to the environment). |
 | `volfog` | Effects (own page, the fourth hub item) | Off*, On | `RSX_FX_VOLFOG` 0 / 1, read at start (restart). Volumetric fog in the scene pass. Enhanced only: with Fidelity Original the row stays on the page, reads "(needs Fidelity Enhanced)", and sets nothing. The launcher lists it under Graphics. |
 | `ruts` | Effects (second row) | Off*, On | `RSX_FX_RUTS` 0 / 1, read at start (restart). Wheel ruts in the scene pass, only where the game lays its own tyre tracks (none in the air). Enhanced only, as `volfog`. The launcher lists it under Graphics. |
 | `fxquality` | Effects (third row) | Full*, Light, Minimal | `RSX_FX_QUALITY` 0 / 1 / 2, read at start (restart). Light: no ambient occlusion and no light shafts; Minimal: also no screen-space sun shadows. An effect's own variable (`RSX_FX_AO`, `RSX_FX_SHAFTS`, `RSX_FX_SSSHADOW`) wins. Enhanced only, as `volfog`. |
 | `particles` | Effects (fourth row) | Off, Low, High* | `RSX_FX_PARTICLES` 0 / 1 / 2, read at start (restart), set at the default too (the port draws none with the variable unset). Extra Particles: dust, mud clods and water spray kicked up by the wheels where they touch the game's tracked ground, with bursts on landings and hard turns, none from wheels in the air (`ps3recomp-vkgame/libs/video/rsx_particles.h`). An added layer over the Enhanced scene pass, coloured from the ground at the contact point; the game's own particles are unchanged. Low: fewer and a smaller pool. Enhanced only, as `volfog`: with Fidelity Original nothing is set and none are drawn. The launcher lists it under Graphics. |
+| `shadowq` | Performance (first row) | High*, Medium, Low | `RSX_SHADOW_TILES_RES` 4096 / 3072 (High: the exe's 6144 host texels = 768 m of 0.125 m texels; 4096 = 512 m, 3072 = 384 m, all past the game's own 300 m fade), and for Low also `RSX_SHADOW_TILES_PCF` 0 (one compare, hard edges) and `RSX_SHADOW_TILES_STATIC` 0 (no stored layer: 288 MB less video memory). Restart. Each variable set in the environment wins on its own |
+| `texq` | Performance | Full*, Half, Quarter | `RSX_TEX_DROP_MIPS` 1 / 2 (restart; `ps3recomp-vkgame/libs/video/rsx_draw_engine.c` `eng_tex_drop_levels`): a mipmapped 2D game texture of at least 128 texels on its short side is created without its 1 or 2 finest levels (a quarter or a sixteenth of its memory; the finest level kept is at least 32 texels). Unmipmapped textures (render-target copies, lookup tables, video frames), cubes, volumes and texture pack replacements are never changed. Log: `[tex-drop]` |
+| `fxdensity` | Performance | Full*, Reduced, Low, Minimal | `MSPR_FX_SCALE` 0.6 / 0.35 / 0.3, and `MSPR_FX_RAIN2` 0 for Low and Minimal, `MSPR_FX_WHEEL` 0 for Minimal (restart). The game's own particle levels, scaled where it reads them (`launcher/pipeline/lowend_patch_lifted.py`, `main.cpp` `mspr_vq_f`, `mspr_gopt`): `scripts/viewportquality.xml` Particles LodScaleMin/Max and EmissionRateMin/Max and ScreenRush ParticleLimitScalar, and `ms2_GameOptions.cfg` particleEmissionScale; Rain2Enabled (the screen rain layer, off in the game's 2- and 4-player entries) and enableWheelParticles (the wheels' dust and mud). 0.6 and 0.35 are about the game's own 2- and 4-player values. Logs: `[mspr-vq]`, `[mspr-gopt]` |
+| `oppdetail` | Performance | Full*, Reduced, Low | `MSPR_VEH_LOD_BIAS` +1.5 / +2.7 and for Low `MSPR_VEH_CULL_SCALE` 1.33 (restart): viewportquality.xml's "vehicle" group (the other cars and their wrecks; the player's own car is the "player" group and keeps its values), the game's own 2- and 4-player values. `main.cpp` `mspr_dist_f`, through the `lod` hooks (`dist_patch_lifted.py`). Log: `[mspr-dist] ... group 3 (vehicle)` |
+| `drsfloor` | Performance | 50% (Original)*, 40%, 33% | `MSPR_DRS_MIN` 0.4 / 0.33 (restart): viewportquality.xml ViewportScaling variableScalingMin, the lowest scale the game's own dynamic resolution may use (0.5 for one player). Used only with `dynres = On`: with Off it reads "(needs Dynamic Resolution On)" and sets nothing (`pcs_row_unused`). Log: `[mspr-vq] variableScalingMin` |
+| `debris` | Performance | On*, Off | `MSPR_DEBRIS` 0 (restart): viewportquality.xml Debris Enabled, the loose parts that fly off wrecks (the game's `debris_ms2` set: bolts, panels), off in the game's own 4-player entry. **Changes the gameplay feel** (no loose parts to hit or drive over); the info line says so. Log: `[mspr-vq] Debris Enabled` |
+| `boostblur` | Performance | On*, Off | `MSPR_BOOST_BLUR` 0 (restart): `ms2_GameOptions.cfg` enableBoostBlur, the radial blur while boosting (the motion blur is the Graphics page's `motionblur`). Log: `[mspr-gopt] enableBoostBlur` |
+| `framegen` | Performance (eighth row); the launcher lists it under Upscaling | Off*, Light, On | `RSX_FRAMEGEN` light / 1, read at start (restart); Off sets nothing. One generated frame between two real ones (see "Frame generation" below). Light: the port's own motion-vector interpolation (`ps3recomp-vkgame/libs/video/vulkan/rsx_vk_fg.comp`); On: AMD FSR 3.1 frame generation (`amd_fidelityfx_framegeneration_vk.dll`, FidelityFX SDK 2.4.0 signed runtime, AMD's licence: `THIRD_PARTY_LICENSES.md`). Both need `fsrmode = FSR 3.1` with `fsr` not Off, and `hdr = Off`; the row does not change those, and without them the renderer presents as before and logs why. |
 | `prompts` | Graphics | Keyboard*, Controller, Auto | `MSPR_PROMPTS` keyboard / controller / auto: the game's button icons redrawn as key caps of the first key bound to each button (port `pc_prompts.h`); Auto shows keys unless a gamepad or wheel is connected. Applied at once, also after a rebind |
 | `wheelmode` | Racing Wheel | Auto*, Any Device, Off | `PAD_WHEEL` auto / any / off. Applied at once (no restart) |
 | `wheelrange` | Racing Wheel | Device, 180 deg, 270 deg*, 360 deg, 540 deg, 720 deg, 900 deg | `PAD_WHEEL_RANGE`: wheel rotation, lock to lock, that gives the full stick |
@@ -39,12 +47,53 @@ The port **owns** the file: the in-game page rewrites all of it on every change 
 | `wheelpedaldir` | Racing Wheel | Auto*, Normal, Inverted | `PAD_WHEEL_PEDAL_DIR` |
 | `wheelffb` | Racing Wheel | Off*, Centering, Rumble, Both | `PAD_WHEEL_FFB` (off by default) |
 | `wheelffbstrength` | Racing Wheel | 20%, 40%, 60%*, 80%, 100% | `PAD_WHEEL_FFB_STRENGTH` (the device's overall gain) |
+| `audiothread` | launcher Performance (no in-game row: the Performance page is full) | On*, Off | On keeps `audiothread` in the `MSPR_PATCH` list (the default list has it): the game's audio update runs on its own guest thread, joined at the frame's flip (`port-vkgame/audio_thread.cpp`; 1.00 call site 0x000829D4, `mspr_patch_lifted.py`). Off takes it out (`pc_settings.h` `pcs_mspr_drop`), read at start (restart). A set `MSPR_PATCH` wins. See `generated/analysis/cpu_placement/RESULTS.md` |
+| `threadplace` | launcher Performance (no in-game row) | Off*, Auto | Auto sets `PS3_CPU_PLACEMENT=auto` (unless set), read at start (restart): on a CPU with fast and slow cores (Ryzen AI Zen 5 + Zen 5c, Intel P + E cores) the guest main thread keeps a fast core of its own, the render threads the other fast cores, and the audio-mix, background shader, file, movie, pad and network threads the slow cores (`port-vkgame/cpu_placement.h`). No change on a CPU whose cores are all alike. `PS3_CPU_SLOW_CORES=<core list>` names the slow cores by hand. See `generated/analysis/cpu_placement/RESULTS.md` |
 | `unlockvehicles` | launcher Cheats tab | Off*, On | every vehicle class and ticket counts as unlocked (`mspr_unlock_vehicles_on`, read at start; the first version's key `unlockall` is read when this one is absent). Saves are not changed |
 | `unlocktracks` | launcher Cheats tab | Off*, On | every track passes the Free Play track-list filter (`mspr_unlock_tracks_on`, read at start). The Festival and Time Trial lists are not covered |
+| `playername` | launcher Settings > Multiplayer (no in-game row: the page has choice rows only) | free text: 3 to 16 letters, digits, `-` or `_`, starting with a letter (a PSN online ID's rules); no line = none* | the name other players see. Read at start (`pc_settings.h` `pcs_player_name`): sets `PS3_NP_ONLINE_ID` (sceNp GetNpId / GetOnlineName / GetOnlineId, the name the game's own online pages and the LAN room server's member list carry, `libs/network/np_psnr.c`; also the name in the LAN browser instead of the computer name, `lan_play.cpp`) and `PS3_USER_NAME` (the system user name, `libs/system/cellUserInfo.c`, "User" without it), each unless already set. An empty or invalid value sets nothing (today's defaults: "PS3Player" offline). With a name, the runtime also derives the console's open PSID and MAC from it (`lv2_register.c` `open_psid`, `cellNetCtl.c`), as it does for `PS3_NP_ONLINE_ID`, so two players are two consoles. The launcher refuses an invalid name with a message; the in-game page keeps the line when it rewrites the file. See `generated/analysis/player_name/RESULTS.md` |
 
 Sun shadows are world-fixed in both lightings, with no row: `RSX_SHADOW_TILES=1` is a default of the executable (`k_defaults`, port-vkgame/main.cpp) and of the launcher (`PLAY_ENV`). The game's casters are drawn into one shadow map fixed in the world (0.125 m texels, 512 m round the camera), so a shadow depends only on the sun and its casters, not on the camera (`ps3recomp-vkgame/libs/video/rsx_shadow_tiles.h`). `RSX_SHADOW_TILES=0` in the environment gives the game's own camera-following cascades; it is for testing only.
 
 **Upscaler mode (`fsrmode`)** sets its variable at its default too. The default is FSR 1, as the launcher's (`launcher/electron/settings.js`), so the exe sets `RSX_FSR_MODE=1`. FSR 3.1 needs AMD's two DLLs beside the exe; without them that choice is not applied and the port runs FSR 1 (the page shows "FSR 3.1 (No FSR3 DLL)"). The mode only matters when `fsr` is not Off.
+
+## Frame generation
+
+`framegen` (`RSX_FRAMEGEN`, `ps3recomp-vkgame/libs/video/rsx_vk_framegen.h`) shows one generated frame between two real
+ones: 30 real frames a second are shown as 60. It does not make the game run faster: the simulation, the input and the
+physics stay at the Frame Rate setting.
+
+- **Needs** the FSR 3.1 upscaler (its motion vectors, depth and camera): Upscaler FSR 3.1 with a quality (not Off), and HDR
+  Off. Menus, loading screens and videos have no 3D scene: they are shown as before, without generated frames.
+- **Light** is the port's own pass over the motion vectors (measured 0.06 ms of GPU a generated frame at 1707x960 on an
+  RTX 5060); it ghosts more at the edges of moving objects and what the camera reveals. **On** is AMD FSR 3.1 frame
+  generation (optical flow plus the motion vectors): better edges, about 2-3 ms of GPU a generated frame at 1707x960 on the
+  same GPU and about 90-100 MB more video memory (the context reports 98 MB at 1707x960).
+- **Latency:** a real frame is shown half a real frame later than without generation (about 17 ms at 30 FPS, 11 ms at 45),
+  plus the generation's GPU time. The generated frame only shows motion between two frames the game already drew.
+- **HUD:** the game draws the HUD into the same image. The port copies the frame before its first HUD draw, finds the HUD
+  where the frame differs from that copy, and shows the real frame's pixels there, so the HUD is not interpolated (no
+  ghosting; it updates at the real rate). `RSX_FRAMEGEN_UI=0` turns this off.
+- **V-Sync Off (default, MAILBOX):** the port paces the two frames itself (the real frame half an interval after the
+  generated one); best on a VRR (G-Sync / FreeSync) display. **V-Sync On (FIFO):** every present waits for a refresh, so
+  twice the frame rate must fit the refresh rate (30 FPS on a 60 Hz display); a higher rate queues presents and slows the
+  game.
+- Diagnostics: `[framegen]` lines every 10 s in the log (shown frames, real and generated counted apart, step evenness, the
+  real frame's hold, GPU time); `RSX_FRAMEGEN_PACE=0`, `RSX_FRAMEGEN_DEBUG=1`, `RSX_FRAMEGEN_SHOTS=<dir>`
+  (`generated/analysis/framegen/RESULTS.md`).
+
+## Performance page (opt-in, for small GPUs and handhelds)
+
+The in-game page `options-pcp` (fifth hub item) and the launcher's Performance card. Every row's default is today's look
+and sets nothing; nothing is chosen for the player. The launcher's **Low-end preset** button only fills the page (and Level of detail Lowest,
+Dynamic Resolution On, Effects quality Minimal, Extra particles Off, Volumetric fog Off); it is saved only with Save settings.
+All rows use the game's own values where the game has them (its viewportquality.xml entries for 2 and 4 players, its
+options file), hooked where the game reads them (`launcher/pipeline/lowend_patch_lifted.py`, in `PATCHES_100`; players
+need Install > Build once). Not offered, because the game has no own control for them (no logic was rewritten):
+foliage density (grass and bushes are scenery meshes, no instance or density value; the draw distance covers them),
+a lower AI update rate for distant cars (no AI LOD or update distance in `data/ai/*` or the options), depth of field
+(the game has none) and a bloom switch (the game's only switch, enablePostProcessing, turns off all post-processing; the
+port's `RSX_BLOOM_SCALE` only changes the look and saves no time). Measured effects: `generated/analysis/lowend_opts/RESULTS.md`.
 
 ## Racing wheels (Thrustmaster, Logitech and other DirectInput wheels)
 
@@ -127,6 +176,7 @@ A choice whose feature is missing is kept in the file but not applied, and the p
 |---|---|---|
 | `textures = On`, `pbr = On` | `<exe>/textures/pack` (or `RSX_TEX_PACK`) is not a folder | No pack |
 | `fsrmode = FSR 3.1` | `amd_fidelityfx_loader_vk.dll` not beside the exe (or in `RSX_FSR3_DIR`); the port then runs FSR 1 | No FSR3 DLL |
+| `framegen = On` | `amd_fidelityfx_framegeneration_vk.dll` not beside the exe (or in `RSX_FSR3_DIR`). Light needs no DLL | No FSR3 FG DLL |
 
 ## Speed options the launcher sets (not in settings.ini)
 
@@ -156,7 +206,7 @@ Status of the items, as the launcher has them now:
 5. **Generate the PC Settings pages on the player's PC** (never ship them). Tool: **`tools/pcmenu/make_pcmenu.py`** (public source; its five reader modules `page.py actions.py widgets.py coverage.py pack.py` sit in the same folder, no other dependency). Run after install and after every game or exe update:
    `py -3 tools/pcmenu/make_pcmenu.py --psarc <game>/PS3_GAME/USRDIR/MS2.PSARC --out <MotorStorm folder>/pcmenu`
    - Inputs: the retail pages `/gui/options.gui` and `/gui/options-controls.gui`, extracted from `MS2.PSARC` by the tool itself (archive table of contents and two members); and `port-vkgame/pc_pages.h` and `pc_settings.h` (the page table and the setting count; pass `--port <folder>` if the launcher ships them elsewhere). Alternative input: `--gui <folder>` with the two extracted pages.
-   - Outputs: `pcmenu/gui/{optionz,options-pc,options-pcd,options-pcg,options-pcw,options-pcf,options-pck1,options-pck2,options-pck3}.gui` (the hub holds seven items: Display, Graphics, Racing Wheel, Effects and the three key pages; Display and Upscaling share one page) and `pcmenu/pcmenu.json` (the hashes of inputs and outputs). The pages are game data: the output stays on the player's PC.
+   - Outputs: `pcmenu/gui/{optionz,options-pc,options-pcd,options-pcg,options-pcw,options-pcf,options-pcp,options-pck1,options-pck2,options-pck3}.gui` (the hub holds eight items: Display, Graphics, Racing Wheel, Effects, Performance and the three key pages; Display and Upscaling share one page) and `pcmenu/pcmenu.json` (the hashes of inputs and outputs). The pages are game data: the output stays on the player's PC.
    - Regenerate when the exe, `pc_pages.h`, `pc_settings.h` or the tool changes (`pcmenu.json` says which).
    - Exit code 0 means every page re-walked clean. If the folder is missing the game shows the retail Options page and `settings.ini` still applies.
    - Needs Python 3. `--psarc` needs nothing from the game but that one file.
@@ -171,4 +221,5 @@ Status of the items, as the launcher has them now:
 - VERIFIED (simulated samples only, no wheel: `ps3recomp-vkgame/libs/input/tests/test_pad_wheel.c` and the wheel rows in `tests/test_pc_settings.c`; `port-wheel/tools/build_wheel_tests.cmd`): the steering range, deadzone, curve and invert arithmetic; pedal calibration, auto-detected direction, inverted pedals, combined mode; the hat to d-pad; the profile choice by VID/PID and device ranking; `settings.ini` wheel.* parse and write; the force feedback level caps and ramps; the eight wheel rows agree with the mapping's tables; `cellPad.c` with the wheel code still passes the XInput `test_pad_trigger_getdata`.
 - VERIFIED (build only): `pad_wheel_dinput.h`, `wheel_probe.exe` and `pc_menu.cpp` compile. The probe finds no DirectInput controller on the development PC (no Thrustmaster or Logitech device is attached).
 - NOT VERIFIED on a real wheel: everything that needs one: the axis and button layouts above, the PIDs from memory, the DirectInput open/acquire/hot-plug path, the force feedback effects, the T300's mode-dependent layout, the feel of the default range (270 deg) and curve. NOT VERIFIED in the running game: that the generated Racing Wheel page loads, and that a wheel drives a car.
+- VERIFIED (unit tests): `playername` parse, rules, "a set variable wins" and the two variables (`tests/test_pc_settings.c`); the launcher's check, save, removal and read-back (`launcher/electron/test_settings.js`); `PS3_USER_NAME` in `cellUserInfoGetStat` (`ps3recomp-vkgame/libs/system/tests/test_userinfo_name.c`). In the game: see `generated/analysis/player_name/RESULTS.md`.
 - NOT VERIFIED in the running game: that the generated pages load, that the rows react, that a key capture works with the real keyboard, MSPR live toggles, settings after a restart, RT and FSR availability text, the default keys in play. See `generated/analysis/pcmenu/RESULTS.md` for the walk to do.

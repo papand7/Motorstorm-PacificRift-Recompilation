@@ -13,7 +13,8 @@ static lanb_answer ans(const char* name, uint16_t port, uint8_t pl, uint8_t mx, 
     memset(&a, 0, sizeof a);
     a.ver = LANB_VERSION;
     a.sent_ms = sent;
-    a.session = 0x1122334455667788ull;
+    a.session = 0x1122334455667700ull ^ port;   /* one host: its name and room port */
+    for (const char* c = name; *c; c++) a.session = a.session * 131u + (uint8_t)*c;
     a.room_port = port;
     a.players = pl;
     a.max = mx;
@@ -94,6 +95,21 @@ int main(void)
     CHECK(lanb_expire(&l, 1004 + LANB_EXPIRE_MS) == 1);
     CHECK(l.n == 3);
     for (int i = 0; i < l.n; i++) CHECK(strcmp(l.e[i].a.name, "Amy"));
+    /* one host heard on two paths (this PC: the loopback query and the broadcast): one entry, by session,
+     * and the LAN address kept whichever arrives first (Klp1b listed a host on this PC twice) */
+    {
+        lanb_list d;
+        lanb_reset(&d, 9);
+        const uint8_t lo[4] = { 127, 0, 0, 1 }, lan[4] = { 192, 168, 1, 50 };
+        lanb_answer h = ans("Host", LANB_ROOM_PORT, 0, 8, 100);
+        CHECK(lanb_add(&d, lo, &h, 101) == 0);
+        CHECK(lanb_add(&d, lan, &h, 102) == 0);
+        CHECK(d.n == 1 && !memcmp(d.e[0].ip, lan, 4));
+        CHECK(lanb_add(&d, lo, &h, 103) == 0);
+        CHECK(d.n == 1 && !memcmp(d.e[0].ip, lan, 4) && d.e[0].seen_ms == 103);
+        lanb_answer o = ans("Other", LANB_ROOM_PORT, 0, 8, 100);   /* another host on the same PC: its own row */
+        CHECK(lanb_add(&d, lo, &o, 104) >= 0 && d.n == 2);
+    }
     /* clock wrap: a 32-bit millisecond clock that wrapped still gives the right ping and age */
     lanb_reset(&l, 2);
     a = ans("Wrap", LANB_ROOM_PORT, 1, 2, 0xFFFFFFF0u);
@@ -105,6 +121,7 @@ int main(void)
     for (int i = 0; i < LANB_MAX + 2; i++) {
         uint8_t ip[4] = { 10, 0, 1, (uint8_t)i };
         a = ans("H", LANB_ROOM_PORT, 1, 2, 0);
+        a.session = (uint64_t)i + 1;            /* a different host each */
         const int r = lanb_add(&l, ip, &a, 1);
         CHECK(i < LANB_MAX ? r >= 0 : r == -1);
     }

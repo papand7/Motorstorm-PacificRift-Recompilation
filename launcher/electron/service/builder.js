@@ -3,6 +3,7 @@
 //   game      the player's disc (image or folder: its title, the helper for the files)
 //   elf       the player's own decrypted EBOOT.elf of 1.00 (required): chosen by
 //             the player, checked by SHA-256 (game.json). Nothing is decrypted here; the files stay where they are.
+//             (Or, at the player's request, made by "Decrypt automatically": autoDecrypt below, autodecrypt.js.)
 //   files     the game's files copied out of a disc image (a folder is read where it is)
 //   tools     clang, CMake, Ninja, Python, the Microsoft C++ libraries and Windows SDK, the Vulkan headers and
 //             glslang/SPIRV-Tools sources: each pinned by SHA-256 (toolchain.json), and DXC and FSR 3.1 for run time
@@ -191,6 +192,46 @@ class Builder {
     cancel() {
         if (this.abort) this.abort.abort();
         killAll();
+    }
+
+    // "Decrypt automatically" (autodecrypt.js): only after the player confirmed in the window (cmd.confirmed). RPCS3 is
+    // downloaded into a temporary folder, decrypts a copy of the chosen disc's EBOOT.BIN and is removed again; an
+    // EBOOT.elf with the known SHA-256 is kept in decrypted\EBOOT.elf and used as if the player had chosen it.
+    async autoDecrypt(cmd = {}) {
+        if (this.busy) return this.sendState();
+        if (cmd.confirmed !== true) {
+            this.ok = false; this.message = 'Automatic decryption needs your confirmation first: nothing was downloaded.';
+            return this.sendState();
+        }
+        if (!this.discInfo || !this.discInfo.ok) await this.scan();
+        if (!this.discInfo || !this.discInfo.ok) {
+            this.ok = false; this.message = 'Choose your game disc first (step 01): its EBOOT.BIN is what gets decrypted.';
+            return this.sendState();
+        }
+        this.busy = true; this.message = null; this.ok = null; this.stepId = null;
+        this.abort = new AbortController();
+        this.sendState();
+        try {
+            const src = await disc.openGame(this.cfg.disc);
+            const r = await require('./autodecrypt').autoDecrypt({
+                src, want: this.discInfo.disc.eboot_elf, dataDir: this.root, out: path.join(this.root, 'decrypted', 'EBOOT.elf'),
+                say: (s, d, f) => this.say(s, d, f), log: l => this.log(l), signal: this.abort.signal, deps: this.autoDecryptDeps || {} });
+            this.cfg.elf100 = r.path; this.elfInfo[100] = null; this.unmark('elf', 'lift', 'build', 'install');
+            this.save();
+            this.ok = true;
+            this.message = `Decrypted with RPCS3 (${r.rpcs3}) and checked: it is the right file. RPCS3 was removed again.`;
+            this.emit({ ev: 'done', ok: true, message: this.message });
+        } catch (e) {
+            this.ok = false;
+            this.message = e.message === 'cancelled' || this.abort.signal.aborted
+                ? 'Stopped. RPCS3 and its temporary folder were removed; nothing was kept.'
+                : e.name === 'AutoDecryptError' ? e.message : `Automatic decryption failed: ${e.message}`;
+            this.log(`autodecrypt failed: ${e.stack || e.message}`);
+            this.emit({ ev: 'done', ok: false, message: this.message });
+        } finally {
+            this.busy = false; this.abort = null;
+            await this.scan();
+        }
     }
 
     async clean(what) {

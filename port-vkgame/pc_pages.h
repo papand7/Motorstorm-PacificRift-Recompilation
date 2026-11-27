@@ -23,9 +23,10 @@ PCP("options-pcd", "Display", 0, 8, "DISPLAY", "Window, resolution, V-Sync, fram
 PCP("options-pcg", "Graphics", 8, 8, "GRAPHICS", "Motion blur, texture filtering and packs, detail, fidelity, shadows and button prompts.")
 PCP("options-pcw", "Racing Wheel", 16, 8, "RACING WHEEL", "Steering range, pedals and force feedback for a racing wheel.")
 PCP("options-pcf", "Effects", 24, 4, "EFFECTS", "Volumetric fog, wheel ruts, effects quality and extra particles. Need Fidelity Enhanced.")
-PCP("options-pck1", "Keyboard: Driving", 28, 8, "DRIVING KEYS", "Choose the keys for driving.")
-PCP("options-pck2", "Keyboard: Buttons", 36, 5, "BUTTON KEYS", "Choose the keys for Circle, L1, R1, Start and Select.")
-PCP("options-pck3", "Keyboard: Arrows", 41, 4, "ARROW KEYS", "Up, Down, Left and Right: menus, the d-pad and driving.")
+PCP("options-pcp", "Performance", 28, 8, "PERFORMANCE", "Lower quality for slower PCs: shadows, textures, effects, other cars, debris; frame generation.")
+PCP("options-pck1", "Keyboard: Driving", 36, 8, "DRIVING KEYS", "Choose the keys for driving.")
+PCP("options-pck2", "Keyboard: Buttons", 44, 5, "BUTTON KEYS", "Choose the keys for Circle, L1, R1, Start and Select.")
+PCP("options-pck3", "Keyboard: Arrows", 49, 4, "ARROW KEYS", "Up, Down, Left and Right: menus, the d-pad and driving.")
 };
 #define PCP_COUNT ((int)(sizeof k_pcp_pages / sizeof k_pcp_pages[0]))
 /* Every key action is on a page: the key rows are ids PCS_COUNT..PCS_COUNT+PCK_COUNT-1. */

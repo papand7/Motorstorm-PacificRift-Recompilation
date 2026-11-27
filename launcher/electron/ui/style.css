@@ -68,7 +68,12 @@ input[data-action] { min-width: 140px; width: 160px; }
 .kv.off b { color: var(--dim); font-weight: 400; }
 .result h3 .when { float: right; color: var(--dim); font-weight: 400; font-size: 12px; }
 .result.bad { border-top-color: var(--bad); }
+.result h4.benchmap { margin: 18px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--accent2); }
 .result details { margin-top: 8px; }
 .result summary { cursor: pointer; color: var(--accent2); font-weight: 600; }
 .settings-used { columns: 2; column-gap: 24px; margin-top: 6px; }
 .settings-used .kv { break-inside: avoid; }
+.row.save { align-items: flex-start; }
+.saveicon { width: 107px; height: 59px; flex: none; border-radius: 4px; background: #2d2117; object-fit: cover; }
+#saves details { margin-top: 12px; }
+#saves summary { cursor: pointer; color: var(--accent2); font-weight: 600; }

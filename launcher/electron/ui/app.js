@@ -53,14 +53,85 @@ async function renderPlay() {
           ${st.installed ? '' : '<button class="ghost" id="goinstall">Install...</button>'}
         </div>
         <div class="msg" id="msg"></div>
-      </div>`;
+      </div>
+      <div class="card" id="saves"></div>`;
     $('#play').onclick = async () => { const r = await L.call('game:play', 'stable'); if (!r.ok) msg(r.message, 'bad'); };
     if ($('#stop')) $('#stop').onclick = () => L.call('game:stop');
     $('#folder').onclick = () => L.call('open', 'folder');
     if ($('#goinstall')) $('#goinstall').onclick = () => show('install');
     game = { running: st.playing };
+    drawSaves(await L.call('saves:info'));
 }
 L.on('game', g => { game = g; if (current === 'play') renderPlay(); });
+
+// ---- Saves (on the Play page): the game's save on this PC, Import save... (a PS3's save copied to USB, or RPCS3's),
+// the backups an import or a restore keeps of the save it replaces
+const KIND = { ps3: 'PS3 console', rpcs3: 'RPCS3', pc: 'PC' };
+let saveMsg = null;   // { text, kind } shown under the card until the next action
+function when(ms) { return ms ? new Date(ms).toLocaleString() : ''; }
+function saveRow(s, extra) {
+    const notes = [];
+    if (s.region) notes.push(`${s.titleId}${s.suffix || ''} (${s.region})`);
+    if (s.kind && s.titleId !== 'BLES00000') notes.push(KIND[s.kind] || s.kind);   // where it came from (not once it is the port's)
+    if (s.profileVersion) notes.push(`profile ${s.profileVersion}${s.profileVersion === 'Beta 3' ? ' (updated game: converted for 1.00)' : ''}`);
+    if (s.encrypted) notes.push(`encrypted: ${s.protected.join(', ')}`);
+    return `<div class="row save">
+      ${s.icon ? `<img class="saveicon" src="${esc(s.icon)}" alt="">` : '<div class="saveicon"></div>'}
+      <label>${esc(s.title || s.dirName)}<small>${esc([s.subtitle, when(s.date)].filter(Boolean).join(' - '))}</small>
+        <small>${esc(notes.join(' - '))}</small>
+        ${s.problems && s.problems.length ? `<small class="status bad">${esc(s.problems.join('; '))}</small>` : ''}</label>
+      ${extra || ''}</div>`;
+}
+function drawSaves(info) {
+    const box = $('#saves');
+    if (!box || !info) return;
+    const busy = info.playing;
+    const main = info.current.filter(s => !s.suffix);
+    box.innerHTML = `
+      <h3>Saves</h3>
+      <p class="fine">Bring your progress from a PS3 (the save copied to a USB stick: PS3\\SAVEDATA) or from RPCS3
+      (dev_hdd0\\home\\00000001\\savedata). Choose the save's folder or a folder above it; saves of other games are skipped.
+      Any region's save works with your disc. The save you replace is kept as a backup.</p>
+      ${main.length ? main.map(s => saveRow(s)).join('') : '<p class="stat">No save on this PC yet: the game makes one when you first play.</p>'}
+      <div class="btns">
+        <button class="act" id="save-import" ${busy ? 'disabled' : ''}>Import save...</button>
+        <button class="ghost" id="save-folder">Open the saves folder</button>
+        ${info.found.some(s => s.encrypted) ? `<button class="ghost" id="save-keys" ${busy ? 'disabled' : ''}>${info.keys ? 'Save tool folder chosen' : 'Choose your save tool folder...'}</button>` : ''}
+      </div>
+      ${info.found.length ? `<h3 style="margin-top:16px">Found</h3>${info.found.map((s, i) => saveRow(s,
+          `<button class="ghost small" data-import="${i}" ${busy || (s.problems && s.problems.length) || (s.encrypted && !info.keys) ? 'disabled' : ''}>Import</button>`)).join('')}
+          ${info.found.some(s => s.encrypted) ? `<p class="fine">A PS3 console's save is encrypted. The launcher carries no PS3 keys: choose the folder
+          of your own save tool (pfdtool or Bruteforce Save Data, with its global.conf and games.conf) and it is decrypted
+          while it is copied. The keys are only read, for this session.</p>` : ''}` : ''}
+      ${info.backups.length ? `<details><summary>Backups (${info.backups.length})</summary>${info.backups.map(b => saveRow(b.save || { title: b.dir },
+          `<span class="fine">${esc(b.reason)} ${esc(new Date(b.at).toLocaleString())}</span>
+           <button class="ghost small" data-restore="${esc(b.name)}" ${busy ? 'disabled' : ''}>Restore</button>`)).join('')}</details>` : ''}
+      <div class="msg${saveMsg ? ' ' + saveMsg.kind : ''}" id="save-msg">${esc(saveMsg ? saveMsg.text : '')}</div>`;
+    saveMsg = null;
+    const after = (r, okText) => {
+        if (!r.ok) { if (r.message) saveMsg = { text: r.message, kind: 'bad' }; L.call('saves:info').then(drawSaves); return; }
+        if (okText) saveMsg = { text: okText(r), kind: 'good' };
+        drawSaves(r);
+    };
+    $('#save-import').onclick = async () => after(await L.call('saves:scan'),
+        r => r.found.length ? `Found ${r.found.length} MotorStorm: Pacific Rift save${r.found.length > 1 ? 's' : ''}.`
+                            : 'No MotorStorm: Pacific Rift save in that folder.');
+    $('#save-folder').onclick = () => L.call('open', 'saves');
+    if ($('#save-keys')) $('#save-keys').onclick = async () => after(await L.call('saves:keys'), () => 'Save tool folder read: encrypted saves can be imported now.');
+    box.querySelectorAll('[data-import]').forEach(b => b.onclick = async () => {
+        const s = info.found[Number(b.dataset.import)];
+        const has = info.current.some(c => c.dirName === s.target);
+        if (has && !confirm(`Replace the game's save on this PC with this one (${s.titleId}${s.suffix || ''}, ${when(s.date)})?\n\n` +
+                            'The save it replaces is kept as a backup (Backups, Restore).')) return;
+        after(await L.call('saves:import', Number(b.dataset.import)),
+              r => `Imported as ${r.result.dir}${r.result.converted.length ? ` (${r.result.converted.join('; ')})` : ''}.` +
+                   `${r.result.backup ? ' The save it replaced is in Backups.' : ''} Press Play: the game loads it when it starts.`);
+    });
+    box.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => {
+        if (!confirm('Put this backup back? The save it replaces is kept as a backup too.')) return;
+        after(await L.call('saves:restore', b.dataset.restore), r => `Restored ${r.result.dir}.`);
+    });
+}
 
 // ---- Install: the player's disc, their decrypted EBOOT.elf files, then the build
 function statusOf(item, okText, emptyText) {
@@ -80,12 +151,14 @@ async function renderInstall() {
           <div class="fine">${label}</div>
           <div>${statusOf(item, () => 'Found, and it is the right file', 'Choose the decrypted EBOOT.elf')}</div>
           <div class="path">${esc(item && item.path)}</div>
-          <div class="btns"><button class="ghost small" id="pick-elf${which}" ${busy ? 'disabled' : ''}>EBOOT.elf...</button></div>`;
+          <div class="btns"><button class="ghost small" id="pick-elf${which}" ${busy ? 'disabled' : ''}>EBOOT.elf...</button>
+            <button class="ghost small" id="auto-elf${which}" ${busy || !(s.disc && s.disc.ok) ? 'disabled' : ''}
+              title="${s.disc && s.disc.ok ? 'Downloads RPCS3, decrypts the EBOOT.BIN of your disc with it, then deletes RPCS3 again' : 'Choose your game disc (step 01) first'}">Decrypt automatically...</button></div>`;
     page.innerHTML = `
       <h2>Install</h2>
       <p class="lead">The game is built on this PC from your own disc and your own console's files: nothing of the game is
-      downloaded or carried by this launcher. The launcher does not decrypt anything: you supply the decrypted program files
-      (EBOOT.elf) of the disc, made from your own console. It checks them by their hashes, translates them to PC code,
+      downloaded or carried by this launcher. You supply the decrypted program file (EBOOT.elf) of the disc, made from your
+      own console, or let the launcher make it from your disc with RPCS3 (Decrypt automatically). It checks it by its hash, translates it to PC code,
       downloads the build tools (each checked by its SHA-256) and builds. The first install takes 30 to 90 minutes.</p>
       <div class="grid">
         <div class="card">
@@ -99,8 +172,9 @@ async function renderInstall() {
         </div>
         <div class="card">
           <h3><span class="num">02</span>Your decrypted EBOOT.elf files</h3>
-          <p class="fine">Each is the program of one release, decrypted from your own console (the launcher does not do it).
-          The file stays where it is: it is read at the build and by the game, never copied elsewhere or sent anywhere.</p>
+          <p class="fine">The program of the disc, decrypted from your own console; or choose Decrypt automatically to have
+          RPCS3 make it from your disc's EBOOT.BIN (it is downloaded for this and deleted afterwards). The file stays where
+          it is: it is read at the build and by the game, never sent anywhere.</p>
           ${elfRow(100, 'The disc\'s program (1.00); also holds the job module the build needs. Required.', s.elf100)}
         </div>
         <div class="card">
@@ -136,6 +210,15 @@ async function renderInstall() {
     $('#pick-iso').onclick = () => pick('iso', 'disc');
     $('#pick-folder').onclick = () => pick('folder', 'disc');
     $('#pick-elf100').onclick = () => pick('elf', 'elf100');
+    $('#auto-elf100').onclick = () => {
+        // nothing is downloaded before the player says yes here (the service also refuses without confirmed: true)
+        if (!confirm('Decrypt automatically?\n\nThis downloads RPCS3, a third-party open-source PS3 emulator (GPL-2.0), ' +
+                     'from its official source (github.com/RPCS3/rpcs3-binaries-win, about 40 MB). It is used only to decrypt ' +
+                     'the EBOOT.BIN of your own disc (a copy; your disc files are not changed), and it is deleted afterwards ' +
+                     'with everything it created. The result is checked by its SHA-256 and kept only if it is the right file.')) return;
+        progress = { step: 'Starting', fraction: -1 };
+        L.command({ cmd: 'autodecrypt', which: 100, confirmed: true });
+    };
     $('#lic').onclick = e => { e.preventDefault(); window.open('https://visualstudio.microsoft.com/license-terms/'); };
     $('#agree').onchange = e => L.command({ cmd: 'set', agreed: e.target.checked });
     $('#install').onclick = () => {
@@ -195,11 +278,25 @@ const NOTES = {
     resolution: 'The internal resolution the game is drawn at', dynres: 'Off keeps the resolution steady (the game\'s own drops are suppressed)',
     framerate: '30 FPS is the original speed and the default; above 30 is experimental (camera, shadow and vehicle glitches)', lighting: 'Fidelity. Original is the game’s own look; Enhanced (experimental) adds new lighting, world-fixed shadows, AO and tone mapping', vsync: 'Off is tear-free and keeps 60 FPS steady', fsrmode: 'FSR 3.1 is sharper (temporal); FSR 1 is the safest',
     shadows: 'Off skips the game’s own shadows for slower machines. Reflections are not changed. Shown with Fidelity Original only',
-    hdr: 'Needs an HDR display', aniso: 'Sharper textures at an angle',
+    hdr: 'Needs an HDR display', framegen: 'Twice the frames shown (30 to 60); the real frame shows about 17 ms later at 30 FPS. Needs Upscaler FSR 3.1 with a quality on and HDR off. Light is cheap with more ghosting; On is AMD FSR 3.1 frame generation. Best with V-Sync Off on a VRR display; with V-Sync On keep twice the frame rate within the refresh rate', aniso: 'Sharper textures at an angle',
     prompts: 'Keys or controller buttons in the game’s prompts; Auto shows keys unless a gamepad or wheel is connected',
     wheelmode: 'Auto uses Thrustmaster and Logitech wheels; a gamepad keeps working', wheelrange: 'Wheel rotation, lock to lock, that gives full steering',
     wheelpedals: 'Combined: throttle and brake share one axis', wheelpedaldir: 'Auto reads the released pedals at start',
     wheelffb: 'Off by default. Centering spring and the game\'s rumble only; takes the wheel exclusively',
+    lod: 'Lowest and Low draw scenery and trees a shorter way out (more pop-in), faster on small GPUs and CPUs',
+    shadowq: 'Size and softness of the sun shadow map. Low: hard edges and no stored layer (288 MB less video memory)',
+    texq: 'Half or Quarter: blurrier game textures and much less video memory. The HD texture pack is not changed',
+    fxdensity: 'Fewer of the game\'s own particles (smoke, dust, spray). Minimal: no dust or mud from the wheels',
+    oppdetail: 'Simpler models for the other cars and wrecks sooner (the game\'s own split-screen values)',
+    drsfloor: 'How low the game\'s dynamic resolution may go when the frame rate falls. Only with Dynamic resolution On',
+    debris: 'Off: no loose parts fly off wrecks, less physics work. Changes the gameplay feel (no debris to hit)',
+    boostblur: 'The game\'s radial blur while boosting (motion blur is the Graphics setting)',
+};
+// The Low-end button (Performance card): fills the page for a handheld or integrated GPU (GPD with Ryzen AI 9 HX 370 /
+// Radeon 890M class); nothing is saved until Save. Measured in generated/analysis/lowend_opts/RESULTS.md.
+const LOW_END = {
+    shadowq: 'Low', texq: 'Half', fxdensity: 'Low', oppdetail: 'Low', debris: 'Off', boostblur: 'Off',
+    dynres: 'On', drsfloor: '40%', lod: 'Lowest', fxquality: 'Minimal', particles: 'Off', volfog: 'Off',
 };
 async function renderSettings() {
     const s = await L.call('settings:load');
@@ -227,9 +324,25 @@ async function renderSettings() {
         <div class="card"><h3>Upscaling</h3>${group('Upscaling')}</div>
       </div>
       <div class="card" style="margin-top:16px"><h3>Graphics</h3>${gfx}</div>
+      <div class="card"><h3>Performance</h3>
+        <p class="fine">Lower quality for slower PCs, handhelds and integrated graphics. Every setting here is off (today's look)
+        until you change it. Read when the game starts.</p>
+        ${group('Performance')}
+        <div class="btns"><button class="ghost small" id="lowend">Low-end preset</button></div>
+        <p class="fine">The Low-end preset fills this page and a few Graphics and Display settings for a handheld or integrated
+        GPU (Radeon 890M class): it turns Wreck debris off (a gameplay-feel change) and Dynamic resolution on. Nothing is saved
+        until you press Save settings.</p></div>
       <div class="card"><h3>Racing wheel</h3>${group('Wheel')}
         <p class="fine">Thrustmaster T300RS and Logitech G25/G27/G29/DFGT are read through DirectInput, beside a gamepad. Axes, pedal calibration and
         button mapping are wheel.* lines in settings.ini: run wheel_probe (--calibrate) to get them. Not tested on real hardware yet.</p></div>
+      <div class="card">
+        <h3>Multiplayer</h3>
+        <div class="row"><label>Player name<small>The name other players see in LAN play (on the PS3 it was your PSN online ID).
+          3 to 16 letters, digits, - or _, starting with a letter. Empty: the game's default name.</small></label>
+          <input type="text" id="player-name" maxlength="16" spellcheck="false" placeholder="PS3Player" value="${esc(s.playerName || '')}"></div>
+        <div class="msg ${s.playerNameError ? 'bad' : ''}" id="player-msg">${esc(s.playerNameError || '')}</div>
+        <p class="fine">Saved to settings.ini and read when the game starts. The game's own PC Settings page does not show it.</p>
+      </div>
       <div class="card">
         <h3>Keyboard controls</h3>
         <p class="fine">Used when no controller is plugged in. One or two keys each, e.g. "W, 2": letters, digits, F1-F24, Num0-Num9,
@@ -252,12 +365,30 @@ async function renderSettings() {
         if (lightingSel.value === 'Original' && !row) lightingSel.closest('.row').insertAdjacentHTML('afterend', shadowsRow());
         else if (lightingSel.value !== 'Original' && row) row.remove();
     };
+    // Low-end preset: only fills the selects (Save writes them); the Shadows row is not touched (Fidelity is left as it is)
+    $('#lowend').onclick = () => {
+        for (const [k, val] of Object.entries(LOW_END)) {
+            const sel = document.querySelector(`select[data-key="${k}"]`);
+            if (sel && [...sel.options].some(o => o.value === val)) sel.value = val;
+        }
+        msg('Low-end preset filled in. Press Save settings to keep it.', 'good');
+    };
+    // Player name: the same rules as settings.js checkPlayerName (it decides on save); told as it is typed
+    const nameMsg = () => {
+        const n = $('#player-name').value.trim(), m = $('#player-msg');
+        const bad = n && !/^[A-Za-z][A-Za-z0-9_-]{2,15}$/.test(n);
+        m.className = 'msg' + (bad ? ' bad' : '');
+        m.textContent = bad ? '3 to 16 letters, digits, - or _, starting with a letter (no spaces or accents).' : '';
+        return !bad;
+    };
+    $('#player-name').oninput = nameMsg;
     let files = null, clearFiles = false;
     $('#save').onclick = async () => {
         const values = {}, keys = {};
         document.querySelectorAll('select[data-key]').forEach(el => { values[el.dataset.key] = el.value; });
         document.querySelectorAll('input[data-action]').forEach(el => { keys[el.dataset.action] = el.value; });
-        const patch = { values, keys };
+        const patch = { values, keys, playerName: $('#player-name').value };
+        if (!nameMsg()) { msg('Not saved: the player name is not valid (see Multiplayer).', 'bad'); return; }
         if (files) patch.files = files;
         if (clearFiles) patch.clearFiles = true;
         const r = await L.call('settings:save', patch);
@@ -309,7 +440,8 @@ async function renderTextures() {
     page.innerHTML = `
       <h2>HD textures</h2>
       <p class="lead">The game saves each texture it draws, then an upscaler makes sharper versions (Real-ESRGAN) with
-      optional physically based maps. Needs Python with numpy and Pillow, once.</p>
+      optional physically based maps. The first time, the launcher downloads what this needs into its own tools folder
+      (numpy, Pillow and Real-ESRGAN, about 65 MB, more if Python is not there yet); after that it works offline.</p>
       <div class="card">
         <h3>Collect all textures</h3>
         <p class="stat" id="dumped">${t.dumped} textures saved so far</p>
@@ -384,8 +516,9 @@ L.on('pack', p => {
 
 // ---- Benchmark: the game runs it with the player's settings, measures it itself, quits, and this page shows its result
 const BENCH_ABOUT = {
-    fly: 'The game\'s own benchmark: a camera flight over Kanaloa Bay, no cars. Only the flight is measured (about 30 seconds); ' +
-         'the still views the game shows after it are not. About a minute in all.',
+    fly: 'The game\'s own benchmark on two maps, one after the other: a camera flight over Happy Jungle, then one over the lava ' +
+         'track Wildfire, no cars. The game starts once for each map. Only the flights are measured; the still views the game ' +
+         'shows after them are not. A few minutes in all.',
     race: 'A 16-car race on Kanaloa Bay. The game\'s own AI drives every car, yours included. 90 seconds of racing are measured, ' +
           'from about 20 seconds after the start. About two and a half minutes in all. Crashes differ from run to run, so its ' +
           'results vary a little more than the fly-through\'s.',
@@ -400,24 +533,34 @@ function benchResultCard(mode, r, info) {
     const sys = [['GPU', r.gpu || 'not reported by the game'], ['CPU', r.cpu || info.host.cpu || '-'],
                  ['Total RAM', gb(r.ram_bytes || info.host.ram_bytes)]];
     const sysRows = sys.map(([k, v]) => `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
-    if (!r.ok) return `
+    const maps = Array.isArray(r.maps) ? r.maps : null;   // fly: each map's own result, then the combined one
+    const tile = (label, v, d) => `<div class="tile"><div class="v">${fmt(v, d)}</div><div class="l">${esc(label)}</div></div>`;
+    const numbers = (x, lows) => `
+        <div class="tiles">${tile('Min FPS', x.fps.min)}${tile('Max FPS', x.fps.max)}${tile('Average FPS', x.fps.avg, 1)}</div>
+        ${lows ? `<div class="kv"><span>1 % low</span><b>${fmt(x.fps.low1, 1)} FPS</b></div>
+        <div class="kv"><span>0.1 % low</span><b>${fmt(x.fps.low01, 1)} FPS</b></div>` : ''}
+        <div class="kv"><span>Measured</span><b>${fmt(x.seconds, 1)} s, ${esc(x.frames)} frames</b></div>`;
+    if (!r.ok && !(maps && maps.some(m => m.ok))) return `
       <div class="card result bad">
         <h3>${esc(title)}: no result <span class="when">${esc(when)}</span></h3>
         ${sysRows}
-        <p class="msg bad">${esc(r.error || 'The benchmark did not finish.')}</p>
+        ${maps ? maps.map(m => `<p class="msg bad">${esc(m.map_name || m.map)}: ${esc(m.error || 'no result')}</p>`).join('')
+               : `<p class="msg bad">${esc(r.error || 'The benchmark did not finish.')}</p>`}
       </div>`;
-    const f = r.fps;
-    const tile = (label, v, d) => `<div class="tile"><div class="v">${fmt(v, d)}</div><div class="l">${esc(label)}</div></div>`;
     const set = (r.settings || []).map(x => `<div class="kv${x.applied === false ? ' off' : ''}"><span>${esc(x.name)}</span>` +
         `<b>${esc(x.value)}${x.applied === false ? ' (not used with this Fidelity)' : ''}</b></div>`).join('');
+    const body = !maps ? numbers(r, true) : maps.map((m, i) => `
+        <h4 class="benchmap">Map ${i + 1}/${maps.length}: ${esc(m.map_name || m.map)}</h4>
+        ${m.ok ? numbers(m, true) : `<p class="msg bad">No result: ${esc(m.error || 'the run did not finish.')}</p>`}`).join('') + `
+        <h4 class="benchmap">Combined: ${esc(maps.map(m => m.map_name || m.map).join(' + '))}</h4>
+        ${r.ok ? numbers(r, false) + `<p class="fine">Average: all measured frames of both maps over their measured time. Min: the
+        lower of the maps' Min, Max: the higher of their Max.</p>`
+               : '<p class="msg bad">No combined result: a map has no result.</p>'}`;
     return `
-      <div class="card result">
-        <h3>${esc(title)}: result <span class="when">${esc(when)}</span></h3>
+      <div class="card result${r.ok ? '' : ' bad'}">
+        <h3>${esc(title)}: ${r.ok ? 'result' : 'partial result'} <span class="when">${esc(when)}</span></h3>
         ${sysRows}
-        <div class="tiles">${tile('Min FPS', f.min)}${tile('Max FPS', f.max)}${tile('Average FPS', f.avg, 1)}</div>
-        <div class="kv"><span>1 % low</span><b>${fmt(f.low1, 1)} FPS</b></div>
-        <div class="kv"><span>0.1 % low</span><b>${fmt(f.low01, 1)} FPS</b></div>
-        <div class="kv"><span>Measured</span><b>${fmt(r.seconds, 1)} s, ${esc(r.frames)} frames</b></div>
+        ${body}
         <div class="kv"><span>Benchmark</span><b>${esc(title)}</b></div>
         ${r.pipelines_built > 0 ? `<p class="msg bad">The game built ${esc(r.pipelines_built)} shader pipelines while it was measured
         (${fmt((r.pipelines_ms || 0) / 1000, 1)} s): the first run of a benchmark on this PC compiles them, and the stutter
@@ -445,8 +588,11 @@ async function renderBenchmark() {
       <p class="lead">Runs the game with your current settings (the Settings page, settings.ini), measures it and closes it
       by itself, then shows the result here. Nothing is changed in your settings. Leave the game window in front and the PC
       alone while it runs.</p>
-      ${info.running ? `<div class="card"><h3>Running: ${esc(info.modes[info.running].title)}</h3>
-        <p class="fine">The game closes by itself when the measurement is done.</p>
+      ${info.running ? `<div class="card"><h3>Running: ${esc(info.modes[info.running].title)}${info.step && info.step.count > 1
+          ? `, map ${esc(info.step.index + 1)}/${esc(info.step.count)}: ${esc(info.step.map || '')}` : ''}</h3>
+        ${info.step && info.step.retry ? '<p class="fine">The game stopped at start-up; started once more.</p>' : ''}
+        <p class="fine">The game closes by itself when the measurement is done${info.step && info.step.count > 1
+          ? ', then starts again for the next map. Stop ends all maps' : ''}.</p>
         <button class="ghost" id="benchstop">Stop</button></div>` : ''}
       <div class="grid">${card('fly')}${card('race')}</div>
       ${!info.installed ? '<p class="fine" style="margin-top:12px">Install the game first (Install page).</p>' : ''}
