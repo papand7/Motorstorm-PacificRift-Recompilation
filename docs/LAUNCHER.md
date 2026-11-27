@@ -219,7 +219,7 @@ RPCS3 is never bundled, committed or redistributed with the launcher. Tests: `no
 Settings > Launcher updates (`launcher/electron/updates.js`, its IPC in `main.js`): the update channel, a
 launcher-only choice kept in `MotorStorm\launcher-data\update.json` (never in `settings.ini`).
 
-- **Public** (default): `papand7/motorstorm-pacific-rift-native`'s releases, read without a token, only when the
+- **Public** (default): `papand7/Motorstorm-PacificRift-Recompilation`'s releases, read without a token, only when the
   player presses Check for updates. The launcher still makes no update request of its own on this channel.
 - **Private**: `papand7/motorstorm-private-builds` (a private repository), every release including pre-releases, read
   with a GitHub personal access token (fine-grained with Contents: read on that repository, or a classic token with

@@ -11,7 +11,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ms updates '));
 // made-up tokens, put together at run time so no token-shaped literal sits in the repository
 const TOKEN = 'gh' + 'p_' + 'Fake0Token1For2Tests3Only4Abcdefghij';
 const PAT = 'github' + '_pat_' + '11FAKE0000_' + 'x'.repeat(40);
-const PRIV = 'papand7/motorstorm-private-builds', PUB = 'papand7/motorstorm-pacific-rift-native';
+const PRIV = 'papand7/motorstorm-private-builds', PUB = 'papand7/Motorstorm-PacificRift-Recompilation';
 const rel = (tag, over = {}) => ({ tag_name: tag, name: `Build ${tag}`, draft: false, prerelease: /-/.test(tag),
     html_url: `https://github.com/${over.repo || PRIV}/releases/tag/${tag}`, published_at: '2026-11-27T00:00:00Z',
     assets: [{ name: 'MotorStormPacificRift.exe' }, { name: 'MotorStormPacificRift.exe.sha256' }], ...over });
@@ -114,6 +114,8 @@ const noToken = (r, token = TOKEN) => assert.ok(!JSON.stringify(r).includes(toke
     assert.strictEqual(r.update.version, '0.2.5');
     assert.strictEqual(f.calls[0].url, `https://api.github.com/repos/${PUB}/releases?per_page=30`);
     assert.ok(!('Authorization' in f.calls[0].opts.headers), 'no token on the public channel');
+    assert.strictEqual(f.calls[0].opts.redirect, 'follow', 'the token-less public check follows a renamed repository');
+    assert.ok(u.selectUpdate([rel('v0.2.5', { html_url: 'https://github.com/papand7/motorstorm-pacificrift-recompilation/releases/tag/v0.2.5' })], '0.2.4', PUB), 'the page check ignores case');
     r = await u.checkForUpdate({ channel: 'public', currentVersion: '0.2.4', fetchImpl: fakeFetch({ status: 403, headers: { 'x-ratelimit-remaining': '10' } }) });
     assert.strictEqual(r.status, 'error', 'no token problem on the public channel');
     f = fakeFetch({ status: 200, body: [] });

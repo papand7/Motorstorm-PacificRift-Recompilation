@@ -1,6 +1,6 @@
 // Launcher updates (Settings > Launcher updates): which GitHub releases the launcher looks at, and the look itself.
 //
-//   Public  (default)  papand7/motorstorm-pacific-rift-native, no token. Checked only when the player presses
+//   Public  (default)  papand7/Motorstorm-PacificRift-Recompilation, no token. Checked only when the player presses
 //                      "Check for updates" (the launcher made no update check before this; it still makes none on its own)
 //   Private            papand7/motorstorm-private-builds (a private repository): every release, pre-releases included,
 //                      read with a GitHub personal access token the player enters once. Checked at start and on request.
@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const CHANNELS = {
-    public: { label: 'Public', repo: 'papand7/motorstorm-pacific-rift-native', token: false },
+    public: { label: 'Public', repo: 'papand7/Motorstorm-PacificRift-Recompilation', token: false },
     private: { label: 'Private', repo: 'papand7/motorstorm-private-builds', token: true },
 };
 const DEFAULT_CHANNEL = 'public';
@@ -56,14 +56,14 @@ function selectUpdate(releases, current, repo) {
     if (!Array.isArray(releases)) throw new Error('The release list could not be read.');
     const cur = parseVersion(current);
     if (!cur) throw new Error(`This launcher's version (${current}) is not a version number.`);
-    const page = `https://github.com/${repo}/releases/`;
+    const page = `https://github.com/${repo}/releases/`.toLowerCase();   // GitHub names are case-insensitive
     let best = null;
     for (const r of releases) {
         if (!r || r.draft) continue;
         const v = parseVersion(r.tag_name);
         if (!v || compareVersions(v, cur) <= 0) continue;
         const url = String(r.html_url || '');
-        if (!url.startsWith(page)) continue;
+        if (!url.toLowerCase().startsWith(page)) continue;
         if (!best || compareVersions(v, best.v) > 0) best = { v, r, url };
     }
     if (!best) return null;
@@ -93,7 +93,8 @@ async function checkForUpdate({ channel, currentVersion, token, fetchImpl = glob
     const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
     try {
         let r;
-        try { r = await fetchImpl(url, { headers, redirect: 'error', signal: ctl ? ctl.signal : undefined }); }
+        // a token never follows a redirect (a renamed repository); the public check, without one, may
+        try { r = await fetchImpl(url, { headers, redirect: C.token ? 'error' : 'follow', signal: ctl ? ctl.signal : undefined }); }
         catch (e) {
             const cause = e && e.cause && (e.cause.code || e.cause.message);
             if (e && e.name === 'AbortError') return { ...base, status: 'error', message: 'GitHub did not answer in time. No update check was made.' };
