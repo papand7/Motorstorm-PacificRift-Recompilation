@@ -1896,6 +1896,11 @@ int main(int argc, char** argv)
             { "PS3_SPU_INTERP_REJOIN_RELOC", "1" },
             /* the drain's resume check is relocation-aware too (rj60: 0 unwinds, 0 misses, state byte-identical to the interpreter) */
             { "PS3_SPU_DRAIN_RESUME_RELOC", "1" },
+            /* the JobBatchHandler's batch poll (usleep(200) at lr 0x004AF6D0, ~0.55 ms on the host timer) capped at
+             * 50 us: each job batch's submission and completion is seen sooner; the loop only re-checks the batch
+             * object, so nothing the game computes changes (sys_timer.c PS3_USLEEP_CAP). HX 370 race at its power
+             * limit: 26.9 / 27.8 fps vs 24.2-26.4, P50 36.4 / 34.8 vs 37.4-40.6 ms. PS3_JOBPOLL_US=0 turns it off. */
+            { "PS3_JOBPOLL_US", "50" },
             /* shader cache beside the exe (<exe dir>\shader_cache): the first run fills it, later runs skip the compile.
              * Derived from the game's programs: never commit, ship or upload it. PS3RECOMP_SPIRV_CACHE=0 turns it off. */
             { "PS3RECOMP_SPIRV_CACHE", "auto" },
