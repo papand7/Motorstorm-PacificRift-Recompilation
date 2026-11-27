@@ -14,7 +14,7 @@
     "dist:public": "electron-builder --win portable --config electron-builder.public.json"
   },
   "devDependencies": {
-    "electron": "^38.0.0",
+    "electron": "^42.11.16",
     "electron-builder": "^26.0.12"
   },
   "build": {
