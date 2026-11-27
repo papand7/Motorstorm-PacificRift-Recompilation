@@ -245,3 +245,22 @@ console.log('settings: all checks passed');
     fs.rmSync(ad, { recursive: true, force: true });
     console.log('audiothread settings ok');
 }
+
+// Experimental switches: environment variables in motorstorm.cfg; off removes them; other cfg lines stay
+{
+    const ed = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-exp-'));
+    const cfgf = path.join(ed, 'motorstorm.cfg');
+    S.writeCfg(cfgf, { PS3_VFS_ROOT: 'C:\game' });
+    assert.ok(S.experimentalLoad(ed).every(i => i.on === false), 'all off by default');
+    assert.strictEqual(S.experimentalSave(ed, { spulanes: true, spuhwfloat: true }), null);
+    const c = S.readCfg(cfgf);
+    assert.deepStrictEqual([c.PS3_SPU_HOST_LANES, c.PS3_SPU_HOST_LANES_WIDE, c.PS3_SPU_HWFLOAT, c.PS3_VFS_ROOT], ['6', '1', '1', 'C:\game']);
+    const on = Object.fromEntries(S.experimentalLoad(ed).map(i => [i.key, i.on]));
+    assert.deepStrictEqual(on, { spuhwfloat: true, spulanes: true, spudmarepeat: false });
+    assert.strictEqual(S.experimentalSave(ed, { spulanes: false }), null);
+    const c2 = S.readCfg(cfgf);
+    assert.ok(!('PS3_SPU_HOST_LANES' in c2) && !('PS3_SPU_HOST_LANES_WIDE' in c2) && c2.PS3_SPU_HWFLOAT === '1' && c2.PS3_VFS_ROOT === 'C:\game');
+    assert.ok(/^Unknown/.test(S.experimentalSave(ed, { nope: true })));
+    fs.rmSync(ed, { recursive: true, force: true });
+    console.log('experimental settings ok');
+}

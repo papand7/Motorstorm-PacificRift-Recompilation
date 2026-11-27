@@ -31,7 +31,7 @@ function show(name) {
     current = name;
     document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.page === name));
     ({ play: renderPlay, install: renderInstall, settings: renderSettings, textures: renderTextures, benchmark: renderBenchmark,
-       cheats: renderCheats, log: renderLog })[name]();
+       cheats: renderCheats, experimental: renderExperimental, log: renderLog })[name]();
 }
 window.show = show;
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
@@ -440,7 +440,7 @@ function drawUpdates(info) {
         <p class="fine">This launcher: ${esc(info.version)}. An update opens on GitHub in your browser; nothing is downloaded or replaced here.</p>
         <div class="msg ${lastKind}" id="upd-msg">${esc(updateText(last))}</div>`;
     const umsg = (text, kind) => { const m = $('#upd-msg'); m.textContent = text; m.className = 'msg' + (kind ? ' ' + kind : ''); };
-    $('#upd-channel').onchange = async () => { noteUpdate(null); drawUpdates(await L.call('update:channel', $('#upd-channel').value)); };
+    $('#upd-channel').onchange = async () => { noteUpdate(null); const u = await L.call('update:channel', $('#upd-channel').value); drawUpdates(u); syncExperimentalTab(u); };
     if ($('#upd-save')) $('#upd-save').onclick = async () => {
         const field = $('#upd-token'), token = field.value.trim();
         field.value = '';
@@ -463,8 +463,8 @@ function drawUpdates(info) {
 
 // ---- Cheats: switches saved to settings.ini like the Settings page (the game must be closed; it reads them at start)
 const CHEAT_NOTES = {
-    unlockvehicles: 'Every vehicle class and ticket counts as unlocked.',
-    unlocktracks: 'Every track appears in the Free Play track list. The Festival and Time Trial lists are not covered yet.',
+    unlockvehicles: 'Every vehicle class, every vehicle and every rider counts as unlocked, through the unlock-all switch built into the game.',
+    unlocktracks: 'Every ticket counts as unlocked (the Festival events), through the unlock-all switch built into the game. Whether the Free Play and Time Trial lists also open fully has not been checked yet.',
 };
 async function renderCheats() {
     const s = await L.call('settings:load');
@@ -490,6 +490,36 @@ async function renderCheats() {
         document.querySelectorAll('input[data-cheat]').forEach(el => { values[el.dataset.cheat] = el.checked ? 'On' : 'Off'; });
         const r = await L.call('settings:save', { values, keys: {} });
         msg(r.ok ? 'Saved. The game reads it next time it starts.' : r.message, r.ok ? 'good' : 'bad');
+    };
+}
+
+// ---- Experimental (Private channel only): switches for runtime options not yet proven in races; each is a line in
+// motorstorm.cfg that the game reads at start. Off is the normal game.
+async function syncExperimentalTab(info) {
+    info = info || await L.call('update:info');
+    const b = $('#nav-experimental');
+    if (b) b.hidden = info.channel !== 'private';
+    if (info.channel !== 'private' && current === 'experimental') show('settings');
+}
+async function renderExperimental() {
+    const r = await L.call('experimental:load');
+    game = { running: (await L.call('state')).playing };
+    page.innerHTML = `
+      <h2>Experimental settings</h2>
+      <p class="lead">Options that are built into the game but not yet proven in races, for testing on the Private channel.
+      All are off by default; off is the normal game. They take effect when the game next starts.</p>
+      <div class="card">
+        ${r.items.map(i => `<label class="check"><input type="checkbox" data-exp="${esc(i.key)}" ${i.on ? 'checked' : ''}>
+          <span><b>${esc(i.label)}</b><br>${esc(i.note)}</span></label>`).join('')}
+        <button class="act" id="save-exp" ${game.running ? 'disabled' : ''}>Save</button>
+        ${game.running ? '<p class="fine">The game is running: close it to change these.</p>' : ''}
+        <div class="msg" id="msg"></div>
+      </div>`;
+    $('#save-exp').onclick = async () => {
+        const values = {};
+        document.querySelectorAll('input[data-exp]').forEach(el => { values[el.dataset.exp] = el.checked; });
+        const s = await L.call('experimental:save', values);
+        msg(s.ok ? 'Saved. The game reads it next time it starts.' : s.message, s.ok ? 'good' : 'bad');
     };
 }
 
@@ -685,4 +715,5 @@ function renderLog() {
 
 L.command({ cmd: 'state' });
 show('play');
+syncExperimentalTab().catch(() => {});
 L.call('update:check', true).then(r => { if (r && r.status !== 'off') noteUpdate(r); }).catch(() => {});

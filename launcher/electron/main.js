@@ -384,6 +384,12 @@ ipcMain.handle('settings:save', (_, patch) => {
     if (Object.keys(cfg).length) writeCfg(cfg);
     return { ok: true, ...settingsState() };
 });
+ipcMain.handle('experimental:load', () => ({ items: settings.experimentalLoad(PLAY) }));
+ipcMain.handle('experimental:save', (_, values) => {
+    if (game || dumper) return { ok: false, message: 'Close the game first: it reads these settings when it starts.' };
+    const err = settings.experimentalSave(PLAY, values || {});
+    return err ? { ok: false, message: err } : { ok: true, items: settings.experimentalLoad(PLAY) };
+});
 ipcMain.handle('game:play', (_, which) => play('stable'));
 ipcMain.handle('game:stop', () => { if (benchMode) benchStopped = true; if (game) game.kill(); return { ok: true }; });
 ipcMain.handle('bench:info', () => benchInfo());

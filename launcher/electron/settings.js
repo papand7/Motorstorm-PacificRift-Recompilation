@@ -205,6 +205,34 @@ function migrate(ini, cfgFile) {
     return true;
 }
 
+// Experimental switches (Experimental tab, Private channel): runtime options that are built but not yet proven in
+// races. Each is one or more environment variables written to motorstorm.cfg (the game puts the cfg's NAME=value lines
+// into its environment at start, unless the variable is already set); off removes the lines. Nothing is on by default.
+const EXPERIMENTAL = [
+    { key: 'spuhwfloat', label: 'Native SPU float maths', env: { PS3_SPU_HWFLOAT: '1' },
+      note: 'Runs the translated SPU single-precision maths on the CPU\'s own float and fused multiply-add instructions (bit-exact in the offline Havok tests, about 18 % faster there). Needs a CPU with FMA3; ignored otherwise.' },
+    { key: 'spulanes', label: 'Six SPU worker lanes', env: { PS3_SPU_HOST_LANES: '6', PS3_SPU_HOST_LANES_WIDE: '1' },
+      note: 'Runs the game\'s Wws SPU jobs on six host lanes instead of five, as the PS3 had six SPUs. May help or hurt on a 6-core CPU.' },
+    { key: 'spudmarepeat', label: 'No SPU DMA repeat back-off', env: { SPU_DMA_REPEAT_LIMIT: '4000000000' },
+      note: 'After 256 identical SPU DMA reads the runtime starts sleeping 1 ms per read on that thread. This turns the back-off off.' },
+];
+function experimentalLoad(playDir) {
+    const cfg = readCfg(path.join(playDir, 'motorstorm.cfg'));
+    return EXPERIMENTAL.map(e => ({ key: e.key, label: e.label, note: e.note,
+                                    on: Object.entries(e.env).every(([k, v]) => cfg[k] === v) }));
+}
+// values: { key: boolean } -> motorstorm.cfg; returns an error text or null
+function experimentalSave(playDir, values = {}) {
+    const patch = {};
+    for (const [k, on] of Object.entries(values)) {
+        const e = EXPERIMENTAL.find(x => x.key === k);
+        if (!e) return `Unknown experimental setting ${k}`;
+        for (const [name, v] of Object.entries(e.env)) patch[name] = on ? v : '';
+    }
+    if (Object.keys(patch).length) writeCfg(path.join(playDir, 'motorstorm.cfg'), patch);
+    return null;
+}
+
 // what the page shows: each setting's label, and why a choice would not apply on this PC (docs/SETTINGS.md
 // "Availability")
 function load(playDir) {
@@ -252,4 +280,4 @@ function save(playDir, values = {}, keys = {}, playerName) {
     return null;
 }
 
-module.exports = { SCHEMA, ACTIONS, load, save, readCfg, writeCfg, readIni, writeIni, parseBinding, migrate, checkPlayerName };
+module.exports = { SCHEMA, ACTIONS, load, save, readCfg, writeCfg, readIni, writeIni, parseBinding, migrate, checkPlayerName, EXPERIMENTAL, experimentalLoad, experimentalSave };

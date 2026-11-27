@@ -184,7 +184,9 @@ if(NOT EXISTS "${MSPR_WWS_PM_DIR}/spu_recomp.c")
 endif()
 list(APPEND SPU_SOURCES
     "${MSPR_WWS_PM_DIR}/spu_recomp.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/wws_job_pm_register.c")
+    "${CMAKE_CURRENT_SOURCE_DIR}/wws_job_pm_register.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/flash_mp3_hle.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/flash_mp3_core.c")
 
 # MSPR_OVL_CHAIN: an overlay lifted with --chain-chunks into generated/overlays-chain/<same path> (by
 # tools/build_spu_overlay.py --lifter-arg=--chain-chunks, with this checkout's lifter) is built in place of
