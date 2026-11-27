@@ -214,6 +214,28 @@ RPCS3 is never bundled, committed or redistributed with the launcher. Tests: `no
   runtime's working tree (`SOURCE.json` `runtime_key_files: []`), and the tar is packed.
   The file names are kept out of this public document on purpose.
 
+## Launcher updates (Settings, Public / Private channel)
+
+Settings > Launcher updates (`launcher/electron/updates.js`, its IPC in `main.js`): the update channel, a
+launcher-only choice kept in `MotorStorm\launcher-data\update.json` (never in `settings.ini`).
+
+- **Public** (default): `papand7/motorstorm-pacific-rift-native`'s releases, read without a token, only when the
+  player presses Check for updates. The launcher still makes no update request of its own on this channel.
+- **Private**: `papand7/motorstorm-private-builds` (a private repository), every release including pre-releases, read
+  with a GitHub personal access token (fine-grained with Contents: read on that repository, or a classic token with
+  `repo`). Checked once at start and on request.
+- The token is entered once in the window and stored only as Electron `safeStorage` output (Windows DPAPI, bound to
+  the Windows account) in `MotorStorm\launcher-data\update-token.bin`. It is never written in plain text, never
+  logged, never sent back to the window (the page is told only whether one is stored), sent only to `api.github.com`
+  as a bearer header (redirects refused), and is in no repository file. Remove token deletes the file.
+- No token, an unreadable one (another Windows account), or one GitHub refuses (401, 403, 404): a clear message on the
+  card and in the side bar, and no update.
+- An update found is shown with its release page, opened in the browser (where the player is signed in to GitHub).
+  The launcher downloads and replaces nothing.
+- Versions compare as semantic versions with pre-release parts (`0.3.0-private.1` < `0.3.0-private.2` < `0.3.0`).
+  The public version line (`package.json`, 0.2.x) is unchanged: a private build gets its version at build time only.
+- Tests: `node launcher/electron/test_updates.js` (fake fetch, fake safeStorage, made-up tokens; no network).
+
 ## Making the launcher (developers)
 
     cd launcher/electron
@@ -225,6 +247,9 @@ RPCS3 is never bundled, committed or redistributed with the launcher. Tests: `no
                                                      # --stage-only: no tar; SOURCE.json says stage_only and an old tar is removed
     npm start                                        # the window; MotorStorm\ under launcher/dev
     npm run dist                                     # source_bundles.js --with-pcmenu, then the portable exe (game.json, toolchain.json, texpack.py, the source tar)
+    npx electron-builder --win portable -c.extraMetadata.version=0.3.0-private.N -c.directories.output=../../build/private-0.3.0-private.N
+                                                     # a private-channel build, after `node source_bundles.js --with-pcmenu`
+                                                     # (no --allow-runtime-keys): the version is set in the packed package.json only
     npm run dist:public                              # portable exe for public release: game.json, toolchain.json only, no source tar,
                                                      # no texpack.py (the installer then stops: "carries no game source"); to build\release-0.2.0
 

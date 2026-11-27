@@ -4,7 +4,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const CHANNELS = ['state', 'dev:install', 'settings:load', 'settings:save', 'textures:info', 'textures:collect', 'textures:collectall',
                   'textures:pack', 'textures:stop', 'game:play', 'game:stop', 'pick', 'open', 'bench:info', 'bench:run',
-                  'saves:info', 'saves:scan', 'saves:keys', 'saves:import', 'saves:restore'];
+                  'saves:info', 'saves:scan', 'saves:keys', 'saves:import', 'saves:restore',
+                  'update:info', 'update:channel', 'update:token', 'update:forget', 'update:check', 'update:open'];
 const EVENTS = ['game', 'pack', 'svc', 'bench'];
 
 contextBridge.exposeInMainWorld('launcher', {

@@ -6,7 +6,7 @@
 // textures (texpack.py, Real-ESRGAN). The launcher does not decrypt anything and holds no keys.
 // Nothing here carries game content: the game's files, the player's decrypted EBOOT.elf files, the lifted code and
 // the built exe stay on the player's PC.
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -38,6 +38,13 @@ const os = require('os');
 const BENCH_DIR = path.join(PLAY, 'benchmark');   // the game's result files, <mode>.json
 const saves = require('./service/saves');   // Import save: the player's PS3 / RPCS3 saves into the port's save folder
 const SAVE_BACKUPS = path.join(PLAY, 'saves', 'backups');
+// Settings > Launcher updates: the Public / Private channel (update.json) and the Private channel's GitHub token, kept
+// only as safeStorage (Windows DPAPI) output in update-token.bin: never in plain text, never logged, never sent to the
+// window (updates.js)
+const updates = require('./updates');
+const UPDATE_PREFS = () => path.join(app.getPath('userData'), 'update.json');
+const updateTokens = () => updates.tokenStore(path.join(app.getPath('userData'), 'update-token.bin'), safeStorage);
+let lastUpdate = null;   // the last check's result (its release page is the only one 'update:open' opens)
 
 let win = null;
 let svc = null;        // the install service
@@ -438,6 +445,44 @@ ipcMain.handle('textures:stop', () => {
     if (collector) collector.kill();
     if (dumper) dumper.kill();
     if (packer) packer.kill();
+    return { ok: true };
+});
+function updateInfo() {
+    const t = updateTokens(), ch = updates.readPrefs(UPDATE_PREFS()).channel;
+    return { version: app.getVersion(), channel: ch, channels: Object.entries(updates.CHANNELS).map(([id, c]) => ({ id, label: c.label, repo: c.repo })),
+             hasToken: t.has(), encryption: t.available(), last: lastUpdate };
+}
+ipcMain.handle('update:info', () => updateInfo());
+ipcMain.handle('update:channel', (_, ch) => {
+    updates.writePrefs(UPDATE_PREFS(), { channel: ch });
+    lastUpdate = null;
+    return { ok: true, ...updateInfo() };
+});
+// the token comes from the window once and goes straight into safeStorage; only { ok, message } goes back
+ipcMain.handle('update:token', (_, token) => {
+    try { updateTokens().save(token); lastUpdate = null; return { ok: true, ...updateInfo() }; }
+    catch (e) { return { ok: false, message: updates.scrub(e.message, typeof token === 'string' ? token.trim() : ''), ...updateInfo() }; }
+});
+ipcMain.handle('update:forget', () => { updateTokens().clear(); lastUpdate = null; return { ok: true, ...updateInfo() }; });
+// auto: the launcher's own check at start (the Private channel only; Public makes none, as before)
+ipcMain.handle('update:check', async (_, auto) => {
+    const ch = updates.readPrefs(UPDATE_PREFS()).channel;
+    if (auto && ch !== 'private') return { status: 'off', channel: ch };
+    let token = null;
+    if (updates.CHANNELS[ch].token) {
+        const t = updateTokens();
+        token = t.load();
+        if (!token && t.has()) {
+            lastUpdate = { status: 'bad-token', channel: ch, message: 'The stored access token cannot be read on this Windows account. Enter it again under Settings > Launcher updates. No update check was made.' };
+            return lastUpdate;
+        }
+    }
+    lastUpdate = await updates.checkForUpdate({ channel: ch, currentVersion: app.getVersion(), token });
+    return lastUpdate;
+});
+ipcMain.handle('update:open', () => {
+    if (!lastUpdate || lastUpdate.status !== 'available') return { ok: false, message: 'Check for updates first.' };
+    shell.openExternal(lastUpdate.update.url);   // a https://github.com/<channel repo>/releases/ page (updates.selectUpdate)
     return { ok: true };
 });
 ipcMain.handle('open', (_, what) => shell.openPath(

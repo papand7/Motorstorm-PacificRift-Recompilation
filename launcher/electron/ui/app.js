@@ -356,7 +356,8 @@ async function renderSettings() {
           <button class="ghost" id="pick">Choose</button><button class="ghost" id="reset">Use the install's</button></div>
         <button class="act" id="save" ${game.running ? 'disabled' : ''}>Save settings</button>
         <div class="msg" id="msg"></div>
-      </div>`;
+      </div>
+      <div class="card" id="updates"></div>`;
     // Fidelity changed on the page: the shadows row appears with Original and goes with Enhanced; its unsaved pick is kept
     const lightingSel = document.querySelector('select[data-key="lighting"]');
     lightingSel.onchange = () => {
@@ -399,6 +400,65 @@ async function renderSettings() {
         if (dir) { files = dir; clearFiles = false; $('#files-path').textContent = dir; }
     };
     $('#reset').onclick = () => { files = null; clearFiles = true; $('#files-path').textContent = "The install's game files"; };
+    drawUpdates(await L.call('update:info'));
+}
+
+// ---- Launcher updates (on the Settings page; its own controls, not part of Save settings). The channel: Public
+// (default; checked only on request) or Private (papand7/motorstorm-private-builds, pre-releases included, with the
+// player's GitHub access token; also checked at start). The token goes from its field straight to the launcher,
+// which keeps it encrypted by Windows; the page is only ever told whether one is stored, and the field is cleared.
+let updateShown = null;   // the last check's result, for this card and the nav note
+function updateText(r) { return r && r.status && r.status !== 'off' ? r.message || '' : ''; }
+function noteUpdate(r) {
+    updateShown = r;
+    const n = $('#nav-update');
+    if (!n) return;
+    n.textContent = r && r.status === 'available' ? `Update ${r.update.version}` : r && r.status === 'bad-token' ? 'Update check: token problem' : r && r.status === 'no-token' ? 'Update check: no token' : '';
+    n.onclick = () => show('settings');
+}
+function drawUpdates(info) {
+    const el = $('#updates');
+    if (!el) return;
+    const priv = info.channel === 'private';
+    const repoOf = id => (info.channels.find(c => c.id === id) || {}).repo || '';
+    const last = updateShown || info.last;
+    const lastKind = last && last.status === 'available' ? 'good' : last && ['bad-token', 'no-token', 'error'].includes(last.status) ? 'bad' : '';
+    el.innerHTML = `
+        <h3>Launcher updates</h3>
+        <div class="row"><label>Update channel<small>Public: the public releases (${esc(repoOf('public'))}), checked when you press
+          Check for updates. Private: the private builds (${esc(repoOf('private'))}), pre-releases included, checked at start
+          too; needs a GitHub access token with read access to that repository.</small></label>
+          <select id="upd-channel">${info.channels.map(c => `<option value="${esc(c.id)}" ${c.id === info.channel ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select></div>
+        ${priv ? `<div class="row"><label>GitHub access token<small>${info.hasToken ? 'A token is stored, encrypted by Windows for this account. Enter a new one to replace it.'
+            : 'None stored. A fine-grained token with Contents: read on the private repository (or a classic token with repo).'}
+          ${info.encryption ? '' : ' Windows cannot encrypt it here, so it cannot be stored.'}</small></label>
+          <input type="password" id="upd-token" autocomplete="off" spellcheck="false" placeholder="${info.hasToken ? 'stored' : 'github_pat_...'}"></div>
+        <div class="btns"><button class="ghost small" id="upd-save">Store token</button>
+          ${info.hasToken ? '<button class="ghost small" id="upd-forget">Remove token</button>' : ''}</div>` : ''}
+        <div class="btns"><button class="ghost" id="upd-check">Check for updates</button>
+          ${last && last.status === 'available' ? '<button class="act" id="upd-open">Open the release page</button>' : ''}</div>
+        <p class="fine">This launcher: ${esc(info.version)}. An update opens on GitHub in your browser; nothing is downloaded or replaced here.</p>
+        <div class="msg ${lastKind}" id="upd-msg">${esc(updateText(last))}</div>`;
+    const umsg = (text, kind) => { const m = $('#upd-msg'); m.textContent = text; m.className = 'msg' + (kind ? ' ' + kind : ''); };
+    $('#upd-channel').onchange = async () => { noteUpdate(null); drawUpdates(await L.call('update:channel', $('#upd-channel').value)); };
+    if ($('#upd-save')) $('#upd-save').onclick = async () => {
+        const field = $('#upd-token'), token = field.value.trim();
+        field.value = '';
+        if (!token) { umsg('Enter the token first.', 'bad'); return; }
+        const r = await L.call('update:token', token);
+        noteUpdate(null);
+        drawUpdates(r);
+        umsg(r.ok ? 'Token stored (encrypted by Windows). Press Check for updates to try it.' : r.message, r.ok ? 'good' : 'bad');
+    };
+    if ($('#upd-forget')) $('#upd-forget').onclick = async () => { noteUpdate(null); drawUpdates(await L.call('update:forget')); umsg('Token removed.', 'good'); };
+    $('#upd-check').onclick = async () => {
+        umsg('Checking...');
+        $('#upd-check').disabled = true;
+        const r = await L.call('update:check', false);
+        noteUpdate(r);
+        if (current === 'settings') drawUpdates(await L.call('update:info'));
+    };
+    if ($('#upd-open')) $('#upd-open').onclick = async () => { const r = await L.call('update:open'); if (!r.ok) umsg(r.message, 'bad'); };
 }
 
 // ---- Cheats: switches saved to settings.ini like the Settings page (the game must be closed; it reads them at start)
@@ -625,3 +685,4 @@ function renderLog() {
 
 L.command({ cmd: 'state' });
 show('play');
+L.call('update:check', true).then(r => { if (r && r.status !== 'off') noteUpdate(r); }).catch(() => {});

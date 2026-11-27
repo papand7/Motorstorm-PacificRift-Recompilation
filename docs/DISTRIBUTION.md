@@ -8,6 +8,8 @@ The launcher's "Decrypt automatically" (`docs/LAUNCHER.md`) downloads the offici
 
 RPCS3's installed firmware under `build/rpcs3/dev_flash/`, its PPU cache under `build/rpcs3/cache/`, and local PPU-debug dumps under `build/rpcs3/ppu_progs/` are private `build/` artifacts. `tools/inspect_local_spurs_firmware.py` reads these paths and writes only a local metadata inventory in ignored `generated/firmware_analysis/`. Never stage that inventory, firmware dump, cache objects, disassembly, or traces from a diagnostic run. Public compatibility code must describe independently verified behavior; do not copy or translate the firmware routine.
 
+Private builds channel: the full launcher (with its source snapshot of the port, the runtime and the lifting recipe) is published only as pre-releases of the private repository `papand7/motorstorm-private-builds`, never in this public repository or its releases. Its snapshot is made by the normal `source_bundles.js --with-pcmenu` and passes the same `audit_public.py --tree` and key scan; it is made without `--allow-runtime-keys` (the runtime reads EDAT/SDAT keys at run time from an operator-supplied `PS3_KEYS_FILE` and its tree holds none) and holds no game files, firmware, decrypted ELFs or lifted code: players supply their own disc and EBOOT. The launcher's Private update channel reads that repository with the player's own GitHub token, stored only encrypted by Windows (`docs/LAUNCHER.md`); no token is ever committed, logged or written in plain text.
+
 Before the first commit in a newly initialized public repository, configure the hook:
 
 ```powershell

@@ -27,6 +27,7 @@
       "main.js",
       "settings.js",
       "bench.js",
+      "updates.js",
       "preload.js",
       "service/**/*",
       "ui/**/*",
