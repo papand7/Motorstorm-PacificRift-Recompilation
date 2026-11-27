@@ -381,7 +381,9 @@ class Builder {
         if (Number(process.env.MS_BUILD_JOBS) > 0) return Number(process.env.MS_BUILD_JOBS);   // developers, tests
         // leave the PC usable: the lifted sources take 2-4 GB of memory each to compile
         // (a lifted PPU chunk peaked at 2.7 GB, an SPU image at 0.4 GB: measured 2026-11-27 on the HX 370)
-        const byMem = Math.max(1, Math.floor(os.totalmem() / (3 * 1024 ** 3)));
+        // by FREE memory at the build's start: on a 28 GB laptop with ~9 GB in use, 9 jobs (total / 3 GB) paged at up to
+        // 28k pages/s during the PPU chunks (2026-11-27)
+        const byMem = Math.max(1, Math.floor(os.freemem() / (2.5 * 1024 ** 3)));
         return Math.max(1, Math.min(os.cpus().length - 1, byMem));
     }
 
@@ -389,7 +391,7 @@ class Builder {
     // is the longest single step of an install (15 min at 7 jobs on the HX 370)
     ltoJobs() {
         if (Number(process.env.MS_BUILD_JOBS) > 0) return Number(process.env.MS_BUILD_JOBS);
-        return Math.max(1, Math.min(os.cpus().length, Math.floor(os.totalmem() / (2 * 1024 ** 3))));
+        return Math.max(1, Math.min(os.cpus().length, Math.floor(os.freemem() / (1.4 * 1024 ** 3))));
     }
 
     // ---- lift: pipeline\lift_motorstorm.py (in the source snapshot) from the player's ELFs into work\src\generated
