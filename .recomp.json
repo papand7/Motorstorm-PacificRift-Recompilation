@@ -1,0 +1,19 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "MotorStorm: Pacific Rift",
+  "system": "PS3",
+  "type": "recomp",
+  "original": [
+    { "region": "USA", "revision": "1.00", "serial": "BCUS98155" },
+    { "region": "Europe", "revision": "1.00", "serial": "BCES00129" }
+  ],
+  "project": "MotorStorm: Pacific Rift for PC",
+  "status": "in-progress",
+  "targets": ["Windows"],
+  "toolchain": "Ps3recomp",
+  "approach": "Static recompilation of the PPU and SPU code to native x64, Vulkan RSX renderer, built on the player's PC by a launcher",
+  "maintainers": [{ "name": "papand7", "link": "https://github.com/papand7" }],
+  "help": ["SPU job performance", "LAN play (Medius stand-in)", "Testing on more PCs"],
+  "tags": ["racing", "ps3", "vulkan", "spu", "fsr"],
+  "notes": "Alpha. Menus and full races work, with AI, HUD, Havok physics and original audio. Launcher with HD texture packs, benchmarks, save import, cheats and low-end options; FSR 1/3.1, frame generation, Enhanced lighting and world-fixed shadows. Next: faster SPU jobs, in-game audio without PS3 firmware, LAN play. No game files in the repository: bring your own disc and decrypted 1.00 EBOOT.elf."
+}

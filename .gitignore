@@ -14,6 +14,8 @@
 !/CONTRIBUTING.md
 !/SECURITY.md
 !/THIRD_PARTY_LICENSES.md
+# The project manifest recomp.fyi reads (https://recomp.fyi/spec); no game data.
+!/.recomp.json
 !/docs/
 !/tools/
 !/port/
